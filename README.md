@@ -118,7 +118,9 @@ tmux send-keys -t %<pane-id> "claude --resume <sessionId>" Enter
 | 自动定期存档 + 开机自动恢复 | tmux-continuum | 补上「不用手动存」 |
 | 项目模板（打开项目 X 的标准布局） | tmuxinator / tmuxp（YAML 声明） | 现成 |
 
-本机**这些一个都没装**（无 `.tmux.conf`、无 tpm、无 tmuxinator）。
+~~本机**这些一个都没装**（无 `.tmux.conf`、无 tpm、无 tmuxinator）。~~
+**已过期(2026-08-12 当天就装了)**：`~/.tmux.conf` 已有，resurrect + continuum 已装并实测生效
+（tmuxinator 仍未装）。结论是**布局这块 tmux 生态确实够用**，路线 C 成立。
 所以最省事的验证路径：**先把这套装上用两天**，看布局这块到底还缺什么 —— 很可能答案是「不缺」，
 那整个构想就缩成一个几百行的 tmux 侧栏（`display-popup -E` 浮层，`prefix + a` 唤出，选完消失，**完全不占布局**），
 Windows GUI / 控制模式解析器 / 布局同步全部蒸发。

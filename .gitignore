@@ -17,3 +17,5 @@ experiments/**/*.cast
 
 # IDE
 .idea/
+.coverage
+htmlcov/
