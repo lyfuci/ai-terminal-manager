@@ -1,0 +1,9 @@
+=== codex codex-cli 0.147.0 ===
+argv 长度上限 ARG_MAX = 2097152
+
+A 短prompt + </dev/null           rc=0      10.1s  eply with exactly the single word PONG and nothing else. codex PONG tokens used 6,582 PONG
+B 长prompt(40K)argv + </dev/null  rc=1      35.7s  try a different model. ERROR: Selected model is at capacity. Please try a different model.
+C 长prompt走stdin(会EOF)        rc=0       8.0s  eply with exactly the single word PONG and nothing else. codex PONG tokens used 9,145 PONG
+D argv + stdin永不EOF            rc=124    45.1s  Reading additional input from stdin...
+
+rc=124 表示被 timeout 强杀（即挂住了）

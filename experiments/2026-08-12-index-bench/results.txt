@@ -1,0 +1,19 @@
+== 语料规模 ==
+  Claude: 127 个会话文件, 1.61 GB
+  Codex : 86 个会话文件, 125 MB
+  最大单文件: 680 MB
+
+== 冷启动（全量解析，无缓存）==
+  213 sessions (0 cached, 213 parsed, 0 skipped) in 201ms
+  中位数 198ms  最快 185ms  最慢 225ms
+
+== 热启动（缓存全命中）==
+  213 sessions (213 cached, 0 parsed, 0 skipped) in 7ms
+  中位数 5ms  最快 5ms  最慢 7ms
+
+== 读取量 ==
+  语料总大小        1.73 GB
+  冷启动实际读取    47 MB (2.7%)
+  —— 只读头部省掉了 1.68 GB 的 IO
+
+  缓存文件 137 KB，覆盖 213 个文件
