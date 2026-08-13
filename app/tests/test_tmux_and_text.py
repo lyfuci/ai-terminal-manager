@@ -331,3 +331,29 @@ def test_tail_display_keeps_the_end() -> None:
     assert display_width(tail_display("中文中文中文", 5)) <= 5
     assert tail_display("abc", 0) == ""
     assert display_width(tail_display("abcdef", 1)) <= 1
+
+
+def test_heading_before_injected_block_is_stripped() -> None:
+    """Codex 注入 AGENTS.md 时前面带一行 Markdown 标题，标题行挡住了包装剥离。
+
+    实测后果：那条注入本身成了会话标题，再被噪音规则当机器调用隐藏 ——
+    一条 625KB、含 4 条真人消息的会话就这么从列表里消失了。
+    """
+    from atm.text import strip_wrapper_blocks
+
+    injected = (
+        "# AGENTS.md instructions for /home/sean/IdeaProjects/sample-backend\n\n"
+        "<INSTRUCTIONS>\n一大堆项目约定……\n</INSTRUCTIONS>"
+    )
+    assert strip_wrapper_blocks(injected).strip() == ""
+
+    with_real_question = injected + "\n\n现在设置的默认模型是什么"
+    assert strip_wrapper_blocks(with_real_question).strip() == "现在设置的默认模型是什么"
+
+
+def test_plain_heading_is_not_stripped() -> None:
+    """单独的标题行是正常内容 —— 只有紧跟着包装标签时才算注入的一部分。"""
+    from atm.text import strip_wrapper_blocks
+
+    assert strip_wrapper_blocks("# 我的笔记\n\n这段要保留").startswith("# 我的笔记")
+    assert strip_wrapper_blocks("# 标题\n\n普通正文") == "# 标题\n\n普通正文"

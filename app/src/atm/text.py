@@ -39,6 +39,19 @@ _MAX_TITLE_SCAN = 32 * 1024
 # （实测 Codex 0.147 会在真正的用户消息前塞一个 10865 字的
 # `<recommended_plugins>…</environment_context>`），所以不能只靠枚举。
 _LEADING_TAG = re.compile(r"^\s*<([A-Za-z][\w:.-]*)(?:\s[^>]*)?>")
+
+# 注入包装前面**带一行 Markdown 标题**的形状。实测 Codex 注入 AGENTS.md 时是：
+#
+#     # AGENTS.md instructions for /home/sean/IdeaProjects/sample-backend
+#
+#     <INSTRUCTIONS>… 8645 字 …</INSTRUCTIONS>
+#
+# 标题行挡在前面，`_LEADING_TAG` 匹配不上，整块剥不掉，于是这条注入本身成了会话标题
+# —— 再被噪音前缀规则当成机器调用隐藏掉。实测有一条 625KB 的会话就是这么消失的，
+# 它里面有 4 条真人消息（「现在设置的默认模型是 gpt-5.6-sol 对吗」）。
+#
+# 只在标题行**紧跟着**一个包装标签时才吃掉它 —— 单独的标题行是正常内容，不能动。
+_HEADING_BEFORE_TAG = re.compile(r"^\s*#[^\n]*\n\s*(?=<[A-Za-z][\w:.-]*(?:\s[^>]*)?>)")
 _MAX_STRIP_ROUNDS = 8
 
 
@@ -50,6 +63,9 @@ def strip_wrapper_blocks(text: str) -> str:
     """
     current = text
     for _ in range(_MAX_STRIP_ROUNDS):
+        heading = _HEADING_BEFORE_TAG.match(current)
+        if heading is not None:
+            current = current[heading.end() :]
         match = _LEADING_TAG.match(current)
         if match is None:
             break

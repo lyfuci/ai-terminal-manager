@@ -27,8 +27,15 @@ from .sources import claude, codex
 _NOISE_TITLE_PREFIXES = (
     # 91 条。ECC 插件时期把会话日志喂给 claude 做分析产生的，全部无名字、78~234KB。
     "Below is a conversation log from a Claude Code",
-    # 4 条。Codex 读 AGENTS.md 时产生的调用，不是对话。
-    "AGENTS.md instructions for ",
+    # ⚠️ 曾经在这里挡过 "AGENTS.md instructions for " —— **已删除，那是误杀**。
+    # 它根本不是「机器生成的调用」，而是 Codex 在真人对话前注入的 AGENTS.md 包装，
+    # 因为标题提取没剥掉它才浮成了标题。实测被它藏掉的一条 625KB 会话里
+    # 有 4 条真人消息。正确的修法在 text.py 的 _HEADING_BEFORE_TAG：
+    # 剥掉「Markdown 标题行 + <INSTRUCTIONS> 块」这种形状，让标题落到真正的首条提问上。
+    #
+    # 教训：**标题字符串可以用来展示，不能用来判断会话来源**。
+    # 标题是推断出来的，推断错了就会把真实对话判成噪音 —— 而噪音规则是静默的，
+    # 用户根本不知道自己少了一条。
 )
 
 

@@ -241,9 +241,18 @@ def _entry(title: str, name: str | None = None):
 
 
 def test_machine_generated_calls_are_noise() -> None:
-    """实测本机 201 条里 95 条是这两种机器生成的一次性调用。"""
+    """实测本机 201 条里 91 条是这种机器生成的一次性调用。"""
     assert index_mod.is_noise(_entry("Below is a conversation log from a Claude Code session."))
-    assert index_mod.is_noise(_entry("AGENTS.md instructions for /home/sean/x"))
+
+
+def test_agents_md_injection_is_not_noise() -> None:
+    """曾经把 `AGENTS.md instructions for …` 当噪音 —— 那是误杀，本测试锁住不许回退。
+
+    它不是机器生成的调用，是 Codex 在**真人对话**前注入的 AGENTS.md 包装；
+    标题提取没剥掉它才浮成标题。实测被它藏掉的一条 625KB 会话里有 4 条真人消息。
+    真正的修法在 text.py 的 _HEADING_BEFORE_TAG。
+    """
+    assert not index_mod.is_noise(_entry("AGENTS.md instructions for /home/sean/x"))
 
 
 def test_real_prompts_are_not_noise() -> None:
