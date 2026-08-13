@@ -1,0 +1,17 @@
+[Unit]
+Description=AI CLI aggregate memory guard (atm)
+Documentation=file:///home/sean/IdeaProjects/research/ai-terminal-manager/notes/2026-08-12-incident.md
+
+# 为什么存在：claude 会话活跃工作时能涨到 4.7GB（内存跟 CPU 时间走，不跟会话数走）。
+# 本机 WSL 总内存 7.8GB，实测 app-tmux.slice 历史峰值 6.75GB —— 87% 的内存都在 tmux 里，
+# 这就是 2026-08-12 两次冻死的直接原因。
+#
+# 单个进程的限制（2G/4G）由 atm 投递时的 systemd-run 给；这里管的是**总量**，
+# 因为真正危险的是 continuum 开机一次性拉起 N 个会话。
+[Slice]
+MemoryAccounting=yes
+# 软限：超了就强回收 + 节流，不杀进程。日常不该碰到。
+MemoryHigh=4G
+# 硬限：到这里才杀。宁可掉一个会话，也不要整机冻死重启（那连 L3 都可能损）。
+MemoryMax=5G
+MemorySwapMax=1G

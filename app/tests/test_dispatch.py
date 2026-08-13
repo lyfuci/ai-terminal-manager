@@ -340,6 +340,23 @@ def test_memory_limit_is_configurable() -> None:
     assert "MemorySwapMax=0" in line
 
 
+def test_sessions_join_the_aggregate_slice() -> None:
+    """单进程闸门拦不住「一次开 4 个」—— 总量得靠共同的 slice。
+
+    实测本机 app-tmux.slice 峰值 6.75GB / 总内存 7.8GB，就是这么冻死的。
+    resurrect 恢复出来的会话靠 @resurrect-processes 的 `->` 映射进同一个池，
+    两条路径必须落在**同一个 slice 名**上，否则总量限制形同虚设。
+    """
+    line = dispatch_mod.resume_command(make_entry(), dispatch_mod.MemoryLimit()).shell_line()
+    assert "--slice=atm-ai.slice" in line
+    assert dispatch_mod.DEFAULT_SLICE == "atm-ai.slice"
+
+
+def test_slice_is_overridable() -> None:
+    limit = dispatch_mod.MemoryLimit(slice_name="other.slice")
+    assert "--slice=other.slice" in dispatch_mod.resume_command(make_entry(), limit).shell_line()
+
+
 def test_high_is_lower_than_max_by_default() -> None:
     """High 是软限（节流），Max 是硬限（杀）。High 必须更低，否则软限没意义。
 

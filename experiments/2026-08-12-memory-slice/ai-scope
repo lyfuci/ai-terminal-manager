@@ -1,0 +1,19 @@
+#!/bin/sh
+# 把一个 AI CLI 进程放进带内存限制的 cgroup。
+#
+# 存在的理由：atm 投递时会裹 `systemd-run --user --scope`，但 systemd-run 是**过渡进程**，
+# `ps` 看不到它。tmux-resurrect 存的是 `ps` 看到的命令行，所以存档里是裸的
+# `claude --resume <id>` —— continuum 开机批量恢复时，限制就全没了，
+# 而那恰恰是最危险的时刻（一次拉起 N 个会话）。
+#
+# 解法是让 resurrect 恢复时改调这个 wrapper（`@resurrect-processes` 的 `->` 语法），
+# 于是「谁拉起的」不再决定「有没有限制」。
+#
+# 双层：这里的 MemoryHigh/Max 管**单个**进程；atm-ai.slice 管**总量**。
+exec systemd-run --user --scope --quiet \
+  --slice=atm-ai.slice \
+  --property=MemoryAccounting=yes \
+  --property=MemoryHigh=2G \
+  --property=MemoryMax=4G \
+  --property=MemorySwapMax=512M \
+  -- "$@"

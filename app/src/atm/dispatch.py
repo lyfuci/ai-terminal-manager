@@ -99,6 +99,17 @@ DEFAULT_MEMORY_MAX = "4G"
 # swap 单独限死：WSL 的 swap.vhdx 在 Windows 文件系统上，一旦开始刷就是宿主 SSD 100%。
 DEFAULT_MEMORY_SWAP_MAX = "512M"
 
+# 上面那些是**单个进程**的闸门，拦的是一个会话自己失控。
+# 但真正把机器冻死的是**总量**：实测本机 app-tmux.slice 峰值 6.75GB / 总内存 7.8GB，
+# 4 个活跃会话就够。所以所有会话再共同归进一个 slice，由它兜总量。
+#
+# 这个 slice 由用户环境提供（`~/.config/systemd/user/atm-ai.slice`），
+# tmux-resurrect 恢复出来的会话也靠 `@resurrect-processes` 的 `->` 映射进同一个池 ——
+# 于是「谁把会话拉起来的」不再决定「有没有限制」。
+# slice 不存在时 systemd-run 会自动创建一个无限制的同名 slice，等于只剩单进程闸门，
+# 不会导致投递失败。
+DEFAULT_SLICE = "atm-ai.slice"
+
 
 @dataclass(frozen=True, slots=True)
 class MemoryLimit:
@@ -107,6 +118,7 @@ class MemoryLimit:
     high: str = DEFAULT_MEMORY_HIGH
     max: str = DEFAULT_MEMORY_MAX
     swap_max: str = DEFAULT_MEMORY_SWAP_MAX
+    slice_name: str = DEFAULT_SLICE
 
     def systemd_args(self, description: str) -> list[str]:
         return [
@@ -114,6 +126,7 @@ class MemoryLimit:
             "--user",
             "--scope",
             "-q",
+            f"--slice={self.slice_name}",
             "--description",
             description,
             "-p",
