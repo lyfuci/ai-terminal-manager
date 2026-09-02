@@ -136,6 +136,24 @@ def test_plan_swap_target_elsewhere_swaps_with_main_slot() -> None:
     assert plan.slot == "%a"
 
 
+def test_plan_swap_with_explicit_slot() -> None:
+    panes = (
+        pane("%s", is_sidebar=True),
+        pane("%a", last=True),
+        pane("%b"),
+        pane("%bg", window_id="@1"),
+    )
+    plan = sidebar.plan_swap(panes, window_id="@0", target_id="%bg", slot_id="%b")
+    assert (plan.kind, plan.slot) == (SwapKind.SWAP, "%b")
+    # 指定了格子，就算目标在同一窗口也真的换位
+    plan = sidebar.plan_swap(panes, window_id="@0", target_id="%a", slot_id="%b")
+    assert (plan.kind, plan.slot) == (SwapKind.SWAP, "%b")
+    with pytest.raises(SidebarError, match="侧栏"):
+        sidebar.plan_swap(panes, window_id="@0", target_id="%bg", slot_id="%s")
+    with pytest.raises(SidebarError, match="找不到目标格子"):
+        sidebar.plan_swap(panes, window_id="@0", target_id="%bg", slot_id="%zz")
+
+
 def test_plan_swap_refuses_missing_or_sidebar_target() -> None:
     panes = (pane("%s", is_sidebar=True), pane("%a"))
     with pytest.raises(SidebarError):

@@ -97,13 +97,29 @@ class SwapPlan:
         return f"把 {self.target} 换进 {self.slot} 的位置"
 
 
-def plan_swap(panes: tuple[Pane, ...], *, window_id: str, target_id: str) -> SwapPlan:
-    """纯函数：决定选中 target 之后该做什么。"""
+def plan_swap(
+    panes: tuple[Pane, ...], *, window_id: str, target_id: str, slot_id: str | None = None
+) -> SwapPlan:
+    """纯函数：决定选中 target 之后该做什么。
+
+    `slot_id` 指定换进哪一格；不给就用 `main_slot`（侧栏场景）。
+    命令行里从某个格子跑 `atm swap` 时应把那个格子传进来 —— 「我在哪格跑的就换进哪格」
+    比 `pane_last` 直观，后者是给侧栏用的（侧栏拿焦点前用户在看的格子）。
+    """
     target = pane_by_id(panes, target_id)
     if target is None:
         raise SidebarError(f"找不到 pane {target_id}（可能刚被关掉）")
     if target.is_sidebar:
         raise SidebarError("那是侧栏自己")
+    if slot_id is not None:
+        slot = pane_by_id(panes, slot_id)
+        if slot is None:
+            raise SidebarError(f"找不到目标格子 {slot_id}")
+        if slot.is_sidebar:
+            raise SidebarError("不能换进侧栏的位置")
+        if slot.id == target.id:
+            return SwapPlan(kind=SwapKind.FOCUS, target=target_id)
+        return SwapPlan(kind=SwapKind.SWAP, target=target_id, slot=slot.id)
     if target.window_id == window_id:
         return SwapPlan(kind=SwapKind.FOCUS, target=target_id)
     slot = main_slot(panes, window_id)

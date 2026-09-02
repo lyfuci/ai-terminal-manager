@@ -43,12 +43,33 @@ def fake_tmux(monkeypatch: pytest.MonkeyPatch):
 
 def test_swap_from_other_window(fake_tmux, capsys) -> None:
     fake_tmux["panes"] = "\n".join(
-        [_line("%me", active="1"), _line("%main", last="1"), _line("%bg", "@1", "claude")]
+        [
+            _line("%me", active="1", sidebar="1"),
+            _line("%main", last="1"),
+            _line("%bg", "@1", "claude"),
+        ]
     )
     assert cli.main(["swap", "%bg", "--pane", "%me"]) == 0
     assert ["swap-pane", "-s", "%bg", "-t", "%main"] in fake_tmux["calls"]
     assert ["select-pane", "-t", "%bg"] in fake_tmux["calls"]
     assert "换进 %main" in capsys.readouterr().err
+
+
+def test_swap_from_a_plain_pane_lands_in_that_pane(fake_tmux) -> None:
+    """在普通格子里跑 atm swap：换进这格自己，而不是 pane_last。"""
+    fake_tmux["panes"] = "\n".join(
+        [_line("%here", active="1"), _line("%other", last="1"), _line("%bg", "@1", "claude")]
+    )
+    assert cli.main(["swap", "%bg", "--pane", "%here"]) == 0
+    assert ["swap-pane", "-s", "%bg", "-t", "%here"] in fake_tmux["calls"]
+
+
+def test_swap_into_names_the_slot_explicitly(fake_tmux) -> None:
+    fake_tmux["panes"] = "\n".join(
+        [_line("%here", active="1"), _line("%other"), _line("%bg", "@1", "claude")]
+    )
+    assert cli.main(["swap", "%bg", "--pane", "%here", "--into", "%other"]) == 0
+    assert ["swap-pane", "-s", "%bg", "-t", "%other"] in fake_tmux["calls"]
 
 
 def test_swap_unknown_pane_is_an_error(fake_tmux, capsys) -> None:

@@ -179,6 +179,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_swap = sub.add_parser("swap", help="把某个 pane 换进当前 window 的主格（不进 TUI）")
     p_swap.add_argument("pane_id", help="要换进来的 pane，形如 %%7")
     p_swap.add_argument("--pane", help="「当前 pane」是哪个（默认 $TMUX_PANE）")
+    p_swap.add_argument(
+        "--into",
+        help="换进哪一格。默认：从普通格子里跑就是那格自己；从侧栏里跑就是主格（pane_last）",
+    )
     p_swap.set_defaults(handler=_cmd_swap)
 
     p_park = sub.add_parser("park", help="把 pane 收进后台窗口 bg（进程继续跑）")
@@ -393,7 +397,9 @@ def _cmd_swap(args: argparse.Namespace) -> int:
         me = sb.pane_by_id(panes, current)
         if me is None:
             raise sb.SidebarError(f"找不到当前 pane {current}")
-        plan = sb.plan_swap(panes, window_id=me.window_id, target_id=args.pane_id)
+        # 从普通格子里跑：换进这格自己。只有从侧栏里跑才需要去猜主格。
+        slot = args.into or (None if me.is_sidebar else me.id)
+        plan = sb.plan_swap(panes, window_id=me.window_id, target_id=args.pane_id, slot_id=slot)
         sb.execute_swap(plan)
     except (sb.SidebarError, tmux.TmuxError) as exc:
         print(f"atm: {exc}", file=sys.stderr)

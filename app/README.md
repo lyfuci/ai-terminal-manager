@@ -131,7 +131,8 @@ bind-key A display-popup -E -w 80% -h 70% 'atm pick --here'
 
 ```bash
 atm sidebar --toggle --pane '#{pane_id}'   # 键位绑定里就是这一条；run-shell 里 $TMUX_PANE 不可靠，必须传
-atm swap %7                                # 把 %7 换进当前 window 的主格
+atm swap %7                                # 在哪格里跑就把 %7 换进哪格；从侧栏里跑则换进主格
+atm swap %7 --into %3                      # 指定换进 %3
 atm park [%7]                              # 收进 bg（默认当前 pane）
 ```
 
@@ -149,7 +150,7 @@ atm pick --print             # 只打印命令，不投递
 
 atm install                  # 装 tmux 键位绑定（幂等、自动备份、立即生效）
 atm sidebar --toggle         # 开/切/收常驻侧栏（键位 prefix + b）
-atm swap %7                  # 把 %7 换进当前 window 的主格
+atm swap %7 [--into %3]      # 把 %7 换进当前格子（或指定的格子）
 atm park                     # 把当前格子收进后台窗口 bg
 atm uninstall                # 干净移除
 
