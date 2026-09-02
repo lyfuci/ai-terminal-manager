@@ -3,6 +3,7 @@ name = "atm"
 version = "0.1.0"
 description = "AI Terminal Manager — 跨 agent 的统一会话历史，投递到指定 tmux pane"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 # 刻意保持零运行时依赖：atm 要在 tmux display-popup 里被反复冷启动，
 # 任何 import 开销都会让「唤出侧栏」这个手势变卡。stdlib 够用。

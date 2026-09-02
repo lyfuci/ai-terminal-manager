@@ -226,3 +226,8 @@ Windows GUI / 控制模式解析器 / 布局同步全部蒸发。
   上半段列正在跑的格子（Claude Code 自己会把 pane 标题设成 `✳ <任务名>`，不用反查会话 id），
   下半段接历史；选中运行中的 → `swap-pane` 换进主格，选中历史 → 新 window 里 resume 再换进来。
   `prefix + b` 开/切/收，`prefix + B` 把当前格子收进 `bg`。推翻了「侧栏不做成 tmux pane」的旧结论（见上）。
+
+## 贡献
+
+欢迎 issue / PR。开发环境与约定见 [CONTRIBUTING.md](CONTRIBUTING.md)；
+安全问题不要开公开 issue，见 [SECURITY.md](SECURITY.md)。许可证 [MIT](LICENSE)。
