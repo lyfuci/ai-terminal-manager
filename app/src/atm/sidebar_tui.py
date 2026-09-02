@@ -41,6 +41,7 @@ from .tui import (
 )
 
 _KEY_CTRL_R = 18
+_KEY_CTRL_T = 20
 _KEY_CTRL_X = 24
 
 _PANE_REFRESH_SECONDS = 1.0
@@ -61,7 +62,20 @@ class RunningRow:
     here: bool  # 在侧栏所在的 window 里
 
 
-Row = SectionHeader | RunningRow | ScoredEntry
+@dataclass(frozen=True, slots=True)
+class SlotRow:
+    """「换进哪格？」那一步的候选：当前 window 里的一个格子。
+
+    编号用 `pane_index` —— 和 `prefix + q`（display-panes）在屏幕上标出来的数字一致，
+    用户看一眼 tmux 就知道该按几。
+    """
+
+    pane: Pane
+    is_main: bool
+
+
+Row = SectionHeader | RunningRow | ScoredEntry | SlotRow
+Placeable = RunningRow | ScoredEntry
 
 
 def run_sidebar(*, memory: MemoryLimit | None = None) -> int:
@@ -91,6 +105,8 @@ class _Sidebar(_Screen):
         self._offset = 0
         self._status = ""
         self._status_until = 0.0
+        # 非 None = 正在为这条选「换进哪格」（Ctrl-T 进入，Esc 退出）
+        self._placing: Placeable | None = None
         self._panes_at = 0.0
         self._index_at = 0.0
 
@@ -159,8 +175,16 @@ class _Sidebar(_Screen):
                 if _has_pending_input(stdscr):
                     _drain_input(stdscr)
                     return
+                if self._placing is not None:
+                    self._placing = None
+                    self._recompute(keep_cursor=True)
+                    return
                 self._query = ""
                 self._recompute()
+            elif self._placing is not None and key.isdigit():
+                self._pick_slot_by_index(int(key))
+            elif code == _KEY_CTRL_T:
+                self._begin_place()
             elif code in _KEY_ENTER:
                 self._activate()
             elif code in _KEY_BACKSPACE:
@@ -182,7 +206,7 @@ class _Sidebar(_Screen):
                 self._say("已重建索引")
             elif code == _KEY_CTRL_X:
                 self._park()
-            elif code >= 32 or code == -1:
+            elif (code >= 32 or code == -1) and self._placing is None:
                 self._query += key
                 self._recompute()
             return
@@ -214,22 +238,61 @@ class _Sidebar(_Screen):
         row = self._selected()
         if row is None:
             return
+        if isinstance(row, SlotRow):
+            assert self._placing is not None
+            self._place(self._placing, slot_id=row.pane.id)
+            return
+        self._place(row, slot_id=None)
+
+    def _place(self, what: Placeable, *, slot_id: str | None) -> None:
+        """把 what 换进 slot_id 那格；slot_id 为 None 就换进主格。"""
+        self._placing = None
         try:
-            if isinstance(row, RunningRow):
+            if isinstance(what, RunningRow):
                 plan = sidebar.plan_swap(
-                    self._panes, window_id=self._window_id, target_id=row.pane.id
+                    self._panes,
+                    window_id=self._window_id,
+                    target_id=what.pane.id,
+                    slot_id=slot_id,
                 )
                 sidebar.execute_swap(plan)
                 self._say(plan.describe())
             else:
-                self._resume(row.entry)
+                self._resume(what.entry, slot_id=slot_id)
         except (SidebarError, DispatchError) as exc:
             self._say(str(exc).splitlines()[0])
         self._refresh_panes(force=True)
         self._recompute(keep_cursor=True)
 
-    def _resume(self, entry: SessionEntry) -> None:
-        """历史会话：先在新 window 里拉起来，再把那个 pane 换进主格。
+    def _begin_place(self) -> None:
+        """Ctrl-T：为选中的那条挑「换进哪格」，列表切成当前 window 的格子。"""
+        row = self._selected()
+        if row is None or isinstance(row, SlotRow):
+            return
+        candidates = self._slot_candidates()
+        if not candidates:
+            self._say("本窗口除了侧栏没有别的格子")
+            return
+        self._placing = row
+        self._recompute()
+
+    def _slot_candidates(self) -> list[Pane]:
+        return sorted(
+            (p for p in self._panes if p.window_id == self._window_id and not p.is_sidebar),
+            key=lambda p: p.pane_index,
+        )
+
+    def _pick_slot_by_index(self, pane_index: int) -> None:
+        """数字键直选：按 pane_index（= prefix+q 屏幕上标的数字）。"""
+        assert self._placing is not None
+        hit = next((p for p in self._slot_candidates() if p.pane_index == pane_index), None)
+        if hit is None:
+            self._say(f"本窗口没有 {pane_index} 号格子")
+            return
+        self._place(self._placing, slot_id=hit.id)
+
+    def _resume(self, entry: SessionEntry, *, slot_id: str | None = None) -> None:
+        """历史会话：先在新 window 里拉起来，再把那个 pane 换进主格（或指定的格）。
 
         走 new-window 而不是直接投主格：主格里跑着的东西不能被打断（它正是
         用户刚才在看的），换出去继续跑，才符合「进程是一等公民」。
@@ -242,7 +305,9 @@ class _Sidebar(_Screen):
         )
         assert result.pane_id is not None
         self._refresh_panes(force=True)
-        plan = sidebar.plan_swap(self._panes, window_id=self._window_id, target_id=result.pane_id)
+        plan = sidebar.plan_swap(
+            self._panes, window_id=self._window_id, target_id=result.pane_id, slot_id=slot_id
+        )
         sidebar.execute_swap(plan)
         self._say(f"已恢复 → {result.pane_id}")
 
@@ -272,6 +337,15 @@ class _Sidebar(_Screen):
         rows: list[Row] = []
 
         slot = sidebar.main_slot(self._panes, self._window_id) if self._window_id else None
+        if self._placing is not None:
+            rows.append(SectionHeader("换进哪格？(数字=prefix+q 编号)"))
+            rows.extend(
+                SlotRow(pane=p, is_main=slot is not None and p.id == slot.id)
+                for p in self._slot_candidates()
+            )
+            self._rows = tuple(rows)
+            self._cursor = next((i for i, r in enumerate(rows) if isinstance(r, SlotRow)), 0)
+            return
         running = [
             RunningRow(
                 pane=p,
@@ -310,7 +384,7 @@ class _Sidebar(_Screen):
     def _is_selectable(self, index: int) -> bool:
         return 0 <= index < len(self._rows) and not isinstance(self._rows[index], SectionHeader)
 
-    def _selected(self) -> RunningRow | ScoredEntry | None:
+    def _selected(self) -> RunningRow | ScoredEntry | SlotRow | None:
         if not self._is_selectable(self._cursor):
             return None
         row = self._rows[self._cursor]
@@ -370,6 +444,14 @@ class _Sidebar(_Screen):
         if isinstance(row, RunningRow):
             self._draw_running(stdscr, y, width, row, base)
             return
+        if isinstance(row, SlotRow):
+            label = _pane_label(row.pane)
+            x = self._put(stdscr, y, 0, f"{row.pane.pane_index} ", base | curses.A_BOLD)
+            room = max(0, width - x - 3)
+            x = self._put(stdscr, y, x, pad_display(truncate_display(label, room), room), base)
+            if row.is_main:
+                self._put(stdscr, y, x + 1, "←", base | _color(5))
+            return
         entry = row.entry
         age = humanize_age((now - entry.updated_at).total_seconds())
         x = self._put(stdscr, y, 0, pad_display(age, 3), base | _color(5))
@@ -381,9 +463,7 @@ class _Sidebar(_Screen):
         self, stdscr: curses.window, y: int, width: int, row: RunningRow, base: int
     ) -> None:
         pane = row.pane
-        label = pane.title if sidebar.is_ai_pane(pane) and pane.title else pane.current_command
-        if not sidebar.is_ai_pane(pane):
-            label = f"{pane.current_command}  {_basename(pane.current_path)}"
+        label = _pane_label(pane)
         # 右侧：主格标 ←；不在本窗口的标它所在 window 的名字（多半是 bg）
         tail = "←" if row.is_main else ("" if row.here else pane.window_name[:6])
         room = max(0, width - 1 - display_width(tail) - (1 if tail else 0))
@@ -398,6 +478,10 @@ class _Sidebar(_Screen):
         line = ""
         if time.monotonic() < self._status_until:
             line = self._status
+        elif self._placing is not None:
+            what = self._placing
+            name = _pane_label(what.pane) if isinstance(what, RunningRow) else what.entry.title
+            line = f"把「{truncate_display(name, 18)}」换进…"
         else:
             row = self._selected()
             if isinstance(row, RunningRow):
@@ -407,12 +491,21 @@ class _Sidebar(_Screen):
                 gone = "⚠目录已删 " if e.cwd in self._missing else ""
                 line = f"{gone}{e.project_name}  {dispatch_mod.size_label(e)}".rstrip()
         self._put(stdscr, height - 2, 0, truncate_display(line, width - 1), _color(5))
-        hint = "⏎换入 ^X收后台 Tab来源 ^R重建 ^C退"
+        hint = "⏎换入 ^T选格 ^X收后台 Tab来源 ^R重建 ^C退"
+        if self._placing is not None:
+            hint = "数字/⏎ 选格  Esc 取消"
         self._put(stdscr, height - 1, 0, truncate_display(hint, width - 1), _color(5))
 
 
 def _pane_haystack(pane: Pane) -> str:
     return " ".join((pane.title, pane.current_command, pane.current_path, pane.window_name))
+
+
+def _pane_label(pane: Pane) -> str:
+    """一格在列表里怎么称呼：AI 进程用它自设的标题（✳ 任务名），其余用 命令 + 目录名。"""
+    if sidebar.is_ai_pane(pane) and pane.title:
+        return pane.title
+    return f"{pane.current_command}  {_basename(pane.current_path)}"
 
 
 def _basename(path: str) -> str:
@@ -424,6 +517,8 @@ def _row_key(row: Row) -> str:
         return f"h:{row.label}"
     if isinstance(row, RunningRow):
         return f"p:{row.pane.id}"
+    if isinstance(row, SlotRow):
+        return f"s:{row.pane.id}"
     return f"e:{row.entry.source.value}:{row.entry.id}"
 
 
