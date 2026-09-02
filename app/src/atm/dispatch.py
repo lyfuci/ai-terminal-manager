@@ -338,12 +338,16 @@ def dispatch(
 
         elif target.kind is TargetKind.SPLIT:
             pane_id = tmux.split_window(
-                target=target.pane_id, direction=target.direction, cwd=entry.cwd
+                target=target.pane_id,
+                direction=target.direction,
+                cwd=entry.cwd,
+                detached=not focus,
             )
             created = True
 
         elif target.kind is TargetKind.WINDOW:
-            pane_id = tmux.new_window(cwd=entry.cwd, name=_window_name(entry))
+            # focus=False 的调用方（侧栏）会自己决定视图去哪，新窗口不能抢焦点
+            pane_id = tmux.new_window(cwd=entry.cwd, name=_window_name(entry), detached=not focus)
             created = True
 
         else:  # pragma: no cover - StrEnum 已穷举

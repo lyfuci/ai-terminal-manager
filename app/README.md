@@ -140,6 +140,8 @@ atm park [%7]                              # 收进 bg（默认当前 pane）
 几条实测过的边界（tmux 3.6，`experiments/2026-09-02-sidebar-swap/`，22 项全过）：
 `swap-pane` 跨 window / 跨 session 都行；`split-window -f` 才是通高（不带 -f 只切当前 pane 的高度）；
 单 pane 窗口 `break-pane` 不报错、只是把窗口改名成 `bg`，所以 `park` 对独占窗口的 pane 直接拒绝。
+`new-window` 默认把你的视图切到新窗口 —— 侧栏从历史恢复时必须 `-d` 后台开再 swap，
+否则你会被带到新窗口里、看到的是被换出去的旧主格，像「弹出了一个全新会话」（实机踩过，已修）。
 
 ## 用
 

@@ -264,10 +264,13 @@ def split_window(
     target: str | None = None,
     direction: SplitDirection = SplitDirection.HORIZONTAL,
     cwd: str | None = None,
+    detached: bool = False,
 ) -> str:
-    """开一个新 pane，返回它的 pane_id。"""
+    """开一个新 pane，返回它的 pane_id。`detached` = 不把焦点切过去（-d）。"""
     args = ["split-window", "-P", "-F", "#{pane_id}"]
     args.append("-h" if direction is SplitDirection.HORIZONTAL else "-v")
+    if detached:
+        args.append("-d")
     if target:
         args += ["-t", target]
     if cwd:
@@ -275,8 +278,16 @@ def split_window(
     return run(args).strip()
 
 
-def new_window(*, cwd: str | None = None, name: str | None = None) -> str:
+def new_window(*, cwd: str | None = None, name: str | None = None, detached: bool = False) -> str:
+    """开一个新 window，返回它的 pane_id。
+
+    ⚠️ `new-window` 默认会把客户端**切到新窗口**。侧栏从历史恢复时是「后台开、再 swap 进主格」，
+    必须 `detached=True`（-d），否则用户的视图被带到新窗口里 —— 而 swap 之后那个窗口里
+    装的是被换出去的旧主格，看起来像「弹出了一个全新会话」（2026-09-02 实机踩到）。
+    """
     args = ["new-window", "-P", "-F", "#{pane_id}"]
+    if detached:
+        args.append("-d")
     if cwd:
         args += ["-c", cwd]
     if name:

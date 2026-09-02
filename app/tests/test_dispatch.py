@@ -398,3 +398,33 @@ def test_copy_mode_pane_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(DispatchError):
         dispatch_mod.dispatch(make_entry(), DispatchTarget.existing("%2"))
+
+
+# ---------------------------------------------------- focus=False 不能抢视图（2026-09-02）
+
+
+def test_unfocused_window_dispatch_creates_window_detached(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """侧栏从历史恢复：新窗口必须 -d 开。实机踩过：不带 -d 用户的视图被带到新窗口，
+    swap 之后那里装的是旧主格，看起来像弹出了一个全新会话。"""
+    from atm import tmux
+
+    calls: list[list[str]] = []
+
+    def run(args, **kw):
+        calls.append(args)
+        return "%42\n" if args[0] == "new-window" else ""
+
+    monkeypatch.setattr(tmux, "run", run)
+    monkeypatch.setattr(tmux, "has_server", lambda: True)
+    entry = make_entry(cwd=str(tmp_path))
+    result = dispatch_mod.dispatch(entry, DispatchTarget.window(), focus=False)
+    assert result.pane_id == "%42"
+    new_window = next(c for c in calls if c[0] == "new-window")
+    assert "-d" in new_window
+    assert not any(c[0] in ("select-pane", "switch-client") for c in calls)
+
+    calls.clear()
+    dispatch_mod.dispatch(entry, DispatchTarget.window(), focus=True)
+    assert "-d" not in next(c for c in calls if c[0] == "new-window")
