@@ -151,3 +151,19 @@ def test_pane_fixture_shape_matches_parser() -> None:
     assert (p.id, p.window_id, p.current_command, p.last, p.is_sidebar) == (
         "%x", "@7", "claude", True, True,
     )  # fmt: skip
+
+
+def test_prune_kills_idle_bash_in_bg_only(fake_tmux, capsys) -> None:
+    fake_tmux["panes"] = "\n".join(
+        [
+            _line("%a", "@5", "bash", wn="bg"),
+            _line("%b", "@5", "claude", wn="bg"),
+            _line("%c", "@0", "bash", wn="main"),
+        ]
+    )
+    assert cli.main(["prune", "--dry-run"]) == 0
+    assert not any(c[0] == "kill-pane" for c in fake_tmux["calls"])
+    assert "%a" in capsys.readouterr().out
+    assert cli.main(["prune"]) == 0
+    kills = [c for c in fake_tmux["calls"] if c[0] == "kill-pane"]
+    assert kills == [["kill-pane", "-t", "%a"]]

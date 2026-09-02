@@ -138,6 +138,7 @@ atm sidebar --toggle --pane '#{pane_id}'   # 键位绑定里就是这一条；ru
 atm swap %7                                # 在哪格里跑就把 %7 换进哪格；从侧栏里跑则换进主格
 atm swap %7 --into %3                      # 指定换进 %3
 atm park [%7]                              # 收进 bg（默认当前 pane）
+atm prune [-n]                             # 关掉 bg 里空闲的 shell 格子（-n 只看不关）
 ```
 
 几条实测过的边界（tmux 3.6，`experiments/2026-09-02-sidebar-swap/`，22 项全过）：

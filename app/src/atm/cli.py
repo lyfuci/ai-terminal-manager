@@ -196,6 +196,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_park.add_argument("pane_id", nargs="?", help="默认收当前 pane（$TMUX_PANE）")
     p_park.set_defaults(handler=_cmd_park)
 
+    p_prune = sub.add_parser("prune", help="关掉后台窗口 bg 里空闲的 shell 格子（跑着东西的不动）")
+    p_prune.add_argument("-n", "--dry-run", action="store_true", help="只列出来，不关")
+    p_prune.set_defaults(handler=_cmd_prune)
+
     p_doctor = sub.add_parser("doctor", help="体检：数据源在不在、tmux 通不通")
     p_doctor.set_defaults(handler=_cmd_doctor)
 
@@ -436,6 +440,31 @@ def _cmd_park(args: argparse.Namespace) -> int:
         print(f"atm: {exc}", file=sys.stderr)
         return EXIT_ERROR
     print(plan.describe(), file=sys.stderr)
+    return EXIT_OK
+
+
+def _cmd_prune(args: argparse.Namespace) -> int:
+    sb = _sidebar_mod()
+    if not tmux.has_server():
+        print("没有正在运行的 tmux server。", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        targets = sb.prunable(tmux.list_panes())
+    except tmux.TmuxError as exc:
+        print(f"atm: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    if not targets:
+        print(f"{sb.PARK_WINDOW} 里没有空闲的 shell 格子。", file=sys.stderr)
+        return EXIT_OK
+    for pane in targets:
+        print(
+            f"{'将关掉' if args.dry_run else '关掉'} {pane.id} {pane.label} "
+            f"{pane.current_command} {pane.current_path}"
+        )
+    if args.dry_run:
+        return EXIT_OK
+    killed = sb.execute_prune(targets)
+    print(f"已关掉 {len(killed)} 个（{sb.PARK_WINDOW} 空了的话窗口也一起消失）", file=sys.stderr)
     return EXIT_OK
 
 

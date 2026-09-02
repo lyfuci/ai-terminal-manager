@@ -207,6 +207,32 @@ def execute_park(plan: ParkPlan) -> None:
         raise SidebarError(str(exc)) from exc
 
 
+# ---------------------------------------------------------------- 清理后台空 shell
+
+
+def prunable(panes: tuple[Pane, ...]) -> tuple[Pane, ...]:
+    """后台窗口 `bg` 里的空闲 shell —— 换位 / 停车攒下来的空格子。
+
+    只看 bg 窗口、只看空闲 shell（POSIX shell 且不在 copy-mode）：
+    别的窗口里的 shell 可能是用户自己开着等用的，里面跑着东西的更不能碰。
+    """
+    return tuple(
+        p for p in panes if p.window_name == PARK_WINDOW and p.is_idle_shell and not p.is_sidebar
+    )
+
+
+def execute_prune(targets: tuple[Pane, ...]) -> tuple[Pane, ...]:
+    """逐个关掉，返回真正关掉的。某一个关不掉（刚被用户关了）不影响其余。"""
+    killed: list[Pane] = []
+    for pane in targets:
+        try:
+            tmux.kill_pane(pane.id)
+        except TmuxError:
+            continue
+        killed.append(pane)
+    return tuple(killed)
+
+
 # ---------------------------------------------------------------- 开/关侧栏
 
 

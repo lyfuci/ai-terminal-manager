@@ -225,6 +225,34 @@ def test_park_lone_pane_next_to_sidebar_is_allowed() -> None:
     assert sidebar.plan_park(panes, pane_id="%a", bg_window=None).pane == "%a"
 
 
+# ---------------------------------------------------------------- 清理
+
+
+def test_prunable_only_idle_shells_in_bg() -> None:
+    panes = (
+        pane("%idle", window_id="@5", command="bash"),
+        pane("%busy", window_id="@5", command="claude"),
+        pane("%elsewhere", window_id="@0", command="bash"),
+        pane("%sb", window_id="@5", command="bash", is_sidebar=True),
+    )
+    # pane() 的 window_name 固定是 "w"，这里手动造 bg 里的
+    from dataclasses import replace
+
+    panes = tuple(replace(p, window_name="bg") if p.window_id == "@5" else p for p in panes)
+    assert [p.id for p in sidebar.prunable(panes)] == ["%idle"]
+
+
+def test_execute_prune_skips_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    def run(args, **kw):
+        if args == ["kill-pane", "-t", "%gone"]:
+            raise tmux.TmuxError("can't find pane")
+        return ""
+
+    monkeypatch.setattr(tmux, "run", run)
+    killed = sidebar.execute_prune((pane("%gone"), pane("%ok")))
+    assert [p.id for p in killed] == ["%ok"]
+
+
 # ---------------------------------------------------------------- 开关
 
 
