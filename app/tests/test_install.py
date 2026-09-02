@@ -129,7 +129,8 @@ def test_binding_tmux_args_are_argv_not_shell() -> None:
 def test_upper_key_bound_for_here_variant(tmp_path: Path) -> None:
     plan = _plan(tmp_path / ".tmux.conf", key="a")
     keys = {b.key for b in plan.bindings}
-    assert keys == {"a", "A"}
+    # 2026-09-02 起多了侧栏的 b / B（见 test_sidebar_bindings_use_run_shell_with_pane_id）
+    assert keys == {"a", "A", "b", "B"}
     assert any("--here" in b.command for b in plan.bindings)
 
 
@@ -170,3 +171,39 @@ def test_missing_end_marker_refuses_to_delete_rest(tmp_path: Path) -> None:
     with pytest.raises(install_mod.ConfUnreadable):
         install_mod.remove(conf)
     assert "history-limit 50000" in conf.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------- 侧栏键位（2026-09-02）
+
+
+def test_sidebar_bindings_use_run_shell_with_pane_id(tmp_path: Path) -> None:
+    """侧栏开关走 run-shell -b，且必须把 #{pane_id} 传给 atm —— run-shell 里 $TMUX_PANE 不可靠。"""
+    plan = _plan(tmp_path / ".tmux.conf")
+    by_key = {b.key: b for b in plan.bindings}
+    assert by_key["b"].kind is install_mod.BindingKind.SHELL
+    assert "sidebar --toggle --pane '#{pane_id}'" in by_key["b"].command
+    assert by_key["B"].kind is install_mod.BindingKind.SHELL
+    assert "park '#{pane_id}'" in by_key["B"].command
+
+    line = by_key["b"].conf_line()
+    assert line.startswith("bind-key b run-shell -b ")
+    assert "display-popup" not in line
+    assert by_key["b"].tmux_args()[:4] == ["bind-key", "b", "run-shell", "-b"]
+
+
+def test_popup_bindings_unchanged_by_sidebar(tmp_path: Path) -> None:
+    plan = _plan(tmp_path / ".tmux.conf")
+    popup = [b for b in plan.bindings if b.kind is install_mod.BindingKind.POPUP]
+    assert [b.key for b in popup] == ["a", "A"]
+    assert all("display-popup -E" in b.conf_line() for b in popup)
+
+
+def test_sidebar_key_validation(tmp_path: Path) -> None:
+    import pytest
+
+    conf = tmp_path / ".tmux.conf"
+    with pytest.raises(ValueError, match="sidebar-key"):
+        _plan(conf, sidebar_key="1")
+    with pytest.raises(ValueError, match="不能相同"):
+        _plan(conf, key="b", sidebar_key="b")
+    assert {b.key for b in _plan(conf, sidebar_key="s").bindings} == {"a", "A", "s", "S"}

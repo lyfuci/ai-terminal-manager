@@ -20,8 +20,8 @@ def test_install_letter_key_makes_two_distinct_bindings() -> None:
     from atm import install
 
     plan = install.build_plan(conf_path=pathlib.Path("/tmp/atm-nonexistent.conf"), key="s")
-    keys = [b.key for b in plan.bindings]
-    assert keys == ["s", "S"]
+    popup = [b.key for b in plan.bindings if b.kind is install.BindingKind.POPUP]
+    assert popup == ["s", "S"]
 
 
 def test_marker_detection_matches_stripping() -> None:

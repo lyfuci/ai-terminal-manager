@@ -59,6 +59,12 @@ def _install_mod():
     return install
 
 
+def _sidebar_mod():
+    from . import sidebar
+
+    return sidebar
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="atm",
@@ -150,12 +156,46 @@ def _build_parser() -> argparse.ArgumentParser:
     p_panes.add_argument("--json", action="store_true")
     p_panes.set_defaults(handler=_cmd_panes)
 
+    # ---- 常驻侧栏（2026-09-02）：运行中的格子 + 历史，选中就换进主格
+    p_sidebar = sub.add_parser("sidebar", help="常驻侧栏：列出运行中的格子和历史，选中换进主格")
+    p_sidebar.add_argument(
+        "--toggle",
+        action="store_true",
+        help="开/切/收侧栏：没开就在当前 window 最左边开一个；开了就切过去；焦点在侧栏上就收起",
+    )
+    p_sidebar.add_argument(
+        "--pane", help="--toggle 时「当前 pane」是哪个（键位绑定里传 #{pane_id}）"
+    )
+    p_sidebar.add_argument(
+        "--width", type=int, default=_sidebar_mod().SIDEBAR_WIDTH, help="侧栏宽度（列）"
+    )
+    p_sidebar.add_argument(
+        "--no-mem-limit", action="store_true", help="从侧栏恢复历史时不套内存闸门"
+    )
+    p_sidebar.add_argument("--mem-high", default=dispatch_mod.DEFAULT_MEMORY_HIGH)
+    p_sidebar.add_argument("--mem-max", default=dispatch_mod.DEFAULT_MEMORY_MAX)
+    p_sidebar.set_defaults(handler=_cmd_sidebar)
+
+    p_swap = sub.add_parser("swap", help="把某个 pane 换进当前 window 的主格（不进 TUI）")
+    p_swap.add_argument("pane_id", help="要换进来的 pane，形如 %%7")
+    p_swap.add_argument("--pane", help="「当前 pane」是哪个（默认 $TMUX_PANE）")
+    p_swap.set_defaults(handler=_cmd_swap)
+
+    p_park = sub.add_parser("park", help="把 pane 收进后台窗口 bg（进程继续跑）")
+    p_park.add_argument("pane_id", nargs="?", help="默认收当前 pane（$TMUX_PANE）")
+    p_park.set_defaults(handler=_cmd_park)
+
     p_doctor = sub.add_parser("doctor", help="体检：数据源在不在、tmux 通不通")
     p_doctor.set_defaults(handler=_cmd_doctor)
 
     p_install = sub.add_parser("install", help="装 tmux 键位绑定（会改 ~/.tmux.conf）")
     p_install.add_argument("-y", "--yes", action="store_true", help="不问直接装")
     p_install.add_argument("--key", default=_install_mod().DEFAULT_KEY, help="绑哪个键（默认 a）")
+    p_install.add_argument(
+        "--sidebar-key",
+        default=_install_mod().DEFAULT_SIDEBAR_KEY,
+        help="侧栏开关键（默认 b；大写 = 把当前格子收进后台）",
+    )
     p_install.add_argument("--width", default=_install_mod().DEFAULT_WIDTH, help="浮层宽度")
     p_install.add_argument("--height", default=_install_mod().DEFAULT_HEIGHT, help="浮层高度")
     p_install.add_argument("--print", action="store_true", help="只看会写什么，不动文件")
@@ -307,6 +347,82 @@ def _cmd_panes(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_sidebar(args: argparse.Namespace) -> int:
+    sb = _sidebar_mod()
+    if args.toggle:
+        current = args.pane or tmux.current_pane_id()
+        if not current:
+            print(
+                "atm sidebar --toggle 需要知道当前 pane：在 tmux 里跑，或加 --pane",
+                file=sys.stderr,
+            )
+            return EXIT_ERROR
+        if not tmux.has_server():
+            print("没有正在运行的 tmux server。", file=sys.stderr)
+            return EXIT_ERROR
+        try:
+            plan = sb.plan_toggle(tmux.list_panes(), current_pane=current)
+            command = f"{_install_mod().resolve_atm_command()} sidebar"
+            sb.execute_toggle(plan, command=command, width=args.width)
+        except (sb.SidebarError, tmux.TmuxError) as exc:
+            print(f"atm: {exc}", file=sys.stderr)
+            return EXIT_ERROR
+        print(plan.describe(), file=sys.stderr)
+        return EXIT_OK
+
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        print("atm sidebar 是常驻 TUI，需要交互终端；要开侧栏用 --toggle。", file=sys.stderr)
+        return EXIT_ERROR
+    from . import sidebar_tui
+
+    try:
+        return sidebar_tui.run_sidebar(memory=_memory_limit(args))
+    except sb.SidebarError as exc:
+        print(f"atm: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+
+
+def _cmd_swap(args: argparse.Namespace) -> int:
+    sb = _sidebar_mod()
+    current = args.pane or tmux.current_pane_id()
+    if not current:
+        print("atm swap 需要知道当前 pane：在 tmux 里跑，或加 --pane", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        panes = tmux.list_panes()
+        me = sb.pane_by_id(panes, current)
+        if me is None:
+            raise sb.SidebarError(f"找不到当前 pane {current}")
+        plan = sb.plan_swap(panes, window_id=me.window_id, target_id=args.pane_id)
+        sb.execute_swap(plan)
+    except (sb.SidebarError, tmux.TmuxError) as exc:
+        print(f"atm: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    print(plan.describe(), file=sys.stderr)
+    return EXIT_OK
+
+
+def _cmd_park(args: argparse.Namespace) -> int:
+    sb = _sidebar_mod()
+    target = args.pane_id or tmux.current_pane_id()
+    if not target:
+        print("atm park 需要一个 pane id：在 tmux 里跑，或显式传", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        panes = tmux.list_panes()
+        pane = sb.pane_by_id(panes, target)
+        if pane is None:
+            raise sb.SidebarError(f"找不到 pane {target}")
+        bg = tmux.find_window(pane.session, sb.PARK_WINDOW)
+        plan = sb.plan_park(panes, pane_id=target, bg_window=bg)
+        sb.execute_park(plan)
+    except (sb.SidebarError, tmux.TmuxError) as exc:
+        print(f"atm: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    print(plan.describe(), file=sys.stderr)
+    return EXIT_OK
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     from .sources import claude as claude_src
     from .sources import codex as codex_src
@@ -343,7 +459,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def _cmd_install(args: argparse.Namespace) -> int:
-    plan = _install_mod().build_plan(key=args.key, width=args.width, height=args.height)
+    plan = _install_mod().build_plan(
+        key=args.key, sidebar_key=args.sidebar_key, width=args.width, height=args.height
+    )
 
     print(plan.describe())
     if plan.atm_command != "atm":

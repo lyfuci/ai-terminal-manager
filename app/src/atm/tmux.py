@@ -17,6 +17,12 @@ import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
 
+# 侧栏 pane 给自己打的标记（tmux 的 pane 级用户选项）。
+# 用选项而不是靠 pane_title / 命令名识别：标题会被里面跑的程序改掉，
+# 命令名在 `uv run atm` 和 `python -m atm` 两种起法下不一样。
+# 实测（tmux 3.6）`#{@atm_sidebar}` 在 list-panes 的格式串里能直接读到。
+SIDEBAR_OPTION = "@atm_sidebar"
+
 # 用 \x1f (unit separator) 当分隔符：pane 标题和路径里可能有 | 或 tab，但不会有控制字符。
 _SEP = "\x1f"
 _PANE_FORMAT = _SEP.join(
@@ -34,8 +40,13 @@ _PANE_FORMAT = _SEP.join(
         "#{pane_width}",
         "#{pane_height}",
         "#{pane_title}",
+        # ↓ 2026-09-02 侧栏加的三个。放在**末尾**：解析按位置取字段，老字段的下标不变。
+        "#{window_id}",
+        "#{pane_last}",
+        f"#{{{SIDEBAR_OPTION}}}",
     ]
 )
+_PANE_FIELDS = 16
 
 # 往这些命令里投 send-keys 是安全的（它们在等一行输入）。
 # 别的（vim / claude / codex 本身 / less）说明那个 pane 正忙，投进去会被当成对话内容。
@@ -94,10 +105,22 @@ class Pane:
     width: int
     height: int
     title: str
+    # 窗口的稳定 id（形如 `@3`）。window_index 会随 move-window / renumber 变，
+    # 侧栏判断「这个 pane 在不在我这个窗口里」必须用 id。
+    window_id: str = ""
+    # tmux 的 pane_last：本窗口里**上一个**活动 pane。
+    # 侧栏拿到焦点时，它就是用户刚才在看的那格 —— 也就是要被换出去的「主格」。
+    last: bool = False
+    # 这是不是侧栏自己（见 SIDEBAR_OPTION）。
+    is_sidebar: bool = False
 
     @property
     def label(self) -> str:
         return f"{self.session}:{self.window_index}.{self.pane_index}"
+
+    @property
+    def area(self) -> int:
+        return self.width * self.height
 
     @property
     def is_idle_shell(self) -> bool:
@@ -187,6 +210,8 @@ def parse_panes(stdout: str) -> tuple[Pane, ...]:
         fields = line.split(_SEP)
         if len(fields) < 13:
             continue  # 格式对不上就跳过这一行，别让整个列表挂掉
+        # 后加的字段允许缺席（老格式的输出照样能解析），缺了就取默认值。
+        fields += [""] * (_PANE_FIELDS - len(fields))
         try:
             panes.append(
                 Pane(
@@ -203,6 +228,9 @@ def parse_panes(stdout: str) -> tuple[Pane, ...]:
                     width=int(fields[10]),
                     height=int(fields[11]),
                     title=fields[12],
+                    window_id=fields[13],
+                    last=fields[14] == "1",
+                    is_sidebar=fields[15] == "1",
                 )
             )
         except ValueError:
@@ -260,6 +288,90 @@ def select_pane(pane_id: str) -> None:
     """把焦点切到指定 pane（连带切到它所在的 window / session）。"""
     run(["select-pane", "-t", pane_id])
     run(["switch-client", "-t", pane_id])
+
+
+# ---------------------------------------------------------------- 侧栏 / 换位（2026-09-02）
+#
+# 下面这些只被 sidebar.py 用。每条都在隔离 socket（`-L` + `-f /dev/null`）上实测过，
+# 见 ../../experiments/2026-09-02-sidebar-swap/。
+
+
+def swap_pane(src: str, dst: str) -> None:
+    """把 src 换到 dst 的位置（dst 去 src 原来的位置）。
+
+    实测（tmux 3.6）**跨 window、跨 session 都行**，两个 pane 的 id 跟着内容走，
+    所以换完之后 `select-pane -t src` 选中的就是现在坐在主格位置上的那个。
+    不加 -d：让焦点跟着换进来的 pane 走。
+    """
+    run(["swap-pane", "-s", src, "-t", dst])
+
+
+def split_sidebar(window: str, *, width: int, command: str) -> str:
+    """在 window 最左边开一个**通高**的窄 pane 跑 command，返回 pane_id。
+
+    `-f` 是关键：不带它 split-window 只切当前 pane，主区上下分了两格时侧栏就只有半高。
+    `-b` 放左边，`-l` 定宽。
+    """
+    return run(
+        [
+            "split-window",
+            "-f",
+            "-h",
+            "-b",
+            "-l",
+            str(width),
+            "-t",
+            window,
+            "-P",
+            "-F",
+            "#{pane_id}",
+            command,
+        ]
+    ).strip()
+
+
+def kill_pane(pane_id: str) -> None:
+    run(["kill-pane", "-t", pane_id])
+
+
+def set_pane_option(pane_id: str, name: str, value: str) -> None:
+    """设 pane 级用户选项（`set-option -p`）。"""
+    run(["set-option", "-p", "-t", pane_id, name, value])
+
+
+def set_pane_title(pane_id: str, title: str) -> None:
+    run(["select-pane", "-t", pane_id, "-T", title])
+
+
+def break_pane(src: str, *, window_name: str) -> str:
+    """把 src 拆到一个新 window 里（不切过去），返回新 window 的 id。"""
+    return run(
+        ["break-pane", "-d", "-s", src, "-n", window_name, "-P", "-F", "#{window_id}"]
+    ).strip()
+
+
+def join_pane(src: str, *, window: str) -> None:
+    """把 src 并进已有 window（不切过去）。"""
+    run(["join-pane", "-d", "-s", src, "-t", window])
+
+
+def find_window(session: str, name: str) -> str | None:
+    """按名字在 session 里找 window，返回 window_id；没有就 None。
+
+    返回 id 而不是名字：`-t session:name` 在同名 window 有多个时行为不定，id 唯一。
+    """
+    out = run(["list-windows", "-t", session, "-F", "#{window_id}\t#{window_name}"])
+    for line in out.splitlines():
+        window_id, _, window_name = line.partition("\t")
+        if window_name == name:
+            return window_id
+    return None
+
+
+def focus_pane(pane_id: str) -> None:
+    """只在本 window 内切焦点，不动 client。侧栏换位后用这个，
+    `switch-client` 在某些调用路径（run-shell）下会报错。"""
+    run(["select-pane", "-t", pane_id])
 
 
 def display_message(message: str) -> None:

@@ -98,8 +98,46 @@ bind-key A display-popup -E -w 80% -h 70% 'atm pick --here'
 立即生效那一步用的是直接下 `bind-key` 命令，**不是 `source-file ~/.tmux.conf`** ——
 后者会把整份配置重新执行一遍，用户配置里若有带副作用的行会被重复触发。
 
-> 用 `display-popup` 浮层而不是常驻左侧 pane 是刻意的：**收纳不该扰动布局树**。
-> 浮层关掉后布局一格没动，常驻 pane 则会一直占着宽度。
+> 浮层管「查历史、投一次」。**常驻左侧 pane** 是 2026-09-02 加的第二个维度（下一节），
+> 两者并存：`prefix + a` 浮层，`prefix + b` 侧栏。
+
+## 常驻侧栏：切换正在跑的进程（2026-09-02）
+
+`atm pick` 管的是**历史**（磁盘上的对话 → `--resume`）。侧栏管的是**正在跑的格子**：
+它们已经在 tmux 里了，只是不在当前窗口。所以核心手势不是 `send-keys` 而是 **`swap-pane`** ——
+进程不断，只是换个位置。
+
+```
+┌────────┬──────────────────────────┐
+│ › _    │                          │
+│ ── 运行中 3                       │
+│ ✳ atm        ←   （主格）          │      主格 = 侧栏拿到焦点前你在看的那格
+│ ✳ sample-project     bg   （在后台窗口）    │      选它 → swap-pane 换进主格，主格去 bg
+│ uv  control-c…                    │
+│ ── 历史 213                       │
+│ 2h CC 帮我把索引层的缓存加上       │      选它 → 新 window 里 resume，再换进主格
+└────────┴──────────────────────────┘
+```
+
+- `prefix + b`：**一个键三种含义** —— 没开就在当前 window 最左边开一个通高 32 列的侧栏；
+  开了就切过去；焦点已经在侧栏上就收起（kill 那个 pane，主区自动占满）。
+- `prefix + B`：把当前格子收进后台窗口 `bg`（进程继续跑，侧栏里还能选回来）。
+- 侧栏里：打字模糊搜索（同时过滤运行中和历史），`⏎` 换入，`^X` 把选中的格子收进 `bg`，
+  `Tab` 切来源，`^R` 重建索引，`^C` 退出。
+- 列表每秒刷一次 `list-panes`，标题直接用 pane 标题 —— Claude Code 自己会把它设成 `✳ <任务名>`，
+  所以**不需要反查会话 id**。
+
+不进 TUI 的等价命令（脚本 / 键位里用）：
+
+```bash
+atm sidebar --toggle --pane '#{pane_id}'   # 键位绑定里就是这一条；run-shell 里 $TMUX_PANE 不可靠，必须传
+atm swap %7                                # 把 %7 换进当前 window 的主格
+atm park [%7]                              # 收进 bg（默认当前 pane）
+```
+
+几条实测过的边界（tmux 3.6，`experiments/2026-09-02-sidebar-swap/`，22 项全过）：
+`swap-pane` 跨 window / 跨 session 都行；`split-window -f` 才是通高（不带 -f 只切当前 pane 的高度）；
+单 pane 窗口 `break-pane` 不报错、只是把窗口改名成 `bg`，所以 `park` 对独占窗口的 pane 直接拒绝。
 
 ## 用
 
@@ -110,6 +148,9 @@ atm pick --split             # 跳过选目标，直接分一个新 pane 投进�
 atm pick --print             # 只打印命令，不投递
 
 atm install                  # 装 tmux 键位绑定（幂等、自动备份、立即生效）
+atm sidebar --toggle         # 开/切/收常驻侧栏（键位 prefix + b）
+atm swap %7                  # 把 %7 换进当前 window 的主格
+atm park                     # 把当前格子收进后台窗口 bg
 atm uninstall                # 干净移除
 
 atm list -n 20               # 列最近 20 条
@@ -243,6 +284,8 @@ src/atm/
 ├── tui.py          # curses 选择器（本机没装 fzf，不能把它当硬依赖）
 ├── tmux.py         # 只用公开 CLI，绝不碰内部 unix socket
 ├── dispatch.py     # 组装 resume 命令 + 投递
+├── sidebar.py      # 运行态：主格 / swap / park / toggle 的纯规划函数（2026-09-02）
+├── sidebar_tui.py  # 常驻侧栏的 curses 循环，每秒刷 pane 列表
 └── cli.py          # argparse 入口
 ```
 

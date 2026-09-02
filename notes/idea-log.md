@@ -50,3 +50,19 @@
 - 实机用两天验证手势（`display-popup` 里 `TMUX_PANE` 是什么 headless 验不了，代码对两种情况都成立）。
 - inotify watch → 增量更新（注意坑 #2：必须在 WSL 内做）。
 - 路线 A/B 仍未否掉，只是没做；`index.py` 那层在任何后端下都能复用。
+
+## 2026-09-02 常驻侧栏：第二个维度
+
+用户的原话：「tmux 的左边能不能弄出来一个类似选择列表之类的东西，能让我超越当前屏幕的范围，
+快速替换到对应的后台 claude code 进程？」
+
+这跟 8-12 做的东西不是一回事：`atm pick` 是 L3（历史对话 → resume），这个是 **L2**（已经在跑的 pane）。
+拍板：默认 **swap**（保持布局，换进主格），侧栏**常驻**。
+
+- 推翻了 8-12「侧栏不做成 tmux pane」的结论。当时的理由是「收纳不该扰动布局树」，
+  实际做法是通高 pane + kill 收起，扰动只有宽度，可接受。
+- 实测确认的机制：`swap-pane` 跨 window/session；`split-window -f -h -b -l 32` 通高左栏；
+  pane 用户选项 `@atm_sidebar` 能在 `list-panes -F` 里读到；`pane_last` = 侧栏拿焦点前用户在看的格子。
+- 不用反查会话 id：Claude Code 自己把 pane 标题设成 `✳ <任务名>`。
+- `run-shell` 里 `$TMUX_PANE` 不可靠（指向别的 pane），键位绑定必须用 `#{pane_id}` 展开传参。
+- `break-pane` 对单 pane 窗口不报错，只是把窗口改名 —— `park` 要拦。

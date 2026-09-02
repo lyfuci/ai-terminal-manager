@@ -19,6 +19,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 
 from . import tmux
@@ -35,6 +36,13 @@ _VALID_KEY = re.compile(r"^[a-z]$")
 DEFAULT_KEY = "a"
 DEFAULT_WIDTH = "80%"
 DEFAULT_HEIGHT = "70%"
+# 侧栏开关键（大写 = 把当前格子收进后台）。tmux 默认没绑 b / B。
+DEFAULT_SIDEBAR_KEY = "b"
+
+
+class BindingKind(StrEnum):
+    POPUP = "popup"  # display-popup -E 浮层里跑
+    SHELL = "shell"  # run-shell -b 后台跑（侧栏开关 / 停车这类不需要界面的动作）
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,18 +52,23 @@ class Binding:
     key: str
     command: str
     description: str
+    kind: BindingKind = BindingKind.POPUP
     width: str = DEFAULT_WIDTH
     height: str = DEFAULT_HEIGHT
 
     def conf_line(self) -> str:
         # 用 shlex.quote 而不是 Python 的 !r：后者在字符串含单引号时会改用双引号，
         # 那在 tmux 配置里的转义规则是不一样的。
+        if self.kind is BindingKind.SHELL:
+            return f"bind-key {self.key} run-shell -b {shlex.quote(self.command)}"
         return (
             f"bind-key {self.key} display-popup -E "
             f"-w {self.width} -h {self.height} {shlex.quote(self.command)}"
         )
 
     def tmux_args(self) -> list[str]:
+        if self.kind is BindingKind.SHELL:
+            return ["bind-key", self.key, "run-shell", "-b", self.command]
         return [
             "bind-key",
             self.key,
@@ -114,15 +127,19 @@ def build_plan(
     *,
     conf_path: Path | None = None,
     key: str = DEFAULT_KEY,
+    sidebar_key: str = DEFAULT_SIDEBAR_KEY,
     width: str = DEFAULT_WIDTH,
     height: str = DEFAULT_HEIGHT,
 ) -> InstallPlan:
-    if not _VALID_KEY.match(key):
-        raise ValueError(
-            f"--key 只能是单个小写字母，收到 {key!r}。"
-            f"（第二条绑定靠 key.upper() 区分，非字母的 upper() 是恒等变换，"
-            f"两条绑定会撞成同一个键、第一条静默失效。）"
-        )
+    for name, value in (("--key", key), ("--sidebar-key", sidebar_key)):
+        if not _VALID_KEY.match(value):
+            raise ValueError(
+                f"{name} 只能是单个小写字母，收到 {value!r}。"
+                f"（配套的第二条绑定靠 .upper() 区分，非字母的 upper() 是恒等变换，"
+                f"两条绑定会撞成同一个键、第一条静默失效。）"
+            )
+    if key == sidebar_key:
+        raise ValueError(f"--key 和 --sidebar-key 不能相同（都是 {key!r}）")
     path = conf_path or Path.home() / ".tmux.conf"
     atm_command = resolve_atm_command()
 
@@ -140,6 +157,20 @@ def build_plan(
             description="只看当前目录的会话",
             width=width,
             height=height,
+        ),
+        # `#{pane_id}` 由 tmux 在 run-shell 执行前展开成按键时的当前 pane。
+        # 实测 run-shell 里的 $TMUX_PANE 不可靠（指向别的 pane），必须显式传。
+        Binding(
+            key=sidebar_key,
+            command=f"{atm_command} sidebar --toggle --pane '#{{pane_id}}'",
+            description="侧栏：开 / 切过去 / 收起",
+            kind=BindingKind.SHELL,
+        ),
+        Binding(
+            key=sidebar_key.upper(),
+            command=f"{atm_command} park '#{{pane_id}}'",
+            description="把当前格子收进后台窗口 bg",
+            kind=BindingKind.SHELL,
         ),
     )
 
