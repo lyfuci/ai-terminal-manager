@@ -72,6 +72,25 @@ def test_swap_into_names_the_slot_explicitly(fake_tmux) -> None:
     assert ["swap-pane", "-s", "%bg", "-t", "%other"] in fake_tmux["calls"]
 
 
+def test_swap_auto_discards_idle_bash_and_flags_override(fake_tmux) -> None:
+    fake_tmux["panes"] = "\n".join([_line("%here", active="1"), _line("%bg", "@1", "claude")])
+    assert cli.main(["swap", "%bg", "--pane", "%here"]) == 0
+    assert ["kill-pane", "-t", "%here"] in fake_tmux["calls"]
+
+    fake_tmux["calls"].clear()
+    assert cli.main(["swap", "%bg", "--pane", "%here", "--keep"]) == 0
+    assert not any(c[0] == "kill-pane" for c in fake_tmux["calls"])
+
+    fake_tmux["calls"].clear()
+    fake_tmux["panes"] = "\n".join(
+        [_line("%here", active="1", command="claude"), _line("%bg", "@1", "claude")]
+    )
+    assert cli.main(["swap", "%bg", "--pane", "%here"]) == 0
+    assert not any(c[0] == "kill-pane" for c in fake_tmux["calls"]), "跑着 claude 的默认不关"
+    assert cli.main(["swap", "%bg", "--pane", "%here", "--discard"]) == 0
+    assert ["kill-pane", "-t", "%here"] in fake_tmux["calls"]
+
+
 def test_swap_unknown_pane_is_an_error(fake_tmux, capsys) -> None:
     fake_tmux["panes"] = _line("%me")
     assert cli.main(["swap", "%zz", "--pane", "%me"]) == 1

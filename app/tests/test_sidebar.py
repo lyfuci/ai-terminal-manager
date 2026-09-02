@@ -154,6 +154,30 @@ def test_plan_swap_with_explicit_slot() -> None:
         sidebar.plan_swap(panes, window_id="@0", target_id="%bg", slot_id="%zz")
 
 
+def test_swap_discards_idle_shell_slot_but_parks_busy_one() -> None:
+    """换出去的旧格子：空闲 bash 直接关，跑着 claude 的收后台。"""
+    bg = pane("%bg", window_id="@1", command="claude")
+    idle = (pane("%s", is_sidebar=True), pane("%a", last=True, command="bash"), bg)
+    assert sidebar.plan_swap(idle, window_id="@0", target_id="%bg").discard is True
+    busy = (pane("%s", is_sidebar=True), pane("%a", last=True, command="claude"), bg)
+    assert sidebar.plan_swap(busy, window_id="@0", target_id="%bg").discard is False
+    # 显式覆盖
+    assert sidebar.plan_swap(idle, window_id="@0", target_id="%bg", discard=False).discard is False
+    assert sidebar.plan_swap(busy, window_id="@0", target_id="%bg", discard=True).discard is True
+
+
+def test_execute_swap_kills_discarded_slot_last(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(tmux, "run", lambda args, **kw: calls.append(args) or "")
+    plan = sidebar.SwapPlan(kind=SwapKind.SWAP, target="%bg", slot="%a", discard=True)
+    sidebar.execute_swap(plan)
+    assert calls == [
+        ["swap-pane", "-s", "%bg", "-t", "%a"],
+        ["select-pane", "-t", "%bg"],
+        ["kill-pane", "-t", "%a"],
+    ]
+
+
 def test_plan_swap_refuses_missing_or_sidebar_target() -> None:
     panes = (pane("%s", is_sidebar=True), pane("%a"))
     with pytest.raises(SidebarError):

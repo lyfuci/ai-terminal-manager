@@ -10,7 +10,7 @@
   ✅ 活动 pane 变成侧栏
   ✅ 没有开出第二个侧栏
 == 3. swap：把 bg 里的 pane 换进主格 ==
-  把 %2 换进 %0 的位置
+  把 %2 换进 %0 的位置，旧格子进后台
   ✅ BG 现在在 w0 里
   ✅ MAIN 被换去了 bg 窗口
   ✅ 焦点在换进来的 BG 上
@@ -33,10 +33,20 @@
   收起侧栏 %3
   ✅ 侧栏 pane 没了
   ✅ BG 占满整行（宽 140）
+== 8. swap 进空闲 bash：旧格子自动关掉，不留在后台 ==
+  ✅ 有一个空闲 bash 格子
+  把 %0 换进 %5 的位置，旧格子是空闲 shell，已关掉
+  ✅ MAIN 换进了 bash 原来的位置（在 w0）
+  ✅ 空闲 bash 被关掉了
+  ✅ 没有多出窗口
+== 9. --keep：空闲 bash 也留着 ==
+  把 %2 换进 %6 的位置，旧格子进后台
+  ✅ --keep 时 bash 仍存在（进了后台）
 
-  A:w0.0 %2 w=140 h=40 cmd=sleep sb=[]
-  A:bg.0 %0 w=140 h=20 cmd=sleep sb=[]
-  A:bg.1 %1 w=140 h=19 cmd=sleep sb=[]
+  A:w0.0 %6 w=70 h=40 cmd=bash sb=[]
+  A:w0.1 %0 w=34 h=40 cmd=sleep sb=[]
+  A:w0.2 %2 w=34 h=40 cmd=sleep sb=[]
+  A:bg.0 %1 w=140 h=40 cmd=sleep sb=[]
   A:solo.0 %4 w=140 h=40 cmd=sleep sb=[]
 
-通过 22，失败 0
+通过 27，失败 0

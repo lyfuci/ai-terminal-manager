@@ -77,6 +77,23 @@ atm sidebar --toggle --pane "$SB" 2>&1 | sed 's/^/  /'
 check "侧栏 pane 没了" '! "${T[@]}" list-panes -a -F "#{pane_id}" | grep -qx "$SB"'
 check "BG 占满整行（宽 140）" '[ "$("${T[@]}" display -p -t "$BG" "#{pane_width}")" = "140" ]'
 
+echo "== 8. swap 进空闲 bash：旧格子自动关掉，不留在后台 =="
+"${T[@]}" split-window -t A:w0 -h -c /tmp bash --norc   # 主区分一个空闲 bash
+sleep 0.5
+IDLE=$("${T[@]}" list-panes -t A:w0 -F '#{pane_id} #{pane_current_command}' | awk '$2=="bash"{print $1}')
+check "有一个空闲 bash 格子" '[ -n "$IDLE" ]'
+BEFORE=$("${T[@]}" list-windows -t A -F '#{window_id}' | wc -l)
+atm swap "$MAIN" --pane "$IDLE" 2>&1 | sed 's/^/  /'
+sleep 0.3
+check "MAIN 换进了 bash 原来的位置（在 w0）" '"${T[@]}" list-panes -t A:w0 -F "#{pane_id}" | grep -qx "$MAIN"'
+check "空闲 bash 被关掉了" '! "${T[@]}" list-panes -a -F "#{pane_id}" | grep -qx "$IDLE"'
+check "没有多出窗口" '[ "$("${T[@]}" list-windows -t A -F "#{window_id}" | wc -l)" -le "$BEFORE" ]'
+echo "== 9. --keep：空闲 bash 也留着 =="
+"${T[@]}" split-window -t A:w0 -h -c /tmp bash --norc; sleep 0.5
+IDLE2=$("${T[@]}" list-panes -t A:w0 -F '#{pane_id} #{pane_current_command}' | awk '$2=="bash"{print $1}')
+atm swap "$BG" --pane "$IDLE2" --keep 2>&1 | sed 's/^/  /'
+check "--keep 时 bash 仍存在（进了后台）" '"${T[@]}" list-panes -a -F "#{pane_id}" | grep -qx "$IDLE2"'
+
 echo; panes | sed 's/^/  /'
 echo; echo "通过 $pass，失败 $fail"
 [ "$fail" -eq 0 ]

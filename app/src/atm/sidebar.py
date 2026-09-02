@@ -90,18 +90,30 @@ class SwapPlan:
     kind: SwapKind
     target: str  # 要看的那个 pane
     slot: str | None = None  # 被换出去的主格（FOCUS 时为 None）
+    # 换完之后把被换出去的那格**关掉**而不是留在后台。
+    # 默认只对空闲 shell 这么做：一个刚开的 bash 被换走后留在 bg 里毫无意义，
+    # 每换一次后台就多一个空格子（实机踩到）。里面跑着东西的格子仍然收进后台。
+    discard: bool = False
 
     def describe(self) -> str:
         if self.kind is SwapKind.FOCUS:
             return f"切到 {self.target}（已在本窗口）"
-        return f"把 {self.target} 换进 {self.slot} 的位置"
+        tail = "，旧格子是空闲 shell，已关掉" if self.discard else "，旧格子进后台"
+        return f"把 {self.target} 换进 {self.slot} 的位置{tail}"
 
 
 def plan_swap(
-    panes: tuple[Pane, ...], *, window_id: str, target_id: str, slot_id: str | None = None
+    panes: tuple[Pane, ...],
+    *,
+    window_id: str,
+    target_id: str,
+    slot_id: str | None = None,
+    discard: bool | None = None,
 ) -> SwapPlan:
     """纯函数：决定选中 target 之后该做什么。
 
+    `discard`：None = 自动（被换出去的格子是空闲 shell 就关掉，否则收后台）；
+    True = 一律关掉（**会杀掉里面跑着的进程**，只给显式要求的命令行用）；False = 一律留着。
     `slot_id` 指定换进哪一格；不给就用 `main_slot`（侧栏场景）。
     命令行里从某个格子跑 `atm swap` 时应把那个格子传进来 —— 「我在哪格跑的就换进哪格」
     比 `pane_last` 直观，后者是给侧栏用的（侧栏拿焦点前用户在看的格子）。
@@ -119,13 +131,23 @@ def plan_swap(
             raise SidebarError("不能换进侧栏的位置")
         if slot.id == target.id:
             return SwapPlan(kind=SwapKind.FOCUS, target=target_id)
-        return SwapPlan(kind=SwapKind.SWAP, target=target_id, slot=slot.id)
+        return SwapPlan(
+            kind=SwapKind.SWAP, target=target_id, slot=slot.id, discard=_discard(slot, discard)
+        )
     if target.window_id == window_id:
         return SwapPlan(kind=SwapKind.FOCUS, target=target_id)
     slot = main_slot(panes, window_id)
     if slot is None:
         raise SidebarError("本窗口除了侧栏没有别的格子，没法换位 —— 先分一格出来")
-    return SwapPlan(kind=SwapKind.SWAP, target=target_id, slot=slot.id)
+    return SwapPlan(
+        kind=SwapKind.SWAP, target=target_id, slot=slot.id, discard=_discard(slot, discard)
+    )
+
+
+def _discard(slot: Pane, wanted: bool | None) -> bool:
+    if wanted is not None:
+        return wanted
+    return slot.is_idle_shell
 
 
 def execute_swap(plan: SwapPlan) -> None:
@@ -134,6 +156,11 @@ def execute_swap(plan: SwapPlan) -> None:
             assert plan.slot is not None
             tmux.swap_pane(plan.target, plan.slot)
         tmux.focus_pane(plan.target)
+        if plan.kind is SwapKind.SWAP and plan.discard:
+            # 先换、先切焦点、最后才关：关掉的是已经被换到别处的那个 pane，
+            # 它所在的窗口若因此变空会一起消失 —— 正是要的效果（不留空窗口）。
+            assert plan.slot is not None
+            tmux.kill_pane(plan.slot)
     except TmuxError as exc:
         raise SidebarError(str(exc)) from exc
 
