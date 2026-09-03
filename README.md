@@ -1,6 +1,86 @@
 # ai-terminal-manager
 
-**一句话**：一个面向 AI CLI（Claude Code / Codex）的终端管理器 —— 自由布局的多格终端 + 可收纳的左侧「最近会话」侧栏，能把某条历史对话直接恢复到指定的格子里。
+**一句话**：一个面向 AI CLI（Claude Code / Codex）的终端管理器 —— 把两边的历史会话合成一份列表，
+选一条投进你指定的 tmux 格子；再加一个常驻左侧栏，用 `swap-pane` 在正在跑的会话之间换位。
+
+不做 GUI、不做布局同步 —— 那些 tmux 生态和官方 Desktop 已经吃掉了。atm 只做「AI 会话当一等公民」这一条。
+
+> 这个仓库同时是**研究记录**：「怎么用」在上半部分，「为什么这么设计 / 实测踩过哪些坑」在
+> [下半部分](#以下是研究记录) 和 `notes/`。
+
+## 要求
+
+- Linux 或 WSL2 + **tmux ≥ 3.0**（开发基准 3.6）
+- **Python ≥ 3.11**，零运行时依赖
+- 装了 Claude Code 或 Codex 至少一个（atm 只读它们写在 `~/.claude/projects/`、`~/.codex/sessions/` 的会话文件）
+
+## 装
+
+推荐 [uv](https://docs.astral.sh/uv/)：
+
+```bash
+# 不用 clone，直接从仓库装
+uv tool install 'atm @ git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'
+
+# 或者 clone 下来装（加 --editable 可以改了源码立刻生效）
+git clone https://github.com/lyfuci/ai-terminal-manager
+uv tool install ./ai-terminal-manager/app
+```
+
+没有 uv 用 `pipx install 'git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'` 也一样。
+
+装完先体检，再装 tmux 键位：
+
+```bash
+atm doctor      # 数据源在不在、tmux 通不通、能扫到多少条会话
+atm install     # 往 ~/.tmux.conf 写键位。会先把要写的内容打出来问过你；-y 跳过确认
+```
+
+`atm install` 写的是一个 marker 包起来的块，改前自动备份，对正在跑的 tmux server 立即生效，
+`atm uninstall` 只删这个块、你自己的配置一个字不动。键位可换：`atm install --key s --sidebar-key g`。
+
+卸载：`atm uninstall && uv tool uninstall atm`。
+
+## 用
+
+装完就是四个键（`prefix` 默认 `Ctrl-b`）：
+
+| 键 | 干什么 |
+|---|---|
+| `prefix + a` | **浮层**：模糊搜全部历史会话 → 选目标格子 → 会话在那格 `--resume` 起来 |
+| `prefix + A` | 同上，但只看当前目录（含子目录）的会话 |
+| `prefix + b` | **侧栏**：没开就在最左边开一条通高的；开了就切过去；已经在里面就收起 |
+| `prefix + B` | 把当前格子收进后台窗口 `bg` —— 进程继续跑，之后从侧栏里还能选回来 |
+
+浮层里：打字模糊搜索，`↑↓` / `^N` `^P` 移动，`Tab` 在 全部 / Claude / Codex 之间切，`⏎` 选中，`Esc` 取消。
+
+侧栏里：上半段是**正在跑的格子**（选中 → `swap-pane` 换进主格，进程不断），下半段是**历史**
+（选中 → 后台新窗口里 resume 再换进来）。`⏎` 换进主格，`^T` 挑具体换进哪格，`^X` 把选中的收进 `bg`，
+`Tab` 切来源，`^R` 重建索引，`^C` 退出。
+
+命令行同样能用（不在 tmux 里时 `pick` 自动退化成打印命令，`eval "$(atm pick --print)"`）：
+
+```bash
+atm list -n 20            # 列最近 20 条；--source codex 只看 Codex；--json 喂给别的脚本
+atm pick                  # 交互选会话 → 选目标 pane → 投递
+atm resume <id前缀>       # 不进 TUI，按 id 直接投
+atm panes                 # 列出所有 tmux pane 及忙闲状态
+atm swap %7 --into %3     # 把 %7 换进 %3
+atm park                  # 当前格子收进 bg
+atm prune -n              # 看看 bg 里有哪些空闲 shell 可以关（去掉 -n 才真关）
+atm index --rebuild       # 清缓存全量重建
+```
+
+> 投递默认套一层 cgroup 内存闸门（`MemoryHigh=2G` / `MemoryMax=4G`）。
+> 起因是实测撞上 WSL 内存上限时**整个 tmux server 连同所有会话一起死掉**过一次。
+> 阈值怎么定的、怎么关，见 `app/README.md`「内存闸门」。
+
+**完整选项、实测性能、两个 JSONL 的格式细节：[`app/README.md`](app/README.md)。**
+开发和贡献：[CONTRIBUTING.md](CONTRIBUTING.md)。
+
+---
+
+# 以下是研究记录
 
 ## 现状
 
@@ -10,7 +90,7 @@
 不做 GUI、不做控制模式解析器、不做布局同步：官方 Claude Code Desktop + tmux 生态已经把
 布局那块吃掉了（详见 `notes/survey-existing-tools.md`）。
 
-`app/` 现状：Python 3.11+ 零运行时依赖，68 个测试通过，冷启动 198ms / 热启动 5ms（实测见下）。
+`app/` 现状：Python 3.11+ 零运行时依赖，210 个测试通过，冷启动 198ms / 热启动 5ms（实测见下）。
 用法见 **`app/README.md`**。
 
 > 架构分岔口 A（tmux 后端 + GUI）/ B（自写 daemon）**没有被否掉，只是没做** ——
@@ -219,7 +299,7 @@ Windows GUI / 控制模式解析器 / 布局同步全部蒸发。
 
 - 2026-08-12 建目录；从会话 `00000000-0000-4000-8000-000000000004` 提炼需求与架构讨论，详见 `notes/2026-08-12-design-session.md`。
 - 2026-08-12 调研现成工具，推翻「没人做」的判断，见 `notes/survey-existing-tools.md`。
-- 2026-08-12 **路线 C 拍板并实现**：`app/` 里的 `atm`（68 测试通过）。
+- 2026-08-12 **路线 C 拍板并实现**：`app/` 里的 `atm`（当时 68 测试通过）。
   实现过程中实测推翻了本文件关于两个 jsonl 格式的三条描述（见上「侧栏数据源」节）。
   端到端验证 `experiments/2026-08-12-tmux-e2e/`，压测 `experiments/2026-08-12-index-bench/`。
 - 2026-09-02 **常驻侧栏 + swap 换位**（分支 `sidebar-swap`）：`atm sidebar` 常驻在最左边的通高 pane 里，
