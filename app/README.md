@@ -303,7 +303,7 @@ src/atm/
 ## 开发
 
 ```bash
-uv run pytest                # 68 个测试
+uv run pytest                # 210 个测试
 uv run ruff check . && uv run ruff format --check .
 ```
 

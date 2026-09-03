@@ -15,7 +15,7 @@ uv run ruff check src tests  # lint
 uv run ruff format src tests # 格式化
 ```
 
-装成本机命令：`uv tool install --editable .`（或 `uv tool install 'git+<仓库>#subdirectory=app'`）。
+装成本机命令：`uv tool install --editable .`（或 `uv tool install 'atm @ git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'`）。
 
 ## 铁律（不遵守的 PR 会被要求改）
 
