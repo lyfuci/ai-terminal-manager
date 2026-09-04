@@ -2,8 +2,9 @@
 
 为什么不用 `run-shell /abs/path/atm.tmux`：那条路径指向源码目录，
 `app/` 一旦搬走或改名，用户的 tmux.conf 就悄悄失效了。
-直接写 `bind-key` 行是自包含的 —— 只要 `atm` 在 PATH 上就一直有效，
-而且用户能直接看懂和改。（`atm.tmux` 保留给 tpm 用户。）
+直接写 `bind-key` 行是自包含的，而且用户能直接看懂和改。
+（`atm.tmux` 保留给 tpm 用户。）绑定里调的是 `atm` 的绝对路径而不是裸名 ——
+tmux server 的 PATH 是它启动那刻的快照，见 `resolve_atm_command`。
 
 这个模块会**改用户的全局配置**，所以：
 - 用 marker 包起来，可精确识别 / 幂等 / 可干净卸载；
@@ -113,14 +114,21 @@ class InstallResult:
 
 
 def resolve_atm_command() -> str:
-    """决定 tmux 里该怎么调 atm。
+    """决定 tmux 里该怎么调 atm —— 永远是**绝对路径**。
 
-    优先 PATH 上的 `atm`（最快，实测 60ms）；找不到就退回当前解释器的 `-m atm`，
-    这样从源码树直接跑也能装。
+    优先 PATH 上的 `atm`，但写进 tmux.conf 的是 `which()` 解析出的完整路径，
+    不是裸名。因为 tmux server 用的是**启动它那一刻**的环境，而 `atm` 一般装在
+    `~/.local/bin`（uv tool / pipx）：只要 server 比那条 PATH 更早起来，
+    `run-shell 'atm …'` 就是 127，报错只有一行
+    `'atm sidebar --toggle --pane %1' returned 127`，非常难查。
+    安装时的 shell 找得到，不代表 tmux 找得到。
+
+    找不到就退回当前解释器的 `-m atm`（同样是绝对路径），这样从源码树直接跑也能装。
     """
-    if shutil.which("atm"):
-        return "atm"
-    return f"{sys.executable} -m atm"
+    found = shutil.which("atm")
+    if found:
+        return shlex.quote(found)
+    return f"{shlex.quote(sys.executable)} -m atm"
 
 
 def build_plan(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 from atm import install as install_mod
@@ -207,3 +208,47 @@ def test_sidebar_key_validation(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="不能相同"):
         _plan(conf, key="b", sidebar_key="b")
     assert {b.key for b in _plan(conf, sidebar_key="s").bindings} == {"a", "A", "s", "S"}
+
+
+def test_resolve_atm_command_returns_absolute_path(tmp_path: Path, monkeypatch) -> None:
+    """写进 tmux.conf 的必须是绝对路径，不能是裸名 `atm`。
+
+    tmux server 用的是**启动它那一刻**的环境。`atm` 常装在 `~/.local/bin`
+    （uv tool / pipx），如果 server 比这条 PATH 更早起来，`run-shell 'atm …'`
+    就是 127 command not found —— 实测发生过，报错只有一行
+    `'atm sidebar --toggle --pane %1' returned 127`，很难查。
+    安装时的 shell 找得到不代表 tmux 找得到，所以要把 which() 的结果原样写进去。
+    """
+    fake = tmp_path / ".local" / "bin" / "atm"
+    fake.parent.mkdir(parents=True)
+    fake.write_text("#!/bin/sh\n", encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setattr(install_mod.shutil, "which", lambda _: str(fake))
+
+    assert install_mod.resolve_atm_command() == str(fake)
+
+
+def test_resolve_atm_command_quotes_paths_with_spaces(tmp_path: Path, monkeypatch) -> None:
+    fake = tmp_path / "my tools" / "atm"
+    fake.parent.mkdir(parents=True)
+    fake.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(install_mod.shutil, "which", lambda _: str(fake))
+
+    assert install_mod.resolve_atm_command() == shlex.quote(str(fake))
+
+
+def test_bindings_contain_no_bare_atm_command(tmp_path: Path, monkeypatch) -> None:
+    """四条绑定里出现的 atm 一律是绝对路径。"""
+    fake = tmp_path / ".local" / "bin" / "atm"
+    fake.parent.mkdir(parents=True)
+    fake.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(install_mod.shutil, "which", lambda _: str(fake))
+
+    conf = tmp_path / ".tmux.conf"
+    install_mod.apply(_plan(conf), live=False)
+
+    for line in conf.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("bind-key"):
+            continue
+        assert str(fake) in line
+        assert "'atm " not in line and '"atm ' not in line
