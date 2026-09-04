@@ -25,6 +25,8 @@ SIDEBAR_OPTION = "@atm_sidebar"
 
 # 用 \x1f (unit separator) 当分隔符：pane 标题和路径里可能有 | 或 tab，但不会有控制字符。
 _SEP = "\x1f"
+# tmux 3.4 把 _SEP 转义成这 4 个字面字符打出来；3.6 输出原字节。见 `_split_fields`。
+_SEP_ESCAPED = "\\037"
 _PANE_FORMAT = _SEP.join(
     [
         "#{pane_id}",
@@ -201,13 +203,30 @@ def list_panes() -> tuple[Pane, ...]:
     return parse_panes(run(["list-panes", "-a", "-F", _PANE_FORMAT]))
 
 
+def _split_fields(line: str) -> list[str]:
+    """按分隔符拆一行 —— 原始 \x1f 和 tmux 3.4 的字面量 `\\037` 都认。
+
+    tmux 3.4 会把格式串里的控制字符按八进制转义打出来（实测
+    `tmux display-message -p "A<0x1f>B"` → `A\\037B`），3.6 则输出原字节。
+    CONTRIBUTING 声明支持 3.0+，两种都得吃下去，否则 3.4 上每一行都因为
+    「只有 1 个字段」被跳过，`list_panes()` 返回空元组，
+    `atm sidebar --toggle` 报「找不到当前 pane %1」退出码 1。
+
+    只认死 `\\037` 这一个序列，不做通用的八进制反转义 —— pane 标题里真出现
+    反斜杠数字（`C:\\123`）不能被误伤。
+    """
+    if _SEP in line:
+        return line.split(_SEP)
+    return line.split(_SEP_ESCAPED)
+
+
 def parse_panes(stdout: str) -> tuple[Pane, ...]:
     """纯函数，方便测 —— tmux 的输出格式变了这里能第一时间测出来。"""
     panes: list[Pane] = []
     for line in stdout.splitlines():
         if not line.strip():
             continue
-        fields = line.split(_SEP)
+        fields = _split_fields(line)
         if len(fields) < 13:
             continue  # 格式对不上就跳过这一行，别让整个列表挂掉
         # 后加的字段允许缺席（老格式的输出照样能解析），缺了就取默认值。

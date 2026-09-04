@@ -357,3 +357,29 @@ def test_plain_heading_is_not_stripped() -> None:
 
     assert strip_wrapper_blocks("# 我的笔记\n\n这段要保留").startswith("# 我的笔记")
     assert strip_wrapper_blocks("# 标题\n\n普通正文") == "# 标题\n\n普通正文"
+
+
+def test_parse_panes_accepts_tmux34_escaped_separator() -> None:
+    """tmux 3.4 把格式串里的 \\x1f 按八进制转义打成字面量 `\\037`（4 个字符）。
+
+    实测 tmux 3.4：
+        $ tmux display-message -p "A$(printf '\\037')B" | cat -A
+        A\\037B$
+    而开发基准 tmux 3.6 直接输出原始字节。CONTRIBUTING 声明支持 3.0+，
+    所以两种都得能解析 —— 否则 3.4 上 list_panes() 返回空元组，
+    `atm sidebar --toggle` 报「找不到当前 pane %1」退出码 1。
+    """
+    escaped = _pane_line().replace(SEP, "\\037")
+    assert SEP not in escaped
+
+    panes = tmux.parse_panes(escaped)
+
+    assert len(panes) == 1
+    assert panes[0].id == "%1"
+    assert panes[0].current_path == "/home/sean"
+    assert panes[0].title == "sean@host"
+
+
+def test_parse_panes_escaped_and_raw_mixed() -> None:
+    panes = tmux.parse_panes(_pane_line() + "\n" + _pane_line(id="%2").replace(SEP, "\\037"))
+    assert [p.id for p in panes] == ["%1", "%2"]
