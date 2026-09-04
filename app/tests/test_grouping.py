@@ -197,3 +197,12 @@ def test_control_chars_stripped_before_drawing() -> None:
     assert _Screen._sanitize("A\x1b[31mRED\x07B") == "A[31mREDB"
     assert _Screen._sanitize("正常标题") == "正常标题"
     assert _Screen._sanitize("tab\there") == "tab\there"
+
+
+def test_every_source_has_a_display_tag() -> None:
+    """新加 Source 忘了配标记的话，列表里会出现一列 `??`。"""
+    from atm.model import SOURCE_TAG, Source
+
+    for source in Source:
+        assert SOURCE_TAG.get(source), source
+        assert len(SOURCE_TAG[source]) == 2, source

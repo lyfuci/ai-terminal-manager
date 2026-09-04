@@ -19,10 +19,8 @@ from pathlib import Path
 
 from . import dispatch
 from .fuzzy import ScoredEntry, rank
-from .model import SessionEntry, Source
+from .model import SOURCE_TAG, SessionEntry, Source
 from .text import display_width, humanize_age_ago, pad_display, tail_display, truncate_display
-
-_SOURCE_TAG = {Source.CLAUDE: "CC", Source.CODEX: "CX"}
 
 # 各列的固定宽度（显示宽度，不是字符数）
 _AGE_WIDTH = 9
@@ -69,7 +67,7 @@ class GroupMode(StrEnum):
         return order[(order.index(self) + 1) % len(order)]
 
 
-_AGENT_NAME = {Source.CLAUDE: "Claude Code", Source.CODEX: "Codex"}
+_AGENT_NAME = {Source.CLAUDE: "Claude Code", Source.CODEX: "Codex", Source.PI: "Pi"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,7 +277,7 @@ class _SessionPicker(_Screen):
         return None
 
     def _cycle_source(self) -> None:
-        order: list[Source | None] = [None, Source.CLAUDE, Source.CODEX]
+        order: list[Source | None] = [None, *Source]
         self._source_filter = order[(order.index(self._source_filter) + 1) % len(order)]
         self._recompute()
 
@@ -477,7 +475,7 @@ class _SessionPicker(_Screen):
         age = _age_label(entry, now)
         x = self._put(stdscr, y, 0, pad_display(age, _AGE_WIDTH), base | _color(5))
         x += _GUTTER
-        tag = _SOURCE_TAG.get(entry.source, "??")
+        tag = SOURCE_TAG.get(entry.source, "??")
         x = self._put(stdscr, y, x, pad_display(tag, _TAG_WIDTH), base | _color(3))
         x += _GUTTER
         project = pad_display(entry.project_name, _PROJECT_WIDTH)

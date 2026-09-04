@@ -15,7 +15,7 @@ from pathlib import Path
 from . import cache as cache_mod
 from .cache import CachedEntry, IndexCache
 from .model import FileRef, IndexStats, SessionEntry, SessionIndex, Source
-from .sources import claude, codex
+from .sources import claude, codex, pi
 
 # ---------------------------------------------------------------- 噪音会话
 #
@@ -57,6 +57,7 @@ class SourceRoots:
     claude_root: Path | None = None
     codex_root: Path | None = None
     codex_legacy_index: Path | None = None
+    pi_root: Path | None = None
 
 
 def build(
@@ -72,7 +73,7 @@ def build(
     """
     started = time.perf_counter()
     roots = roots or SourceRoots()
-    wanted = set(sources) if sources is not None else {Source.CLAUDE, Source.CODEX}
+    wanted = set(sources) if sources is not None else set(Source)
 
     # 无论用不用缓存都要读它：`use_cache=False` 只表示「本轮不吃命中」，
     # 不表示「可以把别的来源的缓存也扔掉」。
@@ -129,6 +130,8 @@ def build(
         ingest(claude.discover(roots.claude_root), claude.parse)
     if Source.CODEX in wanted:
         ingest(codex.discover(roots.codex_root), lambda ref: codex.parse(ref, legacy_titles))
+    if Source.PI in wanted:
+        ingest(pi.discover(roots.pi_root), pi.parse)
 
     # 内容没变就别写盘。热路径下 100% 命中是常态，无脑重写会白白产生
     # 140KB 写入 + 一次 fsync —— 在 WSL 上这些字节最终要落到宿主的虚拟磁盘。
@@ -161,6 +164,8 @@ def _cached_source(path: str, cached: CachedEntry) -> Source | None:
         return cached.entry.source
     if "/.codex/" in path:
         return Source.CODEX
+    if "/.pi/" in path:
+        return Source.PI
     if "/.claude/" in path:
         return Source.CLAUDE
     return None

@@ -19,7 +19,7 @@ from . import dispatch as dispatch_mod
 from . import index as index_mod
 from . import tmux
 from .dispatch import DispatchError, DispatchTarget, TargetKind
-from .model import SessionEntry, SessionIndex, Source
+from .model import SOURCE_TAG, SessionEntry, SessionIndex, Source
 from .text import humanize_age, pad_display, truncate_display
 from .tmux import Pane, SplitDirection
 
@@ -240,7 +240,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
     now = datetime.now(tz=UTC)
     for entry in limited:
         age = humanize_age((now - entry.updated_at).total_seconds())
-        tag = "CC" if entry.source is Source.CLAUDE else "CX"
+        tag = SOURCE_TAG.get(entry.source, "??")
         branch = f" ({entry.git_branch})" if entry.git_branch else ""
         named = f"⟨{entry.name}⟩ " if entry.name else ""
         print(
@@ -471,19 +471,21 @@ def _cmd_prune(args: argparse.Namespace) -> int:
 def _cmd_doctor(args: argparse.Namespace) -> int:
     from .sources import claude as claude_src
     from .sources import codex as codex_src
+    from .sources import pi as pi_src
 
     print("== 数据源 ==")
     claude_root = claude_src.DEFAULT_ROOT
     codex_root = codex_src.DEFAULT_ROOT
     _report_root("Claude", claude_root, len(list(claude_src.discover())))
     _report_root("Codex", codex_root, len(list(codex_src.discover())))
+    _report_root("Pi", pi_src.DEFAULT_ROOT, len(list(pi_src.discover())))
 
     legacy = codex_src.LEGACY_INDEX
     titles = codex_src.load_legacy_titles()
     print(f"  Codex 老索引 {legacy}: {'有' if legacy.exists() else '无'}（{len(titles)} 条标题）")
 
     print("\n== CLI ==")
-    for program in ("claude", "codex"):
+    for program in ("claude", "codex", "pi"):
         import shutil
 
         found = shutil.which(program)

@@ -67,6 +67,24 @@ def test_resume_command_for_codex() -> None:
     assert command.shell_line() == "cd /tmp && codex resume aaaa-bbbb"
 
 
+def test_resume_command_for_pi() -> None:
+    """上游文档 sessions.md：`--session <path|id>` 接完整路径或**部分** session id。
+
+    传完整 id 而不是路径，和另外两家保持一致（路径里有空格照样能过 shlex，
+    但 id 更短、也是 pi 自己 `-r` 列表里显示的东西）。
+    """
+    command = resume_command(make_entry(Source.PI))
+    assert command.program == "pi"
+    assert command.argv == ("--session", "aaaa-bbbb")
+    assert command.shell_line() == "cd /tmp && pi --session aaaa-bbbb"
+
+
+def test_every_source_has_a_resume_command() -> None:
+    """加了新 Source 却忘了在 RESUME_PROGRAMS 里登记 —— 只会在用户点下去那一刻炸。"""
+    for source in Source:
+        assert resume_command(make_entry(source)).program
+
+
 def test_shell_line_quotes_dangerous_cwd() -> None:
     """cwd 里有空格/引号/分号时必须转义 —— 否则会执行到别的命令。"""
     entry = make_entry(cwd="/tmp")

@@ -160,6 +160,9 @@ RESUME_PROGRAMS: dict[Source, tuple[str, ...]] = {
     Source.CLAUDE: ("claude", "--resume"),
     # 实测 `codex resume --help`：`Usage: codex resume [OPTIONS] [SESSION_ID] [PROMPT]`
     Source.CODEX: ("codex", "resume"),
+    # 上游文档 sessions.md：`--session <path|id>  Use a specific session file or partial session ID`
+    # （未在真机验证过，本机没装 pi。）
+    Source.PI: ("pi", "--session"),
 }
 
 
