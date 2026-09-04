@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from atm.model import UNTITLED, FileRef, Source
-from atm.sources import claude, codex
+from atm.sources import claude, codex, pi
 
 from .conftest import write_jsonl
 
@@ -391,3 +391,153 @@ def test_claude_takes_latest_ai_title(claude_root: Path) -> None:
     entry = claude.parse(FileRef.from_path(path))
     assert entry is not None
     assert entry.title == "最终的标题"
+
+
+# ---------------------------------------------------------------- pi
+#
+# ⚠️ 和上面两组不同：pi 的记录形状**照上游文档写的，不是实测语料**
+# （见 sources/pi.py 的模块 docstring）。真机跑起来后如果字段对不上，
+# 这一组会第一个红 —— 那正是它存在的意义。
+
+
+def _pi_file(root: Path, session_id: str, *, extra: list[dict | str] | None = None) -> Path:
+    return write_jsonl(
+        root / "--home-sean-IdeaProjects-demo--" / f"2026-09-05T01_20_00_{session_id}.jsonl",
+        [
+            {
+                "type": "session",
+                "version": 3,
+                "id": session_id,
+                "timestamp": "2026-09-05T01:20:00.000Z",
+                "cwd": "/home/sean/IdeaProjects/demo",
+            },
+            *(extra or []),
+        ],
+    )
+
+
+def _pi_user(text: str, entry_id: str = "a1b2c3d4") -> dict:
+    return {
+        "type": "message",
+        "id": entry_id,
+        "parentId": None,
+        "timestamp": "2026-09-05T01:20:01.000Z",
+        "message": {"role": "user", "content": text},
+    }
+
+
+def test_pi_parse_reads_header_and_first_user_message(pi_root: Path) -> None:
+    path = _pi_file(pi_root, "abc12345", extra=[_pi_user("把索引层的缓存加上")])
+
+    entry = pi.parse(FileRef.from_path(path))
+
+    assert entry is not None
+    assert entry.source is Source.PI
+    assert entry.id == "abc12345"
+    assert entry.title == "把索引层的缓存加上"
+    assert entry.cwd == "/home/sean/IdeaProjects/demo"
+    assert entry.git_branch is None  # schema v3 没有 git 字段
+
+
+def test_pi_ignores_non_user_roles_as_title(pi_root: Path) -> None:
+    """role 枚举比另外两家宽 —— toolResult / bashExecution / compactionSummary
+    都不能冒充标题，否则列表里会出现一堆 bash 输出。"""
+    noise = [
+        {"type": "message", "message": {"role": "toolResult", "content": "exit 0"}},
+        {"type": "message", "message": {"role": "bashExecution", "content": "ls -la"}},
+        {"type": "message", "message": {"role": "compactionSummary", "content": "用户讨论了 X"}},
+        {
+            "type": "message",
+            "message": {"role": "assistant", "content": [{"type": "text", "text": "好的"}]},
+        },
+    ]
+    path = _pi_file(pi_root, "abc12345", extra=[*noise, _pi_user("真正的第一句")])
+
+    entry = pi.parse(FileRef.from_path(path))
+
+    assert entry is not None
+    assert entry.title == "真正的第一句"
+
+
+def test_pi_session_info_becomes_name(pi_root: Path) -> None:
+    path = _pi_file(
+        pi_root,
+        "abc12345",
+        extra=[
+            _pi_user("随便问点什么"),
+            {"type": "session_info", "id": "k1l2m3n4", "name": "Refactor auth module"},
+        ],
+    )
+
+    entry = pi.parse(FileRef.from_path(path))
+
+    assert entry is not None
+    assert entry.name == "Refactor auth module"
+
+
+def test_pi_takes_latest_rename(pi_root: Path) -> None:
+    path = _pi_file(
+        pi_root,
+        "abc12345",
+        extra=[
+            _pi_user("随便问点什么"),
+            {"type": "session_info", "name": "旧名字"},
+            {"type": "session_info", "name": "新名字"},
+        ],
+    )
+
+    entry = pi.parse(FileRef.from_path(path))
+
+    assert entry is not None
+    assert entry.name == "新名字"
+
+
+def test_pi_tolerates_corrupt_lines(pi_root: Path) -> None:
+    path = _pi_file(pi_root, "abc12345", extra=["{ 不是 json", _pi_user("脏行后面的正常消息")])
+
+    entry = pi.parse(FileRef.from_path(path))
+
+    assert entry is not None
+    assert entry.title == "脏行后面的正常消息"
+
+
+def test_pi_falls_back_to_filename_id_and_decoded_dir(pi_root: Path) -> None:
+    """header 整行坏掉时也不能让这条会话从列表里消失。"""
+    path = write_jsonl(
+        pi_root / "--home-sean-IdeaProjects-demo--" / "2026-09-05T01_20_00_deadbeef.jsonl",
+        [_pi_user("没有 header 的会话")],
+    )
+
+    entry = pi.parse(FileRef.from_path(path))
+
+    assert entry is not None
+    assert entry.id == "deadbeef"
+    assert entry.cwd == "/home/sean/IdeaProjects/demo"
+    assert entry.title == "没有 header 的会话"
+
+
+def test_pi_untitled_when_no_user_message(pi_root: Path) -> None:
+    entry = pi.parse(FileRef.from_path(_pi_file(pi_root, "abc12345")))
+    assert entry is not None
+    assert entry.title == UNTITLED
+
+
+def test_pi_discover_finds_sessions(pi_root: Path) -> None:
+    _pi_file(pi_root, "abc12345")
+    assert len(list(pi.discover(pi_root))) == 1
+
+
+def test_pi_discover_on_missing_root(tmp_path: Path) -> None:
+    assert list(pi.discover(tmp_path / "nope")) == []
+
+
+def test_pi_decode_project_dir_strips_the_double_dashes() -> None:
+    assert pi.decode_project_dir("--home-user-myapp--") == "/home/user/myapp"
+    # 形状对不上就原样返回，别拼出一个假路径
+    assert pi.decode_project_dir("weird") == "weird"
+
+
+def test_pi_id_from_filename_rejects_garbage() -> None:
+    assert pi.parse.__module__.endswith("pi")  # 防止 import 写错指到别的模块
+    assert pi._id_from_filename("2026-09-05T01_20_00_abc123") == "abc123"
+    assert pi._id_from_filename("") == ""

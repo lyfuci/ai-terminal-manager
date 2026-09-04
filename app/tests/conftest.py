@@ -61,3 +61,8 @@ def claude_session(claude_root: Path) -> Path:
             {"type": "assistant", "message": {"role": "assistant", "content": "好的"}},
         ],
     )
+
+
+@pytest.fixture
+def pi_root(tmp_path: Path) -> Path:
+    return tmp_path / "pi" / "agent" / "sessions"

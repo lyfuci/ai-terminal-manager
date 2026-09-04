@@ -1,6 +1,6 @@
 # ai-terminal-manager
 
-**一句话**：一个面向 AI CLI（Claude Code / Codex）的终端管理器 —— 把两边的历史会话合成一份列表，
+**一句话**：一个面向 AI CLI（Claude Code / Codex / Pi）的终端管理器 —— 把各边的历史会话合成一份列表，
 选一条投进你指定的 tmux 格子；再加一个常驻左侧栏，用 `swap-pane` 在正在跑的会话之间换位。
 
 不做 GUI、不做布局同步 —— 那些 tmux 生态和官方 Desktop 已经吃掉了。atm 只做「AI 会话当一等公民」这一条。
@@ -12,7 +12,7 @@
 
 - Linux 或 WSL2 + **tmux ≥ 3.0**（开发基准 3.6）
 - **Python ≥ 3.11**，零运行时依赖
-- 装了 Claude Code 或 Codex 至少一个（atm 只读它们写在 `~/.claude/projects/`、`~/.codex/sessions/` 的会话文件）
+- 装了 Claude Code / Codex / Pi 至少一个（atm 只读它们写在 `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/` 的会话文件）
 
 ## 装
 
@@ -52,7 +52,7 @@ atm install     # 往 ~/.tmux.conf 写键位。会先把要写的内容打出来
 | `prefix + b` | **侧栏**：没开就在最左边开一条通高的；开了就切过去；已经在里面就收起 |
 | `prefix + B` | 把当前格子收进后台窗口 `bg` —— 进程继续跑，之后从侧栏里还能选回来 |
 
-浮层里：打字模糊搜索，`↑↓` / `^N` `^P` 移动，`Tab` 在 全部 / Claude / Codex 之间切，`⏎` 选中，`Esc` 取消。
+浮层里：打字模糊搜索，`↑↓` / `^N` `^P` 移动，`Tab` 在 全部 / Claude / Codex / Pi 之间循环，`⏎` 选中，`Esc` 取消。
 
 侧栏里：上半段是**正在跑的格子**（选中 → `swap-pane` 换进主格，进程不断），下半段是**历史**
 （选中 → 后台新窗口里 resume 再换进来）。`⏎` 换进主格，`^T` 挑具体换进哪格，`^X` 把选中的收进 `bg`，
@@ -61,7 +61,7 @@ atm install     # 往 ~/.tmux.conf 写键位。会先把要写的内容打出来
 命令行同样能用（不在 tmux 里时 `pick` 自动退化成打印命令，`eval "$(atm pick --print)"`）：
 
 ```bash
-atm list -n 20            # 列最近 20 条；--source codex 只看 Codex；--json 喂给别的脚本
+atm list -n 20            # 列最近 20 条；--source codex|claude|pi 只看一家；--json 喂给别的脚本
 atm pick                  # 交互选会话 → 选目标 pane → 投递
 atm resume <id前缀>       # 不进 TUI，按 id 直接投
 atm panes                 # 列出所有 tmux pane 及忙闲状态

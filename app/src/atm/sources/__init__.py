@@ -4,6 +4,6 @@
 两者都必须能容忍格式变化 —— 这两个 jsonl 的字段是逆向观察出来的，不是公开契约。
 """
 
-from . import claude, codex
+from . import claude, codex, pi
 
-__all__ = ["claude", "codex"]
+__all__ = ["claude", "codex", "pi"]

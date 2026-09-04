@@ -25,7 +25,7 @@ PARK_WINDOW = "bg"
 SIDEBAR_TITLE = "atm"
 
 # 侧栏把这些命令的格子排在前面 —— 它们才是「后台 AI 进程」，其余 pane 只是顺带列出。
-AI_COMMANDS = frozenset({"claude", "codex"})
+AI_COMMANDS = frozenset({"claude", "codex", "pi"})
 
 
 class SidebarError(RuntimeError):

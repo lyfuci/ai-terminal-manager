@@ -1,6 +1,6 @@
 # atm — AI Terminal Manager
 
-把 **Claude Code 和 Codex 的历史会话**合成一份统一列表，选一条，**投递到你指定的 tmux pane**。
+把 **Claude Code、Codex 和 Pi 的历史会话**合成一份统一列表，选一条，**投递到你指定的 tmux pane**。
 
 ```
 prefix + a  →  浮层里搜  →  Enter  →  选目标格子  →  会话在那个格子里恢复
@@ -12,7 +12,7 @@ prefix + a  →  浮层里搜  →  Enter  →  选目标格子  →  会话在�
 和 tmux 生态已经吃掉了**，历史浏览也有 clauhist / claude-sessions 在做。
 只剩一条没人做全：
 
-> **跨 agent（Claude + Codex）的统一历史 → 投到我指定的那个 pane。**
+> **跨 agent（Claude + Codex + Pi）的统一历史 → 投到我指定的那个 pane。**
 
 atm 就只做这一条。没有 GUI，没有控制模式解析器，没有布局同步 —— 那些都被砍掉了。
 
@@ -162,7 +162,7 @@ atm park                     # 把当前格子收进后台窗口 bg
 atm uninstall                # 干净移除
 
 atm list -n 20               # 列最近 20 条
-atm list --source codex      # 只看 Codex
+atm list --source codex      # 只看 Codex（还有 claude / pi）
 atm list --json              # 结构化输出，喂给别的脚本
 
 atm resume <id前缀>          # 不进 TUI，按 id 直接投
@@ -172,7 +172,7 @@ atm doctor                   # 体检
 ```
 
 选择器里：`↑↓` / `Ctrl-N` `Ctrl-P` 移动，直接打字模糊搜索，
-`Tab` 在 全部 / Claude / Codex 之间切，`Enter` 选中，`Esc` 取消。
+`Tab` 在 全部 / Claude / Codex / Pi 之间循环，`Enter` 选中，`Esc` 取消。
 
 **不在 tmux 里也能用** —— 这时 `pick` 自动退化成打印命令：
 
@@ -262,6 +262,19 @@ atm pick --no-mem-limit               # 关掉
   但它那几条 `thread_name` 是人类可读标题，留作标题来源
 - `~/.codex/thread_history_1.sqlite` 是**单线程的投影缓存**，不是全局索引，没用它
 - 恢复：`codex resume <SESSION_ID>`
+
+**Pi** `~/.pi/agent/sessions/--<cwd 把 '/' 换成 '-'>--/<ts>_<uuid>.jsonl`
+
+> ⚠️ **这一个是按上游文档写的，不是实测**。本机没装 pi，依据是 earendil-works/pi 的
+> `packages/coding-agent/docs/session-format.md`（schema `version: 3`）。
+> 字段对不上的话 `tests/test_sources.py` 里的 pi 用例会第一个红。
+
+- 第 1 行 `type:"session"` 是 SessionHeader，**只有它带 `cwd`**
+- 显示名走独立记录 `type:"session_info"` 的 `name`（`/name` 或 `--name` 产生），可改多次，取最后一条
+- 标题取首条 `message` 且 `message.role == "user"` —— pi 的 role 枚举比另外两家宽
+  （还有 `toolResult` / `bashExecution` / `compactionSummary` / `branchSummary`），不过滤会让 bash 输出冒充标题
+- schema v3 里**没有 git 字段**，所以 pi 的条目不显示分支
+- 恢复：`pi --session <id>`
 
 **所有会话文件一律只读。** 不原地改、不整理、不删。
 

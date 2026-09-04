@@ -20,6 +20,16 @@ class Source(StrEnum):
 
     CLAUDE = "claude"
     CODEX = "codex"
+    PI = "pi"
+
+
+# 列表里那两个字符的来源标记。放在 model 里是因为 cli / tui / sidebar_tui 三处都要用，
+# 而 cli.py 刻意不 import tui（tui 会在 import 时拉 curses）。
+SOURCE_TAG: dict[Source, str] = {
+    Source.CLAUDE: "CC",
+    Source.CODEX: "CX",
+    Source.PI: "PI",
+}
 
 
 @dataclass(frozen=True, slots=True)

@@ -22,7 +22,7 @@ from . import index as index_mod
 from . import sidebar, tmux
 from .dispatch import DispatchError, DispatchTarget, MemoryLimit
 from .fuzzy import ScoredEntry, rank, score
-from .model import SessionEntry, Source
+from .model import SOURCE_TAG, SessionEntry, Source
 from .sidebar import SidebarError
 from .text import display_width, humanize_age, pad_display, tail_display, truncate_display
 from .tmux import Pane
@@ -47,7 +47,6 @@ _KEY_CTRL_X = 24
 _PANE_REFRESH_SECONDS = 1.0
 _INDEX_REFRESH_SECONDS = 15.0
 _STATUS_SECONDS = 6.0
-_SOURCE_TAG = {Source.CLAUDE: "CC", Source.CODEX: "CX"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,7 +227,7 @@ class _Sidebar(_Screen):
             pass  # 下一轮 _draw 会按新尺寸画
 
     def _cycle_source(self) -> None:
-        order: list[Source | None] = [None, Source.CLAUDE, Source.CODEX]
+        order: list[Source | None] = [None, *Source]
         self._source_filter = order[(order.index(self._source_filter) + 1) % len(order)]
         self._recompute()
 
@@ -455,7 +454,7 @@ class _Sidebar(_Screen):
         entry = row.entry
         age = humanize_age((now - entry.updated_at).total_seconds())
         x = self._put(stdscr, y, 0, pad_display(age, 3), base | _color(5))
-        x = self._put(stdscr, y, x + 1, _SOURCE_TAG.get(entry.source, "??"), base | _color(3))
+        x = self._put(stdscr, y, x + 1, SOURCE_TAG.get(entry.source, "??"), base | _color(3))
         label = f"⟨{entry.name}⟩ {entry.title}" if entry.name else entry.title
         self._put(stdscr, y, x + 1, truncate_display(label, max(0, width - x - 2)), base)
 
