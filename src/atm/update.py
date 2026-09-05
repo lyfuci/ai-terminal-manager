@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from importlib import metadata
 
+from .i18n import _
+
 DIST_NAME = "ai-terminal-manager"
 PYPI_JSON = f"https://pypi.org/pypi/{DIST_NAME}/json"
 GIT_URL = "https://github.com/lyfuci/ai-terminal-manager"
@@ -121,16 +123,16 @@ def upgrade_command(info: InstallInfo) -> list[str] | None:
 
 def manual_hint(info: InstallInfo) -> str:
     if info.origin is Origin.EDITABLE:
-        where = info.detail or "源码目录"
-        return (
-            f"这是 editable 安装（{where}），升级就是 `git pull`；改了依赖再 `uv sync --frozen`。"
-        )
-    return (
-        "认不出这份 atm 是怎么装的。手动升级：\n"
-        f"  uv tool upgrade {DIST_NAME}        # uv tool 装的\n"
-        f"  pipx upgrade {DIST_NAME}           # pipx 装的\n"
-        f"  pip install -U {DIST_NAME}         # pip 装的（注意 PyPI 上的 `atm` 是别人的包）"
-    )
+        where = info.detail or _("源码目录")
+        return _(
+            "这是 editable 安装（{where}），升级就是 `git pull`；改了依赖再 `uv sync --frozen`。"
+        ).format(where=where)
+    return _(
+        "认不出这份 atm 是怎么装的。手动升级：\n  uv tool upgrade {DIST_NAME} "
+        "       # uv tool 装的\n  pipx upgrade {DIST_NAME} "
+        "          # pipx 装的\n  pip install -U {DIST_NAME} "
+        "        # pip 装的（注意 PyPI 上的 `atm` 是别人的包）"
+    ).format(DIST_NAME=DIST_NAME)
 
 
 def latest_version(timeout: float = 5.0) -> str | None:

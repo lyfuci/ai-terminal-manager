@@ -129,8 +129,8 @@ def build_block(plugins_dir: Path, *, save_interval: int = DEFAULT_SAVE_INTERVAL
     tpm = plugins_dir / "tpm" / "tpm"
     body = "\n".join(
         (
-            "# 重启后恢复 session / window / pane / cwd（只搭骨架，不重新拉起 claude / codex ——",
-            "# 会话在对应格子里用 atm 按需 resume，别把它们加进 @resurrect-processes）",
+            _("# 重启后恢复 session / window / pane / cwd（只搭骨架，不重新拉起 claude / codex ——"),
+            _("# 会话在对应格子里用 atm 按需 resume，别把它们加进 @resurrect-processes）"),
             "set -g @plugin 'tmux-plugins/tpm'",
             "set -g @plugin 'tmux-plugins/tmux-resurrect'",
             "set -g @plugin 'tmux-plugins/tmux-continuum'",
@@ -249,7 +249,7 @@ def tmux_install_hint() -> str:
     ):
         if shutil.which(manager):
             return command
-    return "用你的包管理器装 tmux（>= 3.2，需要 display-popup）"
+    return _("用你的包管理器装 tmux（>= 3.2，需要 display-popup）")
 
 
 def _mentions_tpm(text: str) -> bool:
@@ -273,4 +273,6 @@ def _git_clone(name: str, dest: Path) -> None:
         check=False,
     )
     if result.returncode != 0:
-        raise RuntimeError((result.stderr or result.stdout).strip() or f"git clone {name} 失败")
+        raise RuntimeError(
+            (result.stderr or result.stdout).strip() or _("git clone {name} 失败").format(name=name)
+        )

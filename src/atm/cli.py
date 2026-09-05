@@ -767,7 +767,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
     print(_("== 数据源 =="))
     for name, info in report["sources"].items():
-        status = "存在" if info["exists"] else "不存在"
+        status = _("存在") if info["exists"] else _("不存在")
         print(
             _("  {v0} {v1}: {status}，{v2} 个会话文件").format(
                 v0=name.capitalize(), v1=info["root"], status=status, v2=info["files"]
@@ -776,7 +776,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     legacy = report["sources"]["codex"]["legacyIndex"]
     print(
         _("  Codex 老索引 {v0}: {v1}（{v2} 条标题）").format(
-            v0=legacy["path"], v1="有" if legacy["exists"] else "无", v2=legacy["titles"]
+            v0=legacy["path"], v1=_("有") if legacy["exists"] else _("无"), v2=legacy["titles"]
         )
     )
 
@@ -789,8 +789,12 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if not t["installed"]:
         print(_("  tmux: 没装 —— 只能用 --print 模式"))
     else:
-        print(_("  tmux: 已装，server {v0}").format(v0="在跑" if t["serverRunning"] else "没起来"))
-        print(_("  当前在 tmux 里: {v0}").format(v0="是" if t["insideTmux"] else "否"))
+        print(
+            _("  tmux: 已装，server {v0}").format(
+                v0=_("在跑") if t["serverRunning"] else _("没起来")
+            )
+        )
+        print(_("  当前在 tmux 里: {v0}").format(v0=_("是") if t["insideTmux"] else _("否")))
 
     print(_("\n== 持久化（resurrect + continuum）=="))
     _report_persist(_persist_mod().status())
@@ -844,7 +848,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
 
     if not args.yes:
         print(_("\n这会修改你的全局 tmux 配置（改前会自动备份）。"))
-        if not _confirm("继续吗？"):
+        if not _confirm(_("继续吗？")):
             print(_("已取消，没有改动任何文件。"))
             return EXIT_CANCELLED
 
@@ -970,7 +974,7 @@ def _cmd_update(args: argparse.Namespace) -> int:
         return EXIT_OK
 
     print(_("\n将执行：{v0}").format(v0=" ".join(command)))
-    if not args.yes and not _confirm("继续吗？"):
+    if not args.yes and not _confirm(_("继续吗？")):
         print(_("已取消。"))
         return EXIT_CANCELLED
     try:
@@ -988,7 +992,7 @@ def _cmd_update(args: argparse.Namespace) -> int:
         return EXIT_ERROR
     # 新版本在新进程里才看得到；这里的 __version__ 还是老的
     shown = subprocess.run(["atm", "--version"], capture_output=True, text=True, check=False)
-    print(_("完成：{v0}").format(v0=shown.stdout.strip() or "（跑 atm --version 看版本）"))
+    print(_("完成：{v0}").format(v0=shown.stdout.strip() or _("（跑 atm --version 看版本）")))
     return EXIT_OK
 
 
@@ -1079,7 +1083,7 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
                 conf_path=conf_path
             )
         )
-        if not _confirm("继续吗？"):
+        if not _confirm(_("继续吗？")):
             print(_("已取消。"))
             return EXIT_CANCELLED
 
@@ -1151,7 +1155,7 @@ def _report_guard() -> bool:
     )
     st = guard.status(cfg.memory_slice)
     if st.exists:
-        who = "atm 写的" if st.ours else "用户自己的"
+        who = _("atm 写的") if st.ours else _("用户自己的")
         print(
             _("  总量 {st_name}: MemoryHigh={st_high} MemoryMax={st_max}（{who}）").format(
                 st_name=st.name, st_high=st.high, st_max=st.max, who=who
@@ -1171,7 +1175,7 @@ def _report_guard() -> bool:
 def _report_persist(st) -> None:
     print(
         _("  配置块: {v0}").format(
-            v0="已装" if st.block_installed else "未装（atm install 会一起装）"
+            v0=_("已装") if st.block_installed else _("未装（atm install 会一起装）")
         )
     )
     if st.plugins_missing:
@@ -1205,7 +1209,7 @@ def _report_persist(st) -> None:
 
 
 def _report_root(name: str, root: Path, count: int) -> None:
-    status = "存在" if root.is_dir() else "不存在"
+    status = _("存在") if root.is_dir() else _("不存在")
     print(
         _("  {name} {root}: {status}，{count} 个会话文件").format(
             name=name, root=root, status=status, count=count
@@ -1285,7 +1289,7 @@ def _pick_target(entry: SessionEntry, direction: SplitDirection) -> DispatchTarg
         # 当前 pane 也留在列表里、只是标出来，不排除掉：
         # 从 display-popup 里跑时 TMUX_PANE 指向哪个 pane 没有实测结论，
         # 排除它可能恰好把用户最想投的那个格子给藏了。
-        marker = " ←当前" if pane.id == current else ""
+        marker = _(" ←当前") if pane.id == current else ""
         options.append(
             _tui().PickerOption(
                 key=pane.id,
@@ -1311,7 +1315,9 @@ def _pick_target(entry: SessionEntry, direction: SplitDirection) -> DispatchTarg
 
     size_note = dispatch_mod.size_label(entry)
     suffix = f"  [{size_note} ⚠]" if size_note else ""
-    title = f"把「{truncate_display(entry.title, 44)}」{suffix} 投到哪里？"
+    title = _("把「{v0}」{suffix} 投到哪里？").format(
+        v0=truncate_display(entry.title, 44), suffix=suffix
+    )
     choice = _tui().pick_option(options, title=title)
     if choice is None:
         return None

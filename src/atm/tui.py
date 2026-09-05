@@ -440,14 +440,14 @@ class _SessionPicker(_Screen):
             stamp = selected.updated_at.astimezone().strftime("%Y-%m-%d %H:%M")
             size_mb = selected.size_bytes / 1048576
             risk = dispatch.size_risk(selected)
-            mark = "  ⚠ resume 会让 CLI 读完整个文件" if risk is not dispatch.SizeRisk.OK else ""
-            gone = "⚠ 工作目录已不存在  " if selected.cwd in self._missing_cwds else ""
+            mark = _("  ⚠ resume 会让 CLI 读完整个文件") if risk is not dispatch.SizeRisk.OK else ""
+            gone = _("⚠ 工作目录已不存在  ") if selected.cwd in self._missing_cwds else ""
             named = f"{gone}⟨{selected.name}⟩  " if selected.name else gone
             detail = f"{named}{stamp}  {size_mb:.1f}MB{mark}  {selected.cwd}"
             attr = _color(6) if risk is dispatch.SizeRisk.BLOCK else _color(5)
             self._put(stdscr, height - 2, 0, truncate_display(detail, width - 1), attr)
 
-        hint = "↑↓/^N^P 移动  Tab 切来源  ^G 切聚合(目录/agent/平铺)  Enter 选中  Esc 取消"
+        hint = _("↑↓/^N^P 移动  Tab 切来源  ^G 切聚合(目录/agent/平铺)  Enter 选中  Esc 取消")
         self._put(stdscr, height - 1, 0, truncate_display(hint, width - 1), _color(5))
 
     def _sync_offset(self, rows: int) -> None:
@@ -620,10 +620,13 @@ class _OptionPicker(_Screen):
                 self._put(stdscr, y, x + 1, option.detail, attr | _color(5))
 
         more = len(self._options) - (self._offset + rows)
-        hint = "↑↓ 移动  数字键直选  Enter 确认  Esc 取消"
+        hint = _("↑↓ 移动  数字键直选  Enter 确认  Esc 取消")
         if more > 0 or self._offset > 0:
-            hint = f"↑↓ 移动({self._offset + 1}-{min(self._offset + rows, len(self._options))}"
-            hint += f"/{len(self._options)})  数字键直选  Enter 确认  Esc 取消"
+            hint = _("↑↓ 移动({first}-{last}/{total})  数字键直选  Enter 确认  Esc 取消").format(
+                first=self._offset + 1,
+                last=min(self._offset + rows, len(self._options)),
+                total=len(self._options),
+            )
         self._put(stdscr, height - 1, 0, truncate_display(hint, width - 1), _color(5))
         stdscr.refresh()
 

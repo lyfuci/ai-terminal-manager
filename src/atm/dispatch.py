@@ -74,9 +74,8 @@ def size_notice(entry: SessionEntry) -> str:
     if size_risk(entry) is SizeRisk.OK:
         return ""
     mb = entry.size_bytes / 1048576
-    return (
-        f"提示：这条会话的转录有 {mb:.0f}MB，"
-        f"{RESUME_PROGRAMS.get(entry.source, ('CLI',))[0]} 可能会先问你要不要「从摘要恢复」。"
+    return _("提示：这条会话的转录有 {mb:.0f}MB，{v0} 可能会先问你要不要「从摘要恢复」。").format(
+        mb=mb, v0=RESUME_PROGRAMS.get(entry.source, ("CLI",))[0]
     )
 
 
@@ -236,7 +235,7 @@ class DispatchResult:
     def describe(self) -> str:
         if self.pane_id is None:
             return self.command.shell_line()
-        verb = "新开" if self.created_pane else "投递到"
+        verb = _("新开") if self.created_pane else _("投递到")
         return f"{verb} {self.pane_id}: {self.command.shell_line()}"
 
 
@@ -297,12 +296,17 @@ def is_safe_target(pane: Pane) -> bool:
 
 def busy_reason(pane: Pane) -> str:
     return (
-        f"pane {pane.id} ({pane.label}) 里跑的是 `{pane.current_command}`，"
-        f"它的语法和我们生成的 POSIX 命令行（`cd '…' && …`，shlex 单引号转义）不兼容 —— "
-        f"投进去不会报错，会**执行成别的东西**。用 --force 强制投递。"
+        _(
+            "pane {pane_id} ({pane_label}) 里跑的是 "
+            "`{pane_current_command}`，它的语法和我们生成的 POSIX "
+            "命令行（`cd '…' && …`，shlex 单引号转义）不兼容 ——"
+            " 投进去不会报错，会**执行成别的东西**。用 --force 强制投递。"
+        ).format(pane_id=pane.id, pane_label=pane.label, pane_current_command=pane.current_command)
         if pane.is_non_posix_shell
-        else f"pane {pane.id} ({pane.label}) 里正在跑 `{pane.current_command}`，"
-        f"不是空闲 shell —— 投进去会被当成那个程序的输入。用 --force 强制投递。"
+        else _(
+            "pane {pane_id} ({pane_label}) 里正在跑 `{pane_current_command}`，"
+            "不是空闲 shell —— 投进去会被当成那个程序的输入。用 --force 强制投递。"
+        ).format(pane_id=pane.id, pane_label=pane.label, pane_current_command=pane.current_command)
     )
 
 

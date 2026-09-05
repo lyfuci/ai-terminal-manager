@@ -203,7 +203,7 @@ class _Sidebar(_Screen):
                 self._refresh_index(force=True, rebuild=True)
                 self._refresh_panes(force=True)
                 self._recompute(keep_cursor=True)
-                self._say("已重建索引")
+                self._say(_("已重建索引"))
             elif code == _KEY_CTRL_X:
                 self._park()
             elif (code >= 32 or code == -1) and self._placing is None:
@@ -271,7 +271,7 @@ class _Sidebar(_Screen):
             return
         candidates = self._slot_candidates()
         if not candidates:
-            self._say("本窗口除了侧栏没有别的格子")
+            self._say(_("本窗口除了侧栏没有别的格子"))
             return
         self._placing = row
         self._recompute()
@@ -287,7 +287,7 @@ class _Sidebar(_Screen):
         assert self._placing is not None
         hit = next((p for p in self._slot_candidates() if p.pane_index == pane_index), None)
         if hit is None:
-            self._say(f"本窗口没有 {pane_index} 号格子")
+            self._say(_("本窗口没有 {pane_index} 号格子").format(pane_index=pane_index))
             return
         self._place(self._placing, slot_id=hit.id)
 
@@ -309,12 +309,12 @@ class _Sidebar(_Screen):
             self._panes, window_id=self._window_id, target_id=result.pane_id, slot_id=slot_id
         )
         sidebar.execute_swap(plan)
-        self._say(f"已恢复 → {result.pane_id}")
+        self._say(_("已恢复 → {result_pane_id}").format(result_pane_id=result.pane_id))
 
     def _park(self) -> None:
         row = self._selected()
         if not isinstance(row, RunningRow):
-            self._say("^X 只对运行中的格子有效")
+            self._say(_("^X 只对运行中的格子有效"))
             return
         try:
             bg = tmux.find_window(row.pane.session, sidebar.PARK_WINDOW)
@@ -338,7 +338,7 @@ class _Sidebar(_Screen):
 
         slot = sidebar.main_slot(self._panes, self._window_id) if self._window_id else None
         if self._placing is not None:
-            rows.append(SectionHeader("换进哪格？(数字=prefix+q 编号)"))
+            rows.append(SectionHeader(_("换进哪格？(数字=prefix+q 编号)")))
             rows.extend(
                 SlotRow(pane=p, is_main=slot is not None and p.id == slot.id)
                 for p in self._slot_candidates()
@@ -356,14 +356,14 @@ class _Sidebar(_Screen):
         ]
         if self._query:
             running = [r for r in running if score(self._query, _pane_haystack(r.pane)) is not None]
-        rows.append(SectionHeader(f"运行中 {len(running)}"))
+        rows.append(SectionHeader(_("运行中 {v0}").format(v0=len(running))))
         rows.extend(running)
 
         pool = self._entries
         if self._source_filter is not None:
             pool = tuple(e for e in pool if e.source is self._source_filter)
         scored = rank(pool, self._query)
-        scope = self._source_filter.value if self._source_filter else "历史"
+        scope = self._source_filter.value if self._source_filter else _("历史")
         rows.append(SectionHeader(f"{scope} {len(scored)}"))
         rows.extend(scored)
 
@@ -481,19 +481,19 @@ class _Sidebar(_Screen):
         elif self._placing is not None:
             what = self._placing
             name = _pane_label(what.pane) if isinstance(what, RunningRow) else what.entry.title
-            line = f"把「{truncate_display(name, 18)}」换进…"
+            line = _("把「{v0}」换进…").format(v0=truncate_display(name, 18))
         else:
             row = self._selected()
             if isinstance(row, RunningRow):
                 line = f"{row.pane.label}  {row.pane.current_path}"
             elif isinstance(row, ScoredEntry):
                 e = row.entry
-                gone = "⚠目录已删 " if e.cwd in self._missing else ""
+                gone = _("⚠目录已删 ") if e.cwd in self._missing else ""
                 line = f"{gone}{e.project_name}  {dispatch_mod.size_label(e)}".rstrip()
         self._put(stdscr, height - 2, 0, truncate_display(line, width - 1), _color(5))
-        hint = "⏎换入 ^T选格 ^X收后台 Tab来源 ^R重建 ^C退"
+        hint = _("⏎换入 ^T选格 ^X收后台 Tab来源 ^R重建 ^C退")
         if self._placing is not None:
-            hint = "数字/⏎ 选格  Esc 取消"
+            hint = _("数字/⏎ 选格  Esc 取消")
         self._put(stdscr, height - 1, 0, truncate_display(hint, width - 1), _color(5))
 
 

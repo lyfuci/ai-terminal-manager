@@ -216,8 +216,12 @@ def describe(cfg: Config, sources: dict[str, str] | None = None) -> str:
     """`atm config` 不带参数时的输出：值 + 来源 + 一句说明。"""
     sources = sources or dict.fromkeys(KEYS, "default")
     lines = [
-        f"配置文件：{config_path()}{'' if config_path().exists() else '（不存在，全部默认）'}",
-        f"优先级：命令行参数 > 环境变量（{ENV_PREFIX}MEMORY_HIGH 这类）> 文件 > 默认",
+        _("配置文件：{v0}{v1}").format(
+            v0=config_path(), v1="" if config_path().exists() else _("（不存在，全部默认）")
+        ),
+        _("优先级：命令行参数 > 环境变量（{ENV_PREFIX}MEMORY_HIGH 这类）> 文件 > 默认").format(
+            ENV_PREFIX=ENV_PREFIX
+        ),
         "",
     ]
     for key, field in KEYS.items():
@@ -251,8 +255,8 @@ def to_json(cfg: Config, sources: dict[str, str]) -> dict:
 def dumps(cfg: Config) -> str:
     """扁平 TOML：一个 [memory] 表，字符串和布尔。不支持别的类型，也不需要。"""
     lines = [
-        "# atm 的用户配置。改完立即生效，不用重启。",
-        "# `atm config` 查看，`atm config <key> <value>` 修改。",
+        _("# atm 的用户配置。改完立即生效，不用重启。"),
+        _("# `atm config` 查看，`atm config <key> <value>` 修改。"),
         "",
         "[memory]",
     ]

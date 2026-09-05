@@ -94,7 +94,7 @@ class InstallPlan:
     atm_command: str
 
     def describe(self) -> str:
-        lines = [f"将写入 {self.conf_path}：", ""]
+        lines = [_("将写入 {self_conf_path}：").format(self_conf_path=self.conf_path), ""]
         lines += [f"  {line}" for line in self.block.splitlines()]
         lines.append("")
         lines.append(_("绑定说明："))

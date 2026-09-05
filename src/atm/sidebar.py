@@ -98,9 +98,11 @@ class SwapPlan:
 
     def describe(self) -> str:
         if self.kind is SwapKind.FOCUS:
-            return f"切到 {self.target}（已在本窗口）"
-        tail = "，旧格子是空闲 shell，已关掉" if self.discard else "，旧格子进后台"
-        return f"把 {self.target} 换进 {self.slot} 的位置{tail}"
+            return _("切到 {self_target}（已在本窗口）").format(self_target=self.target)
+        tail = _("，旧格子是空闲 shell，已关掉") if self.discard else _("，旧格子进后台")
+        return _("把 {self_target} 换进 {self_slot} 的位置{tail}").format(
+            self_target=self.target, self_slot=self.slot, tail=tail
+        )
 
 
 def plan_swap(
@@ -176,8 +178,10 @@ class ParkPlan:
     existing_window: str | None  # bg 已存在 → join；否则 break 出一个新的
 
     def describe(self) -> str:
-        verb = "并入" if self.existing_window else "新建"
-        return f"把 {self.pane} 收进后台窗口 {PARK_WINDOW}（{verb}）"
+        verb = _("并入") if self.existing_window else _("新建")
+        return _("把 {self_pane} 收进后台窗口 {PARK_WINDOW}（{verb}）").format(
+            self_pane=self.pane, PARK_WINDOW=PARK_WINDOW, verb=verb
+        )
 
 
 def plan_park(panes: tuple[Pane, ...], *, pane_id: str, bg_window: str | None) -> ParkPlan:
@@ -257,9 +261,13 @@ class TogglePlan:
 
     def describe(self) -> str:
         return {
-            ToggleKind.OPEN: "打开侧栏",
-            ToggleKind.FOCUS: f"切到侧栏 {self.sidebar_id}",
-            ToggleKind.CLOSE: f"收起侧栏 {self.sidebar_id}",
+            ToggleKind.OPEN: _("打开侧栏"),
+            ToggleKind.FOCUS: _("切到侧栏 {self_sidebar_id}").format(
+                self_sidebar_id=self.sidebar_id
+            ),
+            ToggleKind.CLOSE: _("收起侧栏 {self_sidebar_id}").format(
+                self_sidebar_id=self.sidebar_id
+            ),
         }[self.kind]
 
 
