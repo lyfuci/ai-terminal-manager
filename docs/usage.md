@@ -38,6 +38,7 @@ atm swap %7 --into %3     # swap %7 into %3
 atm park                  # park the current pane in bg
 atm prune -n              # show idle shells in bg that could be closed (drop -n to actually close them)
 atm index --rebuild       # clear the cache and rebuild from scratch
+atm update                # upgrade atm itself (detects uv tool / pipx / pip); --check only looks
 ```
 
 > Dispatch wraps the process in a cgroup memory gate by default (`MemoryHigh=2G` / `MemoryMax=4G`). The reason:

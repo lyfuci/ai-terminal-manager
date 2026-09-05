@@ -96,6 +96,12 @@ def _guard_mod():
     return guard
 
 
+def _update_mod():
+    from . import update
+
+    return update
+
+
 def _sidebar_mod():
     from . import sidebar
 
@@ -109,6 +115,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "AI Terminal Manager — Claude Code / Codex / Pi 的统一会话历史，投到指定 tmux pane"
         ),
     )
+    from . import __version__
+
+    parser.add_argument("--version", action="version", version=f"atm {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_filters(p: argparse.ArgumentParser) -> None:
@@ -248,6 +257,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="不写总量闸门的 systemd slice（默认写 ~/.config/systemd/user/atm-ai.slice）",
     )
     p_install.set_defaults(handler=_cmd_install)
+
+    p_update = sub.add_parser("update", help="升级 atm 自己（按安装方式选 uv tool / pipx / pip）")
+    p_update.add_argument("--check", action="store_true", help="只看有没有新版本，不升级")
+    p_update.add_argument("-y", "--yes", action="store_true", help="不问直接升")
+    p_update.set_defaults(handler=_cmd_update)
 
     p_config = sub.add_parser(
         "config",
@@ -665,6 +679,52 @@ def _apply_persist(plan) -> None:
         print("（刻意不自动 source —— 那会重跑你整份配置里带副作用的行）")
     print("手动存/恢复：prefix + Ctrl-s / prefix + Ctrl-r；")
     print("自动存档每 10 分钟，只在有客户端 attach 时触发")
+
+
+def _cmd_update(args: argparse.Namespace) -> int:
+    """升级 atm 自己。先说清楚「你是怎么装的、我准备跑什么」，再动手。"""
+    import subprocess
+
+    update = _update_mod()
+    info = update.detect()
+    current = update.current_version()
+    latest = update.latest_version()
+
+    print(f"当前 {current}（{info.describe()}）")
+    if latest is None:
+        print("PyPI 最新：查不到（离线或镜像滞后），不影响升级")
+    elif update.version_tuple(latest) > update.version_tuple(current):
+        print(f"PyPI 最新：{latest}  ← 有新版本")
+    else:
+        print(f"PyPI 最新：{latest}  已是最新")
+        if info.origin is update.Origin.GIT:
+            print("（git 装的会跟 main 最新 commit，可能比 PyPI 发行版还新）")
+
+    command = update.upgrade_command(info)
+    if command is None:
+        print()
+        print(update.manual_hint(info))
+        return EXIT_OK if info.origin is update.Origin.EDITABLE else EXIT_ERROR
+    if args.check:
+        print(f"\n升级命令：{' '.join(command)}")
+        return EXIT_OK
+
+    print(f"\n将执行：{' '.join(command)}")
+    if not args.yes and not _confirm("继续吗？"):
+        print("已取消。")
+        return EXIT_CANCELLED
+    try:
+        result = subprocess.run(command, check=False)
+    except FileNotFoundError:
+        print(f"atm: 找不到 {command[0]}，请手动升级", file=sys.stderr)
+        return EXIT_ERROR
+    if result.returncode != 0:
+        print(f"atm: 升级命令退出码 {result.returncode}", file=sys.stderr)
+        return EXIT_ERROR
+    # 新版本在新进程里才看得到；这里的 __version__ 还是老的
+    shown = subprocess.run(["atm", "--version"], capture_output=True, text=True, check=False)
+    print(f"完成：{shown.stdout.strip() or '（跑 atm --version 看版本）'}")
+    return EXIT_OK
 
 
 def _cmd_config(args: argparse.Namespace) -> int:
