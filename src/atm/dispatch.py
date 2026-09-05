@@ -119,11 +119,13 @@ class MemoryLimit:
     max: str = DEFAULT_MEMORY_MAX
     swap_max: str = DEFAULT_MEMORY_SWAP_MAX
     slice_name: str = DEFAULT_SLICE
+    # False = 系统级 scope（需要 root）。默认走当前用户的 user manager。
+    user: bool = True
 
     def systemd_args(self, description: str) -> list[str]:
         return [
             "systemd-run",
-            "--user",
+            *(["--user"] if self.user else []),
             "--scope",
             "-q",
             f"--slice={self.slice_name}",

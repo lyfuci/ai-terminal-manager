@@ -49,6 +49,20 @@ Development and contributing: [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ---
 
+## Memory gate: `atm claude` vs `claude`
+
+```bash
+atm config memory.high 4G      # soft cap: throttle + reclaim, never kills
+atm config memory.max 8G       # hard cap: kills the whole session scope (children included)
+atm claude --resume <id>       # launches claude inside that cgroup; args pass through untouched
+claude                         # no prefix = native, no limits at all
+```
+
+`atm codex …` and `atm pi …` work the same. `prefix + a` dispatch and sidebar resume use the same settings.
+`atm install` also writes an aggregate `atm-ai.slice` (50% / 65% of RAM) so N sessions together can't
+take the machine down; `atm doctor` reports both layers. Details and the numbers behind the defaults:
+[reference.md](reference.md#内存闸门默认开).
+
 ## How it works (three-minute version)
 
 **"Remembering state" is really three layers.** atm touches two of them and leaves the third to tmux:

@@ -85,6 +85,9 @@ atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/contin
   （`research/notes/2026-08-12-incident.md` 付録三）。セッションは対応する pane で必要なときに resume する。不要なら `--no-persist`。
   自分で tpm を管理している場合は自動でスキップし、二重に書かない。
 
+任意：`atm config memory.high 4G` を一度設定すれば、以後 `atm claude` / `atm codex` / `atm pi` は cgroup のメモリゲート内で起動する；
+素の `claude` は制限なしのまま——プレフィックスが選択。詳細は [docs/usage-ja.md](docs/usage-ja.md)。
+
 tmux が入っていなければ `atm install` がパッケージマネージャに応じたインストールコマンドを表示する。sudo は代わりに実行しない。
 アンインストール：`atm uninstall && uv tool uninstall ai-terminal-manager`——この二つのブロックだけを消し、あなた自身の設定は一文字も触らず、clone したプラグインも残す。
 

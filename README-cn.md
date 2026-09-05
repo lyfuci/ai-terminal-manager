@@ -84,6 +84,9 @@ atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把�
   刻意**不**让它重新拉起 claude / codex ——开机批量拉起会瞬间吃光内存（`research/notes/2026-08-12-incident.md` 附三）；
   会话由你在对应格子里按需 resume。不想要：`--no-persist`。你自己已经在用 tpm 会自动跳过，不重复写。
 
+可选：`atm config memory.high 4G` 设一次，之后 `atm claude` / `atm codex` / `atm pi` 就在 cgroup 内存闸门里启动；
+直接敲 `claude` 仍然不受限——前缀即选择。见 [docs/usage-cn.md](docs/usage-cn.md)。
+
 tmux 没装的话 `atm install` 给出对应包管理器的安装命令，不替你跑 sudo。
 卸载：`atm uninstall && uv tool uninstall ai-terminal-manager`——只删这两个块，你自己的配置一个字不动，克隆下来的插件也不动。
 
