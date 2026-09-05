@@ -33,13 +33,13 @@ atm 就补这一层，别的都不碰。
 3. 顺手把 tmux-resurrect + continuum 装好配好，重启后骨架自动回来。
 
 **不是**：不做 GUI、不做布局同步、不做控制模式解析器。这些 tmux 生态和官方 Desktop 已经吃掉了
-（调研见 `notes/survey-existing-tools.md`）。也不把会话数据传到任何网络——它只读本地文件。
+（调研见 `research/notes/survey-existing-tools.md`）。也不把会话数据传到任何网络——它只读本地文件。
 
 **适合**：在 Linux / WSL2 / 服务器上用 tmux 开发、同时开着多个 AI 会话的人。
 **不适合**：不用 tmux 的人；只用一个 AI 会话的人；需要浮动窗口那类自由布局的人（tmux 是二叉分割树）。
 
 > 这个仓库同时是**研究记录**：怎么用在上半部分，「为什么这么设计 / 实测踩过哪些坑」在
-> [下半部分](#以下是研究记录) 和 `notes/`。所有被推翻的旧结论都用删除线留着，不抹掉。
+> [下半部分](#以下是研究记录) 和 `research/notes/`。所有被推翻的旧结论都用删除线留着，不抹掉。
 
 ---
 
@@ -56,16 +56,18 @@ atm 就补这一层，别的都不碰。
 推荐 [uv](https://docs.astral.sh/uv/)：
 
 ```bash
-# 不用 clone，直接从仓库装
-uv tool install 'atm @ git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'
+# 从 PyPI 装（命令名仍是 atm）
+uv tool install ai-terminal-manager
+
+# 或不用 clone、直接从仓库装——永远是最新 main
+uv tool install git+https://github.com/lyfuci/ai-terminal-manager
 
 # 或者 clone 下来装（加 --editable 可以改了源码立刻生效）
 git clone https://github.com/lyfuci/ai-terminal-manager
-uv tool install ./ai-terminal-manager/app
+uv tool install ./ai-terminal-manager
 ```
 
-没有 uv 用 `pipx install 'git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'` 也一样。
-升级：同一条命令加 `--reinstall`。
+没有 uv 用 `pipx install ai-terminal-manager` 也一样。升级：`uv tool upgrade ai-terminal-manager`（git 装法则重跑加 `--reinstall`）。
 
 ### 体检、键位、持久化
 
@@ -79,11 +81,11 @@ atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把�
 - **键位块**：四个绑定（见下）。对正在跑的 tmux server 立即生效。键位可换：`atm install --key s --sidebar-key g`。
 - **持久化块**：经 tpm 装 **tmux-resurrect + tmux-continuum**（克隆到 `~/.tmux/plugins/`），
   开 `@continuum-restore`、10 分钟自动存档。重启后 session / window / pane / cwd 自动搭回来。
-  刻意**不**让它重新拉起 claude / codex ——开机批量拉起会瞬间吃光内存（`notes/2026-08-12-incident.md` 附三）；
+  刻意**不**让它重新拉起 claude / codex ——开机批量拉起会瞬间吃光内存（`research/notes/2026-08-12-incident.md` 附三）；
   会话由你在对应格子里按需 resume。不想要：`--no-persist`。你自己已经在用 tpm 会自动跳过，不重复写。
 
 tmux 没装的话 `atm install` 给出对应包管理器的安装命令，不替你跑 sudo。
-卸载：`atm uninstall && uv tool uninstall atm`——只删这两个块，你自己的配置一个字不动，克隆下来的插件也不动。
+卸载：`atm uninstall && uv tool uninstall ai-terminal-manager`——只删这两个块，你自己的配置一个字不动，克隆下来的插件也不动。
 
 ---
 
@@ -120,9 +122,9 @@ atm index --rebuild       # 清缓存全量重建
 
 > 投递默认套一层 cgroup 内存闸门（`MemoryHigh=2G` / `MemoryMax=4G`）。
 > 起因是实测撞上 WSL 内存上限时**整个 tmux server 连同所有会话一起死掉**过一次。
-> 阈值怎么定的、怎么关，见 `app/README.md`「内存闸门」。
+> 阈值怎么定的、怎么关，见 `docs/reference.md`「内存闸门」。
 
-**完整选项、实测性能、三个 JSONL 的格式细节：[`app/README.md`](app/README.md)。**
+**完整选项、实测性能、三个 JSONL 的格式细节：[`docs/reference.md`](docs/reference.md)。**
 开发和贡献：[CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ---
@@ -157,10 +159,10 @@ tmux send-keys -t %<pane-id> -l -- "cd <cwd> && claude --resume <sessionId>"
 
 🟢 **路线 C 已拍板并落地**（2026-08-12）：范围收敛到「跨 agent 统一历史 → 投到指定 tmux pane」，
 之后加了常驻侧栏（09-02）、Pi 支持和持久化安装（09-05）。
-Python 3.11+ 零运行时依赖，170+ 测试，MIT。
+Python 3.11+ 零运行时依赖，240+ 测试，MIT。
 
 > 架构分岔口 A（tmux 后端 + GUI）/ B（自写 daemon）**没有被否掉，只是没做**——
-> 决策变量（需不需要跨端 SSH 接管）仍未回答。真要做时，`app/src/atm/index.py` 那层可以整块复用。详见下方研究记录。
+> 决策变量（需不需要跨端 SSH 接管）仍未回答。真要做时，`src/atm/index.py` 那层可以整块复用。详见下方研究记录。
 
 ---
 
@@ -199,7 +201,7 @@ Python 3.11+ 零运行时依赖，170+ 测试，MIT。
 ## 侧栏数据源（2026-08-12 实现时重新实测，下面是修正后的版本）
 
 > ⚠️ 本节早前的三条描述**在实现时被实测推翻**了。原文保留在 git 历史里，这里只写现在成立的。
-> 完整细节见 `app/README.md`「数据来源」一节。
+> 完整细节见 `docs/reference.md`「数据来源」一节。
 
 **Codex** —— 真实数据源是 `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<uuid>.jsonl`（86 个，125MB）。
 
@@ -231,7 +233,7 @@ Pi 的 role 枚举更宽（`toolResult` / `bashExecution` / `compactionSummary`�
 > ~~这部分是整个想法里最容易做、又最有差异化的 —— 没人把「AI 会话历史」当一等公民。~~
 > ❌ **2026-08-12 调研推翻**：clauhist、claude-sessions 已经在做历史浏览+resume，
 > tmux-agent-sidebar / tmux-agent-status / opensessions 在做 agent 侧栏，官方 Desktop 侧栏更是原生的。
-> 见 `notes/survey-existing-tools.md`。剩下的差异点只有一条：**跨 agent（Claude+Codex+Pi）统一历史 → 投到指定 pane**，
+> 见 `research/notes/survey-existing-tools.md`。剩下的差异点只有一条：**跨 agent（Claude+Codex+Pi）统一历史 → 投到指定 pane**，
 > 以及服务于服务器 / SSH 这一群没有 GUI 可用的人。
 
 ## ⚠️ 未拍板的分岔口（下次讨论从这里开始）
@@ -322,13 +324,13 @@ Windows GUI / 控制模式解析器 / 布局同步全部蒸发。2026-09-05 起 
 ## 待确认
 
 1. **跨端接管要不要** → 决定 A / B 路线。**仍未回答**，但不再阻塞：路线 C 已经交付可用的东西了。
-2. ~~先做路线 C 验证还是直接进 A/B~~ → 已定：**路线 C**，且已实现（`app/`）。
+2. ~~先做路线 C 验证还是直接进 A/B~~ → 已定：**路线 C**，且已实现（`src/atm/`）。
 3. ~~侧栏形态~~ → **两种并存**（2026-09-02）：`display-popup -E` 浮层管「查历史、投一次」（`prefix + a`）；
    **常驻通高左侧 pane** 管「切换正在跑的进程」（`prefix + b`，`atm sidebar`）。
    后者是新维度：原来 atm 只碰 L3（磁盘上的对话），侧栏碰的是 L2（tmux 里已经在跑的 pane），
    核心手势从 `send-keys` 变成 `swap-pane`。实测 tmux 3.6 `swap-pane` 跨 window / 跨 session 都行，
-   不在视野里的进程停在 `bg` 窗口继续跑。端到端在 `experiments/2026-09-02-sidebar-swap/`。
-4. ~~若做 GUI 的技术栈~~ → 不做 GUI。`app/` 定为 **Python 3.11+，零运行时依赖**。
+   不在视野里的进程停在 `bg` 窗口继续跑。端到端在 `research/experiments/2026-09-02-sidebar-swap/`。
+4. ~~若做 GUI 的技术栈~~ → 不做 GUI。`src/atm/` 定为 **Python 3.11+，零运行时依赖**。
 5. ~~「打开到指定分窗口」的交互~~ → 已定：**选中会话后进第二步选择器**，
    列出所有 pane（带忙闲状态）+ 「新分一个 pane」+「新开 window」+「只打印」。
    没用 `display-panes`：那需要焦点在 tmux 上，从浮层里调用会打断手势。
@@ -350,7 +352,7 @@ Windows GUI / 控制模式解析器 / 布局同步全部蒸发。2026-09-05 起 
 - 因为 Mirrored + hostAddressLoopback，**Windows↔WSL 的 TCP localhost 是通的**
   （早前「别用 TCP 端口、走 `wsl.exe --exec` + stdio JSON-RPC」的建议因此不再是硬约束，但 stdio 仍更省事：无端口、无防火墙弹窗、无鉴权）。
 
-## 实测性能（`experiments/2026-08-12-index-bench/`）
+## 实测性能（`research/experiments/2026-08-12-index-bench/`）
 
 | 指标 | 实测值 |
 |---|---|
@@ -363,15 +365,15 @@ Windows GUI / 控制模式解析器 / 布局同步全部蒸发。2026-09-05 起 
 
 ## 目录
 
-见 `CLAUDE.md`。实际项目代码放 `app/`。
+见 `CLAUDE.md`。实际项目代码放 `src/atm/`。
 
 ## 日志
 
-- 2026-08-12 建目录；从会话 `00000000-0000-4000-8000-000000000004` 提炼需求与架构讨论，详见 `notes/2026-08-12-design-session.md`。
-- 2026-08-12 调研现成工具，推翻「没人做」的判断，见 `notes/survey-existing-tools.md`。
-- 2026-08-12 **路线 C 拍板并实现**：`app/` 里的 `atm`（当时 68 测试通过）。
+- 2026-08-12 建目录；从会话 `00000000-0000-4000-8000-000000000004` 提炼需求与架构讨论，详见 `research/notes/2026-08-12-design-session.md`。
+- 2026-08-12 调研现成工具，推翻「没人做」的判断，见 `research/notes/survey-existing-tools.md`。
+- 2026-08-12 **路线 C 拍板并实现**：`src/atm/` 里的 `atm`（当时 68 测试通过）。
   实现过程中实测推翻了本文件关于两个 jsonl 格式的三条描述（见上「侧栏数据源」节）。
-  端到端验证 `experiments/2026-08-12-tmux-e2e/`，压测 `experiments/2026-08-12-index-bench/`。
+  端到端验证 `research/experiments/2026-08-12-tmux-e2e/`，压测 `research/experiments/2026-08-12-index-bench/`。
 - 2026-09-02 **常驻侧栏 + swap 换位**（分支 `sidebar-swap`）：`atm sidebar` 常驻在最左边的通高 pane 里，
   上半段列正在跑的格子（Claude Code 自己会把 pane 标题设成 `✳ <任务名>`，不用反查会话 id），
   下半段接历史；选中运行中的 → `swap-pane` 换进主格，选中历史 → 新 window 里 resume 再换进来。

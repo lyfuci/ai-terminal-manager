@@ -1,0 +1,83 @@
+[project]
+# PyPI 上 `atm` 已被占用；发行名用全名，命令名仍是 `atm`。
+name = "ai-terminal-manager"
+version = "0.1.0"
+description = "Multi-session manager for AI CLIs (Claude Code / Codex / Pi) inside tmux: unified history, resume into any pane, persistent sidebar"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "lyfuci" }]
+keywords = ["tmux", "claude-code", "codex", "ai", "cli", "session", "terminal"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+    "Topic :: Terminals",
+    "Topic :: Utilities",
+]
+requires-python = ">=3.11"
+# 刻意保持零运行时依赖：atm 要在 tmux display-popup 里被反复冷启动，
+# 任何 import 开销都会让「唤出侧栏」这个手势变卡。stdlib 够用。
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/lyfuci/ai-terminal-manager"
+Repository = "https://github.com/lyfuci/ai-terminal-manager"
+Issues = "https://github.com/lyfuci/ai-terminal-manager/issues"
+Changelog = "https://github.com/lyfuci/ai-terminal-manager#log"
+
+[project.scripts]
+atm = "atm.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/atm"]
+
+# research/ 里有压测语料和事故复盘，不进 sdist。用 only-include 而不是 include：
+# hatch 的 include 只是「额外加上」，并不排除其余文件（2026-09-05 实测 research/ 照样被打进去）。
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "src",
+    "tests",
+    "atm.tmux",
+    "README.md",
+    "README-cn.md",
+    "README-ja.md",
+    "LICENSE",
+    "SECURITY.md",
+    "docs/reference.md",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+# research/ 是一次性脚本和实验记录，不按产品代码的标准 lint。
+extend-exclude = ["research"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "C4", "PTH"]
+ignore = [
+    "RUF001", # 全角标点在中文注释里是正常的
+    "RUF002",
+    "RUF003",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

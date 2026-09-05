@@ -1,6 +1,6 @@
 """索引构建的吞吐压测（2026-08-12）。
 
-CLAUDE.md 要求「性能声明必须来自 experiments/ 里的压测，不能估」，这就是那份实测。
+CLAUDE.md 要求「性能声明必须来自 research/experiments/ 里的压测，不能估」，这就是那份实测。
 
 跑法：`uv run --project ../../app python bench.py`
 """
@@ -16,7 +16,7 @@ ROUNDS = 5
 
 
 def main() -> int:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "app" / "src"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
     from atm import cache as cache_mod
     from atm import index as index_mod
     from atm.sources import claude, codex

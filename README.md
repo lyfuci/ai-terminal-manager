@@ -41,7 +41,7 @@ Two things you get for free along the way:
 3. install and configure tmux-resurrect + continuum on the way, so the skeleton comes back after a reboot.
 
 **It is not** a GUI, a layout synchronizer or a control-mode parser. The tmux ecosystem and the official Desktop
-app already own those (survey in `notes/survey-existing-tools.md`). It also never sends session data anywhere — it
+app already own those (survey in `research/notes/survey-existing-tools.md`). It also never sends session data anywhere — it
 only reads local files.
 
 **For**: people developing in tmux on Linux / WSL2 / servers with several AI sessions open at once.
@@ -49,7 +49,7 @@ only reads local files.
 layouts (tmux is a binary split tree).
 
 > This repository doubles as a **research log**: "how to use" is the first half, "why it's designed this way / what
-> we measured and tripped over" is the [second half](#research-log-below) and `notes/`. Every conclusion later
+> we measured and tripped over" is the [second half](#research-log-below) and `research/notes/`. Every conclusion later
 > overturned is kept with strikethrough, not erased.
 
 ---
@@ -68,16 +68,19 @@ layouts (tmux is a binary split tree).
 [uv](https://docs.astral.sh/uv/) is recommended:
 
 ```bash
-# straight from the repository, no clone
-uv tool install 'atm @ git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'
+# from PyPI (the command is still `atm`)
+uv tool install ai-terminal-manager
+
+# or straight from the repository, no clone — always the latest main
+uv tool install git+https://github.com/lyfuci/ai-terminal-manager
 
 # or clone and install (add --editable to have source edits take effect immediately)
 git clone https://github.com/lyfuci/ai-terminal-manager
-uv tool install ./ai-terminal-manager/app
+uv tool install ./ai-terminal-manager
 ```
 
-Without uv, `pipx install 'git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'` works the same.
-To upgrade, run the same command with `--reinstall`.
+Without uv, `pipx install ai-terminal-manager` works the same. To upgrade: `uv tool upgrade ai-terminal-manager`
+(or re-run the git form with `--reinstall`).
 
 ### Check-up, key bindings, persistence
 
@@ -93,12 +96,12 @@ atm install     # write key bindings to ~/.tmux.conf + install resurrect/continu
 - **Persistence block**: installs **tmux-resurrect + tmux-continuum** via tpm (cloned into `~/.tmux/plugins/`),
   turns on `@continuum-restore`, autosaves every 10 minutes. After a reboot, sessions / windows / panes / cwd come
   back by themselves. It deliberately does **not** relaunch claude / codex — launching them all at once at boot ate
-  all available memory in one go (`notes/2026-08-12-incident.md`, appendix 3); you resume sessions on demand in the
+  all available memory in one go (`research/notes/2026-08-12-incident.md`, appendix 3); you resume sessions on demand in the
   right pane. Don't want it: `--no-persist`. If you already manage tpm yourself it is skipped, nothing is written
   twice.
 
 If tmux isn't installed, `atm install` prints the install command for your package manager; it never runs sudo for
-you. Uninstall: `atm uninstall && uv tool uninstall atm` — removes only those two blocks, not a character of your
+you. Uninstall: `atm uninstall && uv tool uninstall ai-terminal-manager` — removes only those two blocks, not a character of your
 own config, and leaves the cloned plugins alone.
 
 ---
@@ -139,9 +142,9 @@ atm index --rebuild       # clear the cache and rebuild from scratch
 
 > Dispatch wraps the process in a cgroup memory gate by default (`MemoryHigh=2G` / `MemoryMax=4G`). The reason:
 > hitting the WSL memory ceiling once took **the whole tmux server, and every session with it**. How the thresholds
-> were chosen and how to turn it off: `app/README.md`, "memory gate".
+> were chosen and how to turn it off: `docs/reference.md`, "memory gate".
 
-**Full options, measured performance, format details of the three JSONL flavours: [`app/README.md`](app/README.md).**
+**Full options, measured performance, format details of the three JSONL flavours: [`docs/reference.md`](docs/reference.md).**
 Development and contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
@@ -179,11 +182,11 @@ names**.)
 
 🟢 **Route C decided and shipped** (2026-08-12): scope narrowed to "unified cross-agent history → dispatch to a
 chosen tmux pane", followed by the persistent sidebar (09-02), Pi support and persistence install (09-05).
-Python 3.11+, zero runtime dependencies, 170+ tests, MIT.
+Python 3.11+, zero runtime dependencies, 240+ tests, MIT.
 
 > Architecture forks A (tmux backend + GUI) / B (own daemon) were **not rejected, just not built** — the deciding
 > variable (do you need cross-device SSH takeover?) is still unanswered. If they are ever built, the
-> `app/src/atm/index.py` layer can be reused wholesale. See the research log below.
+> `src/atm/index.py` layer can be reused wholesale. See the research log below.
 
 ---
 
@@ -224,7 +227,7 @@ VM is gone and only L3 remains as a degraded recovery.
 ## Sidebar data sources (re-measured during implementation on 2026-08-12; corrected version below)
 
 > ⚠️ Three earlier statements in this section were **overturned by measurement during implementation**. The
-> originals are in git history; only what holds today is written here. Full details in `app/README.md`, "data
+> originals are in git history; only what holds today is written here. Full details in `docs/reference.md`, "data
 > sources".
 
 **Codex** — the real data source is `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<uuid>.jsonl` (86 files, 125 MB).
@@ -263,7 +266,7 @@ as the title yields a screen of garbage.
 > history" as a first-class citizen.~~
 > ❌ **Overturned by the 2026-08-12 survey**: clauhist and claude-sessions already do history browsing + resume;
 > tmux-agent-sidebar / tmux-agent-status / opensessions do agent sidebars; the official Desktop sidebar is native.
-> See `notes/survey-existing-tools.md`. The one differentiator left: **unified cross-agent (Claude + Codex + Pi)
+> See `research/notes/survey-existing-tools.md`. The one differentiator left: **unified cross-agent (Claude + Codex + Pi)
 > history → dispatch to a chosen pane**, serving the server / SSH crowd who have no GUI available.
 
 ## ⚠️ Undecided fork (start the next discussion here)
@@ -374,14 +377,14 @@ layout sync all evaporated. Since 2026-09-05, `atm install` installs resurrect +
 
 1. **Cross-device takeover or not** → decides Route A / B. **Still unanswered**, but no longer blocking: Route C has
    shipped something usable.
-2. ~~Route C validation first, or straight to A/B~~ → decided: **Route C**, and implemented (`app/`).
+2. ~~Route C validation first, or straight to A/B~~ → decided: **Route C**, and implemented (`src/atm/`).
 3. ~~Sidebar shape~~ → **both coexist** (2026-09-02): the `display-popup -E` popup handles "look up history, dispatch
    once" (`prefix + a`); the **persistent full-height left pane** handles "switch between running processes"
    (`prefix + b`, `atm sidebar`). The latter is a new dimension: atm used to touch only L3 (conversations on disk);
    the sidebar touches L2 (panes already running in tmux) and the core gesture changes from `send-keys` to
    `swap-pane`. Measured on tmux 3.6: `swap-pane` works across windows and across sessions; processes out of view
-   keep running in the `bg` window. End-to-end in `experiments/2026-09-02-sidebar-swap/`.
-4. ~~GUI tech stack~~ → no GUI. `app/` is **Python 3.11+, zero runtime dependencies**.
+   keep running in the `bg` window. End-to-end in `research/experiments/2026-09-02-sidebar-swap/`.
+4. ~~GUI tech stack~~ → no GUI. `src/atm/` is **Python 3.11+, zero runtime dependencies**.
 5. ~~The "open into a chosen split" interaction~~ → decided: **a second-step picker after selecting a session**,
    listing every pane (with busy/idle state) + "split a new pane" + "new window" + "just print".
    `display-panes` was not used: it needs focus on tmux, and calling it from the popup breaks the gesture.
@@ -406,7 +409,7 @@ layout sync all evaporated. Since 2026-09-05, `atm install` installs resurrect +
   "avoid TCP ports, use `wsl.exe --exec` + stdio JSON-RPC" is therefore no longer a hard constraint, though stdio is
   still simpler: no port, no firewall prompt, no auth).
 
-## Measured performance (`experiments/2026-08-12-index-bench/`)
+## Measured performance (`research/experiments/2026-08-12-index-bench/`)
 
 | Metric | Measured |
 |---|---|
@@ -420,17 +423,17 @@ The key is **reading only file heads** (title / cwd / branch are all in the head
 
 ## Layout
 
-See `CLAUDE.md`. The actual project code lives in `app/`.
+See `CLAUDE.md`. The actual project code lives in `src/atm/`.
 
 ## Log
 
 - 2026-08-12 Directory created; requirements and architecture discussion distilled from session
-  `00000000-0000-4000-8000-000000000004`, see `notes/2026-08-12-design-session.md`.
+  `00000000-0000-4000-8000-000000000004`, see `research/notes/2026-08-12-design-session.md`.
 - 2026-08-12 Surveyed existing tools, overturning the "nobody does this" assumption, see
-  `notes/survey-existing-tools.md`.
-- 2026-08-12 **Route C decided and implemented**: `atm` in `app/` (68 tests passing at the time). Implementation
+  `research/notes/survey-existing-tools.md`.
+- 2026-08-12 **Route C decided and implemented**: `atm` in `src/atm/` (68 tests passing at the time). Implementation
   overturned three statements in this file about the two jsonl formats (see "Sidebar data sources"). End-to-end
-  validation in `experiments/2026-08-12-tmux-e2e/`, benchmark in `experiments/2026-08-12-index-bench/`.
+  validation in `research/experiments/2026-08-12-tmux-e2e/`, benchmark in `research/experiments/2026-08-12-index-bench/`.
 - 2026-09-02 **Persistent sidebar + swap** (branch `sidebar-swap`): `atm sidebar` lives in a full-height pane on
   the far left; the upper half lists running panes (Claude Code sets the pane title to `✳ <task>` itself, no need to
   look up the session id), the lower half is history; selecting a running one → `swap-pane` into the main pane,

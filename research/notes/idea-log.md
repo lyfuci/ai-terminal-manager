@@ -43,7 +43,7 @@
 ### 性能
 
 冷启动 198ms / 热启动 5ms，1.73GB 语料只读 2.7%（47MB）。
-靠的是「只读头部 + (mtime_ns,size) 指纹缓存」。压测在 `experiments/2026-08-12-index-bench/`。
+靠的是「只读头部 + (mtime_ns,size) 指纹缓存」。压测在 `research/experiments/2026-08-12-index-bench/`。
 
 ### 还没做
 

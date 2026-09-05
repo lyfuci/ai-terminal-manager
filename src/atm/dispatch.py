@@ -26,7 +26,7 @@ from .tmux import Pane, SplitDirection, TmuxError
 # ---------------------------------------------------------------- 体积标注
 #
 # ⚠️ 这里**只做展示，不拦截**。曾经有过一版「≥100MB 必须 --force」的硬闸门，已经删掉。
-# 删除理由（2026-08-12 实测，详见 ../../notes/2026-08-12-incident.md）：
+# 删除理由（2026-08-12 实测，详见 research/notes/2026-08-12-incident.md）：
 #
 # 1. **Claude Code 自己已经有这道闸门，而且做得更好。** 实测 resume 一条大会话时它会弹：
 #        This session is 3h 31m old and 909.6k tokens.

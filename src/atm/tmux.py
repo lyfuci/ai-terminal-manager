@@ -2,7 +2,7 @@
 
 只用**公开的命令行接口**（`tmux list-panes` / `send-keys` / `split-window` …）。
 绝不碰 `/tmp/tmux-<UID>/default` 那个 unix socket —— 那是二进制的、未文档化的、
-版本间会变的内部协议（见 ../../README.md「已知的坑」第 3 条）。
+版本间会变的内部协议（见 README-cn.md「已知的坑」第 3 条）。
 
 控制模式 `-CC` 这里也用不上：atm 不托管终端输出，只是往已有 pane 里投一行命令，
 所以连状态机都不需要。
@@ -323,7 +323,7 @@ def select_pane(pane_id: str) -> None:
 # ---------------------------------------------------------------- 侧栏 / 换位（2026-09-02）
 #
 # 下面这些只被 sidebar.py 用。每条都在隔离 socket（`-L` + `-f /dev/null`）上实测过，
-# 见 ../../experiments/2026-09-02-sidebar-swap/。
+# 见 research/experiments/2026-09-02-sidebar-swap/。
 
 
 def swap_pane(src: str, dst: str) -> None:

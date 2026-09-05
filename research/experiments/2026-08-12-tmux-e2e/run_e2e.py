@@ -1,6 +1,6 @@
 """tmux 投递链路的端到端验证（2026-08-12）。
 
-**为什么单独放 experiments/**：这是一次性的验证脚本，按 CLAUDE.md 的约定不进 `app/`。
+**为什么单独放 research/experiments/**：这是一次性的验证脚本，按 CLAUDE.md 的约定不进 `src/atm/`。
 
 **为什么不真的跑 claude --resume**：那会真的开一个 AI 会话、烧 token。
 所以这里拆成两半分别验证：
@@ -36,7 +36,7 @@ def tmux(*args: str, check: bool = True) -> str:
 
 
 def main() -> int:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "app" / "src"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
     from atm import tmux as atm_tmux
     from atm.dispatch import resume_command
     from atm.model import SessionEntry, Source

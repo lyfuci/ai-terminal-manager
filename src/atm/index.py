@@ -1,6 +1,6 @@
 """统一索引：把 Claude 和 Codex 的会话合成一份按时间倒序的列表。
 
-这一层是整个项目里唯一「别人没做全」的部分（见 ../../notes/survey-existing-tools.md 第四节），
+这一层是整个项目里唯一「别人没做全」的部分（见 research/notes/survey-existing-tools.md 第四节），
 也是唯一在 tmux / daemon / GUI 任何一条路线下都能复用的部分。
 所以它不 import 任何 tmux 相关的东西 —— 保持可以单独搬走。
 """

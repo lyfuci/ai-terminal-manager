@@ -10,7 +10,7 @@ resurrect 把骨架搭回来，用户在对应的格子里 `prefix + a` 把昨�
 
 刻意**不做**的三件事，都有血泪教训：
 1. 不把 claude / codex 加进 `@resurrect-processes`。resurrect 会在开机时把它们**全部同时**拉起，
-   本机实测一次吃掉 87% 内存冻死两次（notes/2026-08-12-incident.md 附三）。
+   本机实测一次吃掉 87% 内存冻死两次（research/notes/2026-08-12-incident.md 附三）。
    恢复出来的是带 cwd 的空 shell，会话由用户按需 resume —— 这正是 atm 的活。
 2. 不对正在跑的 server 做「立即生效」。tpm 加载会跑 continuum 的初始化，
    `@continuum-restore on` 在某些时机会对活着的 server 做一次全量恢复，

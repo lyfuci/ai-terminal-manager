@@ -15,7 +15,7 @@ uv run ruff check src tests  # lint
 uv run ruff format src tests # 格式化
 ```
 
-装成本机命令：`uv tool install --editable .`（或 `uv tool install 'atm @ git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'`）。
+装成本机命令：`uv tool install --editable .`（或 `uv tool install git+https://github.com/lyfuci/ai-terminal-manager`）。
 
 ## 铁律（不遵守的 PR 会被要求改）
 
@@ -34,7 +34,7 @@ uv run ruff format src tests # 格式化
 - 新功能先写测试（RED → GREEN → REFACTOR）；修 bug 先写一个能复现的失败测试再修。
 - tmux 输出解析类测试（如 `parse_panes`）是格式变更的第一道防线，改动输出格式时同步更新。
 - 涉及 tmux 真实行为（如 `swap-pane` 跨窗口、`split-window -f`）的结论，优先补一个
-  `experiments/<yyyy-mm-dd>-<tag>/` 下的隔离 socket 验证脚本，再在代码注释里引用它。
+  `research/experiments/<yyyy-mm-dd>-<tag>/` 下的隔离 socket 验证脚本，再在代码注释里引用它。
 
 ## tmux 实验规则（在真机器上验证时）
 

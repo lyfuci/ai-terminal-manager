@@ -1,7 +1,7 @@
 """侧栏的运行态逻辑：纯函数吃 Pane 元组、吐计划，这里一条 tmux 都不跑。
 
 execute_* 那几行只是转发 tmux 命令，真正的验证在
-experiments/2026-09-02-sidebar-swap/ 的隔离 socket 端到端脚本里。
+research/experiments/2026-09-02-sidebar-swap/ 的隔离 socket 端到端脚本里。
 """
 
 from __future__ import annotations

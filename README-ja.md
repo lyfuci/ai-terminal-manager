@@ -33,13 +33,13 @@ atm はその層を補い、それ以外には触れない。
 3. ついでに tmux-resurrect + continuum を入れて設定し、再起動後に骨格が自動で戻るようにする。
 
 **これは** GUI ではなく、レイアウト同期でもなく、コントロールモードのパーサでもない。それらは tmux エコシステムと公式 Desktop がすでに担っている
-（調査は `notes/survey-existing-tools.md`）。セッションデータをネットワークに送ることも一切ない——ローカルファイルを読むだけ。
+（調査は `research/notes/survey-existing-tools.md`）。セッションデータをネットワークに送ることも一切ない——ローカルファイルを読むだけ。
 
 **向いている人**：Linux / WSL2 / サーバー上で tmux を使って開発し、AI セッションを複数同時に開いている人。
 **向かない人**：tmux を使わない人；AI セッションが一本だけの人；フローティングウィンドウのような自由レイアウトが必要な人（tmux は二分割ツリー）。
 
 > このリポジトリは同時に**研究記録**でもある。「使い方」が前半、「なぜこう設計したか / 実測で踏んだ落とし穴」が
-> [後半](#以下は研究記録) と `notes/`。覆された古い結論はすべて取り消し線で残し、消さない。
+> [後半](#以下は研究記録) と `research/notes/`。覆された古い結論はすべて取り消し線で残し、消さない。
 
 ---
 
@@ -56,16 +56,18 @@ atm はその層を補い、それ以外には触れない。
 [uv](https://docs.astral.sh/uv/) 推奨：
 
 ```bash
-# clone せずリポジトリから直接
-uv tool install 'atm @ git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'
+# PyPI から（コマンド名は変わらず atm）
+uv tool install ai-terminal-manager
+
+# または clone せずリポジトリから直接——常に最新の main
+uv tool install git+https://github.com/lyfuci/ai-terminal-manager
 
 # または clone してから（--editable を付けるとソース変更が即反映）
 git clone https://github.com/lyfuci/ai-terminal-manager
-uv tool install ./ai-terminal-manager/app
+uv tool install ./ai-terminal-manager
 ```
 
-uv がなければ `pipx install 'git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'` でも同じ。
-更新は同じコマンドに `--reinstall`。
+uv がなければ `pipx install ai-terminal-manager` でも同じ。更新は `uv tool upgrade ai-terminal-manager`（git 形式なら `--reinstall` を付けて再実行）。
 
 ### 健診・キーバインド・永続化
 
@@ -80,11 +82,11 @@ atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/contin
 - **永続化ブロック**：tpm 経由で **tmux-resurrect + tmux-continuum** を入れ（`~/.tmux/plugins/` に clone）、
   `@continuum-restore` を有効化、10 分ごとに自動保存。再起動後に session / window / pane / cwd が自動で戻る。
   claude / codex を再起動させることは意図的に**しない**——起動時に一斉に立ち上げるとメモリを一瞬で食い尽くす
-  （`notes/2026-08-12-incident.md` 付録三）。セッションは対応する pane で必要なときに resume する。不要なら `--no-persist`。
+  （`research/notes/2026-08-12-incident.md` 付録三）。セッションは対応する pane で必要なときに resume する。不要なら `--no-persist`。
   自分で tpm を管理している場合は自動でスキップし、二重に書かない。
 
 tmux が入っていなければ `atm install` がパッケージマネージャに応じたインストールコマンドを表示する。sudo は代わりに実行しない。
-アンインストール：`atm uninstall && uv tool uninstall atm`——この二つのブロックだけを消し、あなた自身の設定は一文字も触らず、clone したプラグインも残す。
+アンインストール：`atm uninstall && uv tool uninstall ai-terminal-manager`——この二つのブロックだけを消し、あなた自身の設定は一文字も触らず、clone したプラグインも残す。
 
 ---
 
@@ -121,9 +123,9 @@ atm index --rebuild       # キャッシュを消して全再構築
 
 > 投入時はデフォルトで cgroup のメモリゲートを被せる（`MemoryHigh=2G` / `MemoryMax=4G`）。
 > WSL のメモリ上限に当たったとき**tmux server がすべてのセッションごと死んだ**ことが一度あったため。
-> 閾値の決め方と無効化は `app/README.md`「メモリゲート」。
+> 閾値の決め方と無効化は `docs/reference.md`「メモリゲート」。
 
-**全オプション、実測性能、三種 JSONL のフォーマット詳細：[`app/README.md`](app/README.md)。**
+**全オプション、実測性能、三種 JSONL のフォーマット詳細：[`docs/reference.md`](docs/reference.md)。**
 開発と貢献：[CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ---
@@ -158,10 +160,10 @@ tmux send-keys -t %<pane-id> -l -- "cd <cwd> && claude --resume <sessionId>"
 
 🟢 **ルート C を決定し実装済み**（2026-08-12）：範囲を「エージェント横断の統合履歴 → 指定 tmux pane に投入」に絞り、
 その後 常駐サイドバー（09-02）、Pi 対応と永続化インストール（09-05）を追加。
-Python 3.11+ ランタイム依存ゼロ、170+ テスト、MIT。
+Python 3.11+ ランタイム依存ゼロ、240+ テスト、MIT。
 
 > アーキテクチャの分岐 A（tmux バックエンド + GUI）/ B（自作デーモン）は**否定されたのではなく、作っていないだけ**——
-> 決定変数（別デバイスからの SSH 引き継ぎが必要か）はまだ未回答。作るときは `app/src/atm/index.py` の層をそのまま再利用できる。詳細は下の研究記録。
+> 決定変数（別デバイスからの SSH 引き継ぎが必要か）はまだ未回答。作るときは `src/atm/index.py` の層をそのまま再利用できる。詳細は下の研究記録。
 
 ---
 
@@ -199,7 +201,7 @@ Python 3.11+ ランタイム依存ゼロ、170+ テスト、MIT。
 ## サイドバーのデータソース（2026-08-12 の実装時に再実測、以下は修正版）
 
 > ⚠️ 本節の以前の三つの記述は**実装時に実測で覆された**。原文は git 履歴に残し、ここには今成り立つものだけを書く。
-> 詳細は `app/README.md`「データソース」節。
+> 詳細は `docs/reference.md`「データソース」節。
 
 **Codex** —— 本当のデータソースは `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<uuid>.jsonl`（86 件、125MB）。
 
@@ -231,7 +233,7 @@ Pi は role の列挙が広く（`toolResult` / `bashExecution` / `compactionSum
 > ~~この部分はアイデア全体で最も作りやすく、最も差別化できる——「AI セッション履歴」を一級市民として扱う人は誰もいない。~~
 > ❌ **2026-08-12 の調査で覆された**：clauhist、claude-sessions はすでに履歴閲覧 + resume をやっている。
 > tmux-agent-sidebar / tmux-agent-status / opensessions はエージェントサイドバーを、公式 Desktop のサイドバーはネイティブ。
-> `notes/survey-existing-tools.md` 参照。残った差別化点は一つだけ：**エージェント横断（Claude + Codex + Pi）の統合履歴 → 指定 pane へ投入**、
+> `research/notes/survey-existing-tools.md` 参照。残った差別化点は一つだけ：**エージェント横断（Claude + Codex + Pi）の統合履歴 → 指定 pane へ投入**、
 > そして GUI が使えないサーバー / SSH の人々に向けていること。
 
 ## ⚠️ 未決の分岐（次の議論はここから）
@@ -322,13 +324,13 @@ Windows GUI / コントロールモードパーサ / レイアウト同期はす
 ## 未確認
 
 1. **別デバイス引き継ぎの要否** → ルート A / B を決める。**まだ未回答**だが、もうブロッカーではない：ルート C が使えるものを出荷済み。
-2. ~~ルート C の検証を先にするか A/B に直行するか~~ → 決定：**ルート C**、実装済み（`app/`）。
+2. ~~ルート C の検証を先にするか A/B に直行するか~~ → 決定：**ルート C**、実装済み（`src/atm/`）。
 3. ~~サイドバーの形態~~ → **両方併存**（2026-09-02）：`display-popup -E` のポップアップが「履歴を探して一回投げる」（`prefix + a`）；
    **常駐の全高左 pane** が「実行中のプロセスを切り替える」（`prefix + b`、`atm sidebar`）。
    後者は新しい次元：atm はもともと L3（ディスク上の会話）にしか触れていなかったが、サイドバーは L2（tmux 内ですでに走っている pane）に触れ、
    核心ジェスチャが `send-keys` から `swap-pane` に変わる。tmux 3.6 で実測、`swap-pane` は window 越え / session 越えともに可。
-   視界外のプロセスは `bg` window で動き続ける。エンドツーエンドは `experiments/2026-09-02-sidebar-swap/`。
-4. ~~GUI を作る場合の技術スタック~~ → GUI は作らない。`app/` は **Python 3.11+、ランタイム依存ゼロ**。
+   視界外のプロセスは `bg` window で動き続ける。エンドツーエンドは `research/experiments/2026-09-02-sidebar-swap/`。
+4. ~~GUI を作る場合の技術スタック~~ → GUI は作らない。`src/atm/` は **Python 3.11+、ランタイム依存ゼロ**。
 5. ~~「指定した分割に開く」の操作~~ → 決定：**セッション選択後に第二段階のピッカー**。
    全 pane（忙閑状態付き）+「新しく pane を分割」+「新しい window」+「表示のみ」を列挙。
    `display-panes` は使わない：tmux にフォーカスが必要で、ポップアップから呼ぶとジェスチャが途切れる。
@@ -349,7 +351,7 @@ Windows GUI / コントロールモードパーサ / レイアウト同期はす
 - Mirrored + hostAddressLoopback のため、**Windows↔WSL の TCP localhost は通る**
   （以前の「TCP ポートを使わず `wsl.exe --exec` + stdio JSON-RPC で」という助言はもう硬い制約ではないが、stdio のほうが依然楽：ポートなし、ファイアウォールのポップアップなし、認証なし）。
 
-## 実測性能（`experiments/2026-08-12-index-bench/`）
+## 実測性能（`research/experiments/2026-08-12-index-bench/`）
 
 | 指標 | 実測値 |
 |---|---|
@@ -362,15 +364,15 @@ Windows GUI / コントロールモードパーサ / レイアウト同期はす
 
 ## ディレクトリ
 
-`CLAUDE.md` 参照。実際のプロジェクトコードは `app/`。
+`CLAUDE.md` 参照。実際のプロジェクトコードは `src/atm/`。
 
 ## ログ
 
-- 2026-08-12 ディレクトリ作成；セッション `00000000-0000-4000-8000-000000000004` から要件とアーキテクチャ議論を抽出、`notes/2026-08-12-design-session.md`。
-- 2026-08-12 既存ツールを調査、「誰もやっていない」という判断を覆す、`notes/survey-existing-tools.md`。
-- 2026-08-12 **ルート C を決定し実装**：`app/` の `atm`（当時 68 テスト通過）。
+- 2026-08-12 ディレクトリ作成；セッション `00000000-0000-4000-8000-000000000004` から要件とアーキテクチャ議論を抽出、`research/notes/2026-08-12-design-session.md`。
+- 2026-08-12 既存ツールを調査、「誰もやっていない」という判断を覆す、`research/notes/survey-existing-tools.md`。
+- 2026-08-12 **ルート C を決定し実装**：`src/atm/` の `atm`（当時 68 テスト通過）。
   実装中に本ファイルの二つの jsonl フォーマットに関する三つの記述を実測で覆した（上の「サイドバーのデータソース」節）。
-  エンドツーエンド検証 `experiments/2026-08-12-tmux-e2e/`、ベンチ `experiments/2026-08-12-index-bench/`。
+  エンドツーエンド検証 `research/experiments/2026-08-12-tmux-e2e/`、ベンチ `research/experiments/2026-08-12-index-bench/`。
 - 2026-09-02 **常駐サイドバー + swap 入れ替え**（ブランチ `sidebar-swap`）：`atm sidebar` が最左の全高 pane に常駐、
   上半分に実行中の pane（Claude Code が自分で pane タイトルを `✳ <タスク名>` にするのでセッション id の逆引き不要）、
   下半分に履歴；実行中を選ぶ → `swap-pane` でメインへ、履歴を選ぶ → 新 window で resume してから入れ替え。

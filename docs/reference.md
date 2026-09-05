@@ -93,7 +93,7 @@ bind-key A display-popup -E -w 80% -h 70% 'atm pick --here'
 键位和尺寸可调：`atm install --key s --width 90% --height 80%`。
 
 > 刻意写成 `bind-key` 行而不是 `run-shell /abs/path/atm.tmux`：后者把用户的 tmux 配置
-> **钉死在源码目录的绝对路径上**，`app/` 一搬走就悄悄失效。
+> **钉死在源码目录的绝对路径上**，`src/atm/` 一搬走就悄悄失效。
 > `atm.tmux` 仍保留给 tpm 用户（`set -g @plugin '<app 目录>'`）。
 
 立即生效那一步用的是直接下 `bind-key` 命令，**不是 `source-file ~/.tmux.conf`** ——
@@ -142,7 +142,7 @@ atm park [%7]                              # 收进 bg（默认当前 pane）
 atm prune [-n]                             # 关掉 bg 里空闲的 shell 格子（-n 只看不关）
 ```
 
-几条实测过的边界（tmux 3.6，`experiments/2026-09-02-sidebar-swap/`，22 项全过）：
+几条实测过的边界（tmux 3.6，`research/experiments/2026-09-02-sidebar-swap/`，22 项全过）：
 `swap-pane` 跨 window / 跨 session 都行；`split-window -f` 才是通高（不带 -f 只切当前 pane 的高度）；
 单 pane 窗口 `break-pane` 不报错、只是把窗口改名成 `bg`，所以 `park` 对独占窗口的 pane 直接拒绝。
 `new-window` 默认把你的视图切到新窗口 —— 侧栏从历史恢复时必须 `-d` 后台开再 swap，

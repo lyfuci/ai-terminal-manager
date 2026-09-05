@@ -12,8 +12,8 @@ build/
 target/
 .DS_Store
 
-experiments/**/logs/
-experiments/**/*.cast
+research/experiments/**/logs/
+research/experiments/**/*.cast
 
 # IDE
 .idea/

@@ -1,7 +1,7 @@
 """把 tmux 键位绑定装进 `~/.tmux.conf`（以及立刻对正在跑的 server 生效）。
 
 为什么不用 `run-shell /abs/path/atm.tmux`：那条路径指向源码目录，
-`app/` 一旦搬走或改名，用户的 tmux.conf 就悄悄失效了。
+`src/atm/` 一旦搬走或改名，用户的 tmux.conf 就悄悄失效了。
 直接写 `bind-key` 行是自包含的，而且用户能直接看懂和改。
 （`atm.tmux` 保留给 tpm 用户。）绑定里调的是 `atm` 的绝对路径而不是裸名 ——
 tmux server 的 PATH 是它启动那刻的快照，见 `resolve_atm_command`。

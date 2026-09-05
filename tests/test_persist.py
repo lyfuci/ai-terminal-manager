@@ -73,7 +73,7 @@ def test_clone_failure_is_reported_not_raised(tmp_path: Path) -> None:
 
 
 def test_never_restores_ai_cli_processes(tmp_path: Path) -> None:
-    """notes/2026-08-12-incident.md 附三：开机批量拉起 claude 吃掉 87% 内存。别再犯。"""
+    """research/notes/2026-08-12-incident.md 附三：开机批量拉起 claude 吃掉 87% 内存。别再犯。"""
     block = persist.build_block(tmp_path)
     assert "set -g @resurrect-processes" not in block
 

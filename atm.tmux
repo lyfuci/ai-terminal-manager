@@ -2,8 +2,8 @@
 # atm 的 tmux 插件入口（tpm 兼容）。
 #
 # 装法二选一：
-#   1) tpm —— 在 ~/.tmux.conf 里加 `set -g @plugin 'path/to/app'`，再按 prefix + I
-#   2) 手动 —— 在 ~/.tmux.conf 里加 `run-shell /绝对路径/app/atm.tmux`
+#   1) tpm —— 在 ~/.tmux.conf 里加 `set -g @plugin 'path/to/ai-terminal-manager'`，再按 prefix + I
+#   2) 手动 —— 在 ~/.tmux.conf 里加 `run-shell /绝对路径/atm.tmux`
 #
 # 默认绑定 prefix + a（a = agent），在 display-popup 浮层里唤出选择器。
 # 浮层是「查历史、投一次」的手势；常驻左侧 pane（prefix + b）是 2026-09-02 加的第二个维度：
