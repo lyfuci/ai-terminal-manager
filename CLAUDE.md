@@ -9,12 +9,13 @@
 
 ## 目标
 
-_(TODO: 分岔口拍板后填。当前候选的第一步：装 tpm + tmux-resurrect + tmux-continuum 用两天，
-判断布局这块 tmux 生态是否已经够用；同时把侧栏最小实现跑起来验证核心手势。)_
+**路线 C 已拍板并落地**（2026-08-12）：不做 GUI、不做布局同步，只做「AI 会话当一等公民」这一层——
+跨 agent（Claude Code / Codex / Pi）统一历史 → 投到指定 tmux pane，加一个常驻侧栏在运行中的格子之间 `swap-pane` 换位。
+面向的人群是服务器 / SSH 上用 tmux、同时开多个 AI 会话、用不了 GUI 的开发者。
 
-> ⚠️ **架构分岔口未拍板**（tmux 后端 / 自写 daemon / 先不写 app）。
-> 动手前先读 `README-cn.md` 的「未拍板的分岔口」和「已知的坑」两节（`README.md` 是英文版，内容同步；另有 `README-ja.md`）——
-> 那里的结论是查证过的，别重新推导、也别推翻不看。改 README 时三个语言版本要一起改。
+> 架构分岔口 A（tmux 后端 + GUI）/ B（自写 daemon）**没有被否掉，只是没做**，决策变量（要不要跨端接管）仍未回答。
+> 动手前先读 `research/README-cn.md` 的「未拍板的分岔口」和「已知的坑」两节（`research/README.md` 英文 / `README-ja.md` 日文同步）——
+> 那里的结论是查证过的，别重新推导、也别推翻不看。改任何一份文档时，三个语言版本要一起改。
 
 ## 本目录结构
 
@@ -24,15 +25,16 @@ _(TODO: 分岔口拍板后填。当前候选的第一步：装 tpm + tmux-resurr
 ```
 ai-terminal-manager/
 ├── CLAUDE.md            # 本文件 — Claude Code 的研究上下文
-├── README.md            # 英文主 README；README-cn.md / README-ja.md 是中文 / 日文版，内容同步
-│                        # 结构：为什么做 → 装 → 用 → 怎么工作 → 研究记录（需求、已确认结论、分岔口、坑、环境事实）
+├── README.md            # 英文主 README（短：为什么做 / 是什么 / 怎么装 / 文档索引）；README-cn.md / README-ja.md 同步
 ├── pyproject.toml       # ★ 包 ai-terminal-manager，命令 atm；零运行时依赖；uv 管理
 ├── src/atm/             # ★ 产品代码
 ├── tests/               # ★ pytest（只用 tmp_path，绝不碰真实会话数据）
 ├── atm.tmux             # tpm 兼容的插件入口（给不想 uv install 的人）
+├── docs/usage.md        # 用法：四个键、浮层 / 侧栏、命令行、怎么工作（-cn / -ja 同步）
 ├── docs/reference.md    # 完整选项、实测性能、三个 JSONL 的格式细节、内存闸门
 ├── .github/workflows/   # ci（ruff + pytest）、publish（打 v* tag 发 PyPI，trusted publishing）
 └── research/            # 研究过程，不进包
+    ├── README.md        # 研究记录：需求、三层状态、已确认结论、分岔口、已知的坑、环境事实、日志（-cn / -ja 同步）
     ├── notes/           # 讨论纪要、阅读笔记、决策记录、事故复盘
     ├── experiments/     # 验证性实验：吞吐压测、原型脚本、实测数据
     └── writeup/         # 报告 / 设计文档草稿
@@ -63,7 +65,7 @@ ai-terminal-manager/
 
 ## Claude 协作须知
 
-- 进入本研究先读 `README.md` → `research/notes/idea-log.md` → `research/notes/2026-08-12-design-session.md`。
+- 进入本研究先读 `README-cn.md` → `research/README-cn.md` → `research/notes/idea-log.md` → `research/notes/2026-08-12-design-session.md`。
 - 不要修改 `../reference/` 里的任何文件。
 - 涉及外部服务调用前，按全局规则先跟用户确认。
 - 装 tmux 插件 / 改 `~/.tmux.conf` 这类**动用户全局环境**的操作，先说清楚要改什么再动手。

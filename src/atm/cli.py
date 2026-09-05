@@ -74,7 +74,9 @@ def _sidebar_mod():
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="atm",
-        description="AI Terminal Manager — Claude Code + Codex 的统一会话历史，投到指定 tmux pane",
+        description=(
+            "AI Terminal Manager — Claude Code / Codex / Pi 的统一会话历史，投到指定 tmux pane"
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -531,10 +533,12 @@ def _cmd_install(args: argparse.Namespace) -> int:
     persist_plan = None if args.no_persist else persist.build_plan()
 
     print(plan.describe())
-    if plan.atm_command != "atm":
+    # resolve_atm_command 永远返回绝对路径，所以不能拿 != "atm" 判断「没装成命令」——
+    # 那样 PATH 里明明有 atm 也会误报。只有退回到 `python -m atm` 才值得提醒。
+    if "-m atm" in plan.atm_command:
         print(
             f"\n注意：PATH 里没找到 `atm`，绑定会用 `{plan.atm_command}`。\n"
-            "     装成 PATH 命令会更快（`uv tool install --editable <app 目录>`）。"
+            "     装成 PATH 命令会更快（仓库根目录 `uv tool install --editable .`）。"
         )
     if persist_plan is not None:
         print()
