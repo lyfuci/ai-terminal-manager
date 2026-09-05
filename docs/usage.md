@@ -72,6 +72,7 @@ Unknown keys or a malformed file are errors, never silently ignored — otherwis
 ## Memory gate: `atm claude` vs `claude`
 
 ```bash
+atm config                     # interactive editor: ↑↓ pick a key, Enter edit/toggle, s save (atm config --show for plain text)
 atm config memory.high 4G      # soft cap: throttle + reclaim, never kills
 atm config memory.max 8G       # hard cap: kills the whole session scope (children included)
 atm claude --resume <id>       # launches claude inside that cgroup; args pass through untouched

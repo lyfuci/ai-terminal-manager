@@ -69,6 +69,7 @@ ATM_LANG=ja atm --help         # 表示言語：LC_ALL / LC_MESSAGES / LANG に�
 ## メモリゲート：`atm claude` と `claude` の違い
 
 ```bash
+atm config                     # 対話エディタ：↑↓ でキー選択、Enter で編集/切替、s で保存（atm config --show は表示のみ）
 atm config memory.high 4G      # ソフト上限：スロットリング + 回収、殺さない
 atm config memory.max 8G       # ハード上限：セッションの scope 全体（子プロセス含む）を kill
 atm claude --resume <id>       # その cgroup 内で claude を起動；引数はそのまま透過

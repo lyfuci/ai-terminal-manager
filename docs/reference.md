@@ -246,7 +246,7 @@ claude                       # 不带 atm 前缀 = 原生，不套任何限制
 ### 配置
 
 ```bash
-atm config                        # 看当前值（哪些是默认、哪些设过）
+atm config                        # 终端里：交互式编辑器（↑↓ 选、Enter 改/切换、r 恢复默认、s 保存）；管道里 / --show：打印当前值和来源
 atm config memory.high 4G         # 软上限：超了节流 + 回收，不杀
 atm config memory.max 8G          # 硬上限：回收压不住才杀 —— 杀的是整个 scope，会话和它的子命令一起没
 atm config memory.enabled false   # 全关（atm claude 就等于 claude）
