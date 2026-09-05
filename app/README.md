@@ -69,7 +69,8 @@ tmux 绑定 —— 一条命令搞定，**不用自己去编辑 `~/.tmux.conf`**
 atm install            # 会先把要写的内容打出来，问过你才动手
 atm install --print    # 只想看会写什么，什么都不改
 atm install -y         # 不问直接装
-atm uninstall          # 干净移除
+atm install --no-persist   # 只装键位，不装 tmux-resurrect / tmux-continuum
+atm uninstall          # 干净移除（键位块 + 持久化块；~/.tmux/plugins 里的插件不动）
 ```
 
 它做的事：

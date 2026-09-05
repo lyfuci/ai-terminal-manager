@@ -272,41 +272,43 @@ def _read(path: Path) -> str:
         ) from exc
 
 
-def _has_marker(text: str) -> bool:
+def _has_marker(text: str, begin: str = MARKER_BEGIN) -> bool:
     """配置里有没有 atm 的块。
 
     **必须和 _strip_block 用同一个口径（整行相等）**。之前检测用子串包含、
     剥离用整行相等 —— 用户在 marker 行尾加了注释后，检测说「装过了」、
     剥离却一行都删不掉，于是 `atm uninstall` 报成功、实际什么都没删。
+
+    `begin` 可换：persist.py 的插件块用另一对 marker，复用同一套口径。
     """
-    return any(line.strip() == MARKER_BEGIN for line in text.splitlines())
+    return any(line.strip() == begin for line in text.splitlines())
 
 
-def _strip_block(text: str) -> str:
+def _strip_block(text: str, begin: str = MARKER_BEGIN, end: str = MARKER_END) -> str:
     """删掉 marker 之间的内容（含 marker 本身）。没有就原样返回。"""
-    if not _has_marker(text):
+    if not _has_marker(text, begin):
         return text
 
     lines = text.splitlines()
 
     # 先确认 BEGIN/END 成对。缺 END 时**一行都不删** ——
     # 之前的单遍状态机会让 inside 一直为真到 EOF，把标记之后用户自己的配置全部吃掉。
-    begins = [i for i, ln in enumerate(lines) if ln.strip() == MARKER_BEGIN]
-    ends = [i for i, ln in enumerate(lines) if ln.strip() == MARKER_END]
+    begins = [i for i, ln in enumerate(lines) if ln.strip() == begin]
+    ends = [i for i, ln in enumerate(lines) if ln.strip() == end]
     if not ends or ends[-1] < begins[0]:
         raise ConfUnreadable(
-            f"{MARKER_BEGIN} 有开始标记但找不到对应的 {MARKER_END}。"
+            f"{begin} 有开始标记但找不到对应的 {end}。"
             f"为避免误删标记之后的配置，这里不做任何改动 —— 请手动检查 ~/.tmux.conf。"
         )
 
     out: list[str] = []
     inside = False
     for line in lines:
-        if line.strip() == MARKER_BEGIN:
+        if line.strip() == begin:
             inside = True
             continue
         if inside:
-            if line.strip() == MARKER_END:
+            if line.strip() == end:
                 inside = False
             continue
         out.append(line)

@@ -39,6 +39,14 @@ atm install     # 往 ~/.tmux.conf 写键位。会先把要写的内容打出来
 `atm install` 写的是一个 marker 包起来的块，改前自动备份，对正在跑的 tmux server 立即生效，
 `atm uninstall` 只删这个块、你自己的配置一个字不动。键位可换：`atm install --key s --sidebar-key g`。
 
+`atm install` 默认还会顺手装上 **tmux-resurrect + tmux-continuum**（经 tpm，克隆到 `~/.tmux/plugins/`，
+配置写成另一个独立的 marker 块）：重启后 session / window / pane / cwd 会自动搭回来，
+你在对应的格子里 `prefix + a` 把昨天的对话 resume 回去。刻意**不**让它重新拉起 claude / codex ——
+开机批量拉起会瞬间吃光内存（`notes/2026-08-12-incident.md` 附三）。
+不想要：`atm install --no-persist`；你自己已经在用 tpm 的话会自动跳过，不重复写。
+tmux 没装的话 `atm install` 会给出对应包管理器的安装命令，不替你跑 sudo。
+`atm doctor` 会检查 continuum 的自动存档钩子有没有真的装上（它在有别的 tmux server 时会静默失效）。
+
 卸载：`atm uninstall && uv tool uninstall atm`。
 
 ## 用
