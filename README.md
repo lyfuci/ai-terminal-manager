@@ -1,313 +1,449 @@
-# ai-terminal-manager
+# ai-terminal-manager (atm)
 
-**一句话**：一个面向 AI CLI（Claude Code / Codex / Pi）的终端管理器 —— 把各边的历史会话合成一份列表，
-选一条投进你指定的 tmux 格子；再加一个常驻左侧栏，用 `swap-pane` 在正在跑的会话之间换位。
+**English** | [中文](README-cn.md) | [日本語](README-ja.md)
 
-不做 GUI、不做布局同步 —— 那些 tmux 生态和官方 Desktop 已经吃掉了。atm 只做「AI 会话当一等公民」这一条。
+---
 
-> 这个仓库同时是**研究记录**：「怎么用」在上半部分，「为什么这么设计 / 实测踩过哪些坑」在
-> [下半部分](#以下是研究记录) 和 `notes/`。
+## Why this exists
 
-## 要求
+AI CLIs are now good enough to carry most day-to-day development. Tools to manage them are multiplying — and
+almost all of them are **desktop GUIs**. The problem is that a large share of real development doesn't happen on a
+desktop at all:
 
-- Linux 或 WSL2 + **tmux ≥ 3.0**（开发基准 3.6）
-- **Python ≥ 3.11**，零运行时依赖
-- 装了 Claude Code / Codex / Pi 至少一个（atm 只读它们写在 `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/` 的会话文件）
+- the code lives on a server; you SSH in and work there. A GUI can't be installed, and shouldn't be;
+- one person keeps three or four Claude Code / Codex sessions open, each in its own tty, and **which conversation
+  lives in which window is something you just have to remember**;
+- a dropped connection, a reboot, a different machine — every session is gone at once, leaving only a pile of
+  jsonl files on disk.
 
-## 装
+What these people lack is not another GUI. It's **multi-session management inside tmux** — the tool they already
+have open. tmux has already solved process persistence, reconnect, cross-machine takeover and layout serialization.
+The one thing missing is a layer that treats **AI sessions as first-class citizens**. atm is that layer and nothing
+else.
 
-推荐 [uv](https://docs.astral.sh/uv/)：
+Two things you get for free along the way:
+
+- **It's light.** No Electron, no resident daemon. `atm` runs only in the instant you press a key (warm start 5 ms,
+  measured below); the sidebar is a Python TUI in an ordinary tmux pane. How much lighter than a desktop GUI this is
+  has *not* been quantified — this is a usage impression, not a measured number.
+- **tmux's own session restore just works.** tmux-resurrect / continuum rebuild windows, panes and directories after
+  a reboot; you press one key in the right pane to resume yesterday's conversation. No need to invent another state
+  persistence scheme.
+
+## What it is — and isn't
+
+**It is** a tmux session manager for AI CLIs (Claude Code / Codex / Pi). Three things:
+
+1. merge the session history of all three CLIs into **one list**, fuzzy-search it, and **drop a session into the
+   tmux pane you choose** to `--resume` there;
+2. a collapsible **persistent left sidebar** listing the panes that are currently running; select one and it
+   `swap-pane`s into the main pane, process untouched;
+3. install and configure tmux-resurrect + continuum on the way, so the skeleton comes back after a reboot.
+
+**It is not** a GUI, a layout synchronizer or a control-mode parser. The tmux ecosystem and the official Desktop
+app already own those (survey in `notes/survey-existing-tools.md`). It also never sends session data anywhere — it
+only reads local files.
+
+**For**: people developing in tmux on Linux / WSL2 / servers with several AI sessions open at once.
+**Not for**: people who don't use tmux; people with a single AI session; people who need floating windows and free
+layouts (tmux is a binary split tree).
+
+> This repository doubles as a **research log**: "how to use" is the first half, "why it's designed this way / what
+> we measured and tripped over" is the [second half](#research-log-below) and `notes/`. Every conclusion later
+> overturned is kept with strikethrough, not erased.
+
+---
+
+## Install
+
+### Requirements
+
+- Linux or WSL2 with **tmux ≥ 3.0** (developed against 3.6, tested compatible with 3.4)
+- **Python ≥ 3.11**, zero runtime dependencies
+- at least one of Claude Code / Codex / Pi installed (atm only reads the session files they write to
+  `~/.claude/projects/`, `~/.codex/sessions/`, `~/.pi/agent/sessions/`)
+
+### Installation
+
+[uv](https://docs.astral.sh/uv/) is recommended:
 
 ```bash
-# 不用 clone，直接从仓库装
+# straight from the repository, no clone
 uv tool install 'atm @ git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'
 
-# 或者 clone 下来装（加 --editable 可以改了源码立刻生效）
+# or clone and install (add --editable to have source edits take effect immediately)
 git clone https://github.com/lyfuci/ai-terminal-manager
 uv tool install ./ai-terminal-manager/app
 ```
 
-没有 uv 用 `pipx install 'git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'` 也一样。
+Without uv, `pipx install 'git+https://github.com/lyfuci/ai-terminal-manager#subdirectory=app'` works the same.
+To upgrade, run the same command with `--reinstall`.
 
-装完先体检，再装 tmux 键位：
-
-```bash
-atm doctor      # 数据源在不在、tmux 通不通、能扫到多少条会话
-atm install     # 往 ~/.tmux.conf 写键位。会先把要写的内容打出来问过你；-y 跳过确认
-```
-
-`atm install` 写的是一个 marker 包起来的块，改前自动备份，对正在跑的 tmux server 立即生效，
-`atm uninstall` 只删这个块、你自己的配置一个字不动。键位可换：`atm install --key s --sidebar-key g`。
-
-卸载：`atm uninstall && uv tool uninstall atm`。
-
-## 用
-
-装完就是四个键（`prefix` 默认 `Ctrl-b`）：
-
-| 键 | 干什么 |
-|---|---|
-| `prefix + a` | **浮层**：模糊搜全部历史会话 → 选目标格子 → 会话在那格 `--resume` 起来 |
-| `prefix + A` | 同上，但只看当前目录（含子目录）的会话 |
-| `prefix + b` | **侧栏**：没开就在最左边开一条通高的；开了就切过去；已经在里面就收起 |
-| `prefix + B` | 把当前格子收进后台窗口 `bg` —— 进程继续跑，之后从侧栏里还能选回来 |
-
-浮层里：打字模糊搜索，`↑↓` / `^N` `^P` 移动，`Tab` 在 全部 / Claude / Codex / Pi 之间循环，`⏎` 选中，`Esc` 取消。
-
-侧栏里：上半段是**正在跑的格子**（选中 → `swap-pane` 换进主格，进程不断），下半段是**历史**
-（选中 → 后台新窗口里 resume 再换进来）。`⏎` 换进主格，`^T` 挑具体换进哪格，`^X` 把选中的收进 `bg`，
-`Tab` 切来源，`^R` 重建索引，`^C` 退出。
-
-命令行同样能用（不在 tmux 里时 `pick` 自动退化成打印命令，`eval "$(atm pick --print)"`）：
+### Check-up, key bindings, persistence
 
 ```bash
-atm list -n 20            # 列最近 20 条；--source codex|claude|pi 只看一家；--json 喂给别的脚本
-atm pick                  # 交互选会话 → 选目标 pane → 投递
-atm resume <id前缀>       # 不进 TUI，按 id 直接投
-atm panes                 # 列出所有 tmux pane 及忙闲状态
-atm swap %7 --into %3     # 把 %7 换进 %3
-atm park                  # 当前格子收进 bg
-atm prune -n              # 看看 bg 里有哪些空闲 shell 可以关（去掉 -n 才真关）
-atm index --rebuild       # 清缓存全量重建
+atm doctor      # are the data sources there, does tmux respond, how many sessions are found, is the autosave hook really installed
+atm install     # write key bindings to ~/.tmux.conf + install resurrect/continuum. Prints what it will write and asks first; -y skips the prompt
 ```
 
-> 投递默认套一层 cgroup 内存闸门（`MemoryHigh=2G` / `MemoryMax=4G`）。
-> 起因是实测撞上 WSL 内存上限时**整个 tmux server 连同所有会话一起死掉**过一次。
-> 阈值怎么定的、怎么关，见 `app/README.md`「内存闸门」。
+`atm install` does two things, each written as its own marker-delimited block, with a backup taken first:
 
-**完整选项、实测性能、两个 JSONL 的格式细节：[`app/README.md`](app/README.md)。**
-开发和贡献：[CONTRIBUTING.md](CONTRIBUTING.md)。
+- **Key-binding block**: the four bindings below. Applied to the running tmux server immediately. Keys can be
+  changed: `atm install --key s --sidebar-key g`.
+- **Persistence block**: installs **tmux-resurrect + tmux-continuum** via tpm (cloned into `~/.tmux/plugins/`),
+  turns on `@continuum-restore`, autosaves every 10 minutes. After a reboot, sessions / windows / panes / cwd come
+  back by themselves. It deliberately does **not** relaunch claude / codex — launching them all at once at boot ate
+  all available memory in one go (`notes/2026-08-12-incident.md`, appendix 3); you resume sessions on demand in the
+  right pane. Don't want it: `--no-persist`. If you already manage tpm yourself it is skipped, nothing is written
+  twice.
+
+If tmux isn't installed, `atm install` prints the install command for your package manager; it never runs sudo for
+you. Uninstall: `atm uninstall && uv tool uninstall atm` — removes only those two blocks, not a character of your
+own config, and leaves the cloned plugins alone.
 
 ---
 
-# 以下是研究记录
+## Use
 
-## 现状
+Once installed it's four keys (`prefix` is `Ctrl-b` by default):
 
-🟢 **路线 C 已拍板并落地。** 2026-08-12 按调研结论把范围收敛到唯一还站得住的那条缝 ——
-**跨 agent（Claude + Codex）统一历史 → 投到指定 tmux pane** —— 并实现完成，代码在 `app/`。
-
-不做 GUI、不做控制模式解析器、不做布局同步：官方 Claude Code Desktop + tmux 生态已经把
-布局那块吃掉了（详见 `notes/survey-existing-tools.md`）。
-
-`app/` 现状：Python 3.11+ 零运行时依赖，210 个测试通过，冷启动 198ms / 热启动 5ms（实测见下）。
-用法见 **`app/README.md`**。
-
-> 架构分岔口 A（tmux 后端 + GUI）/ B（自写 daemon）**没有被否掉，只是没做** ——
-> 决策变量（需不需要跨端 SSH 接管）仍未回答。真要做时，`app/src/atm/index.py` 那层可以整块复用。
-
-## 起因（用户原话）
-
-> 想做个 terminal 管理程序，因为我现在经常用 claude code / codex 这些工具来开发，
-> 感觉任何编辑器和 IDE 都太重了。问题是开很多个窗口不好管理，
-> 所以想做个相对自由布局、并且可以记住各个命令行最终状态的工具；
-> 左侧能有个可收纳的窗口，在这个窗口里能快速打开最近的对话到指定的分窗口。
-
-## 关键概念：「记住状态」其实是三层
-
-| 层 | 含义 | 谁能给 |
-|---|---|---|
-| **L1 视觉** | 布局分割、每格 cwd、滚动缓冲区文字 | 自己存 JSON，容易；tmux-resurrect 也给 |
-| **L2 进程** | 关掉 UI 后 `claude` 进程还在跑 | **只有常驻进程宿主能给**（tmux server 或自写 daemon） |
-| **L3 会话** | AI 对话上下文本身 | CLI 自带：`claude --resume` / `codex resume` |
-
-> **L3 顶替不了 L2**：`--resume` 恢复的是对话历史，不是跑到一半的进程。
-> 十分钟的重构跑一半 UI 崩了，L3 只让你不用重讲需求，救不回已经跑掉的工作。
-
-**L2 的准确边界**（在本机实测配置下）：保得住「UI 关了/崩了」「所有登录会话退出」（因为 `KillUserProcesses=no`），
-**保不住 `wsl --shutdown` / Windows 重启** —— 整个 VM 没了，只能靠 L3 降级恢复。
-
-## 已确认
-
-| 议题 | 结论 |
+| Key | What it does |
 |---|---|
-| **L2 是否必需** | **必需** —— 常挂长任务，UI 生命周期不能绑着进程 |
-| **运行形态** | Windows 原生 GUI 连进 WSL（当时的选择） |
-| **侧栏的数据源** | 现成，不用自己记录，见下节 |
-| ~~**侧栏不做成 tmux pane**~~ | ~~做原生组件 —— 收纳不该扰动布局树~~ **2026-09-02 改口径**：侧栏就是一个常驻的通高左侧 tmux pane（`prefix + b` 开/切/收），列出**正在跑**的格子，选中就 `swap-pane` 换进主格。收起 = kill 那个 pane，主区自动占满，对布局树的扰动只有宽度 |
+| `prefix + a` | **Popup**: fuzzy-search all past sessions → pick a target pane → the session `--resume`s there |
+| `prefix + A` | Same, but only sessions from the current directory (and subdirectories) |
+| `prefix + b` | **Sidebar**: opens a full-height strip on the far left if closed; switches to it if open; collapses it if you're already in it |
+| `prefix + B` | Park the current pane in the background window `bg` — the process keeps running and can be picked back from the sidebar |
 
-## 侧栏数据源（2026-08-12 实现时重新实测，下面是修正后的版本）
+**In the popup**: type to fuzzy-search, `↑↓` / `^N` `^P` to move, `Tab` cycles All / Claude / Codex / Pi, `⏎`
+selects, `Esc` cancels. After picking a session comes a second step: every pane (with busy/idle state) + "split a new
+pane" + "new window" + "just print".
 
-> ⚠️ 本节早前的三条描述**在实现时被实测推翻**了。原文保留在 git 历史里，这里只写现在成立的。
-> 完整细节见 `app/README.md`「数据来源」一节。
+**In the sidebar**: the upper half is **running panes** (select → `swap-pane` into the main pane, process untouched),
+the lower half is **history** (select → resumed in a background window, then swapped in). `⏎` swaps into the main
+pane, `^T` picks exactly which pane, `^X` parks the selected pane in `bg`, `Tab` switches source, `^R` rebuilds the
+index, `^C` quits.
 
-**Codex** —— 真实数据源是 `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<uuid>.jsonl`（86 个，125MB）。
+**From the command line** it works too (outside tmux, `pick` degrades to printing the command:
+`eval "$(atm pick --print)"`):
 
-- ❌ ~~`~/.codex/session_index.jsonl` 一行一条自带标题~~ —— 该文件**停更于 2026-08-03、只剩 5 条**，
-  不能当会话列表用。但那几条 `thread_name` 质量最好，仍作为标题的第一优先级。
-- ❌ `~/.codex/thread_history_1.sqlite` 看着像索引，实测是**单个 thread 的投影缓存**（1 thread / 3 turn），不是全局索引。
-- ✅ 第 1 行 `session_meta` 带 `session_id` / `cwd` / `git`（`git` 实测可能是 `null`）。
-- 恢复：`codex resume <SESSION_ID>`（实测 `codex resume --help`）
+```bash
+atm list -n 20            # last 20; --source codex|claude|pi for one CLI; --json to feed other scripts
+atm pick                  # interactive: pick session → pick target pane → dispatch
+atm resume <id-prefix>    # dispatch by id, no TUI
+atm panes                 # every tmux pane with busy/idle state
+atm swap %7 --into %3     # swap %7 into %3
+atm park                  # park the current pane in bg
+atm prune -n              # show idle shells in bg that could be closed (drop -n to actually close them)
+atm index --rebuild       # clear the cache and rebuild from scratch
+```
 
-**Claude Code** —— `~/.claude/projects/<cwd 把 '/' 换成 '-'>/<sessionId>.jsonl`，本机 63 个项目目录。
+> Dispatch wraps the process in a cgroup memory gate by default (`MemoryHigh=2G` / `MemoryMax=4G`). The reason:
+> hitting the WSL memory ceiling once took **the whole tmux server, and every session with it**. How the thresholds
+> were chosen and how to turn it off: `app/README.md`, "memory gate".
 
-- ❌ ~~从 `type:"summary"` 行提标题~~ —— 抽样 120 个文件的尾部，**一条 summary 都没有**。
-- ⚠️ `type:"ai-title"` 确实存在（2.1.228 新功能），但覆盖率只有 **2%**（150 抽样中 3 个）。
-- ✅ **真正的标题主力是「首条非 `isMeta` 的 user 消息」，覆盖 94%**；`cwd` / `gitBranch` 同样 94%。
-- ⚠️ **1459 个 jsonl 里只有 127 个是可 resume 的会话**，其余 1332 个在
-  `<sessionId>/{subagents,workflows,tool-results}/` 下，是会话的产物、没有独立 sessionId。
-  扫描只能扫一层，扫成递归会多出 1332 条点了没反应的假条目。
-- 恢复：`claude --resume <sessionId>`
+**Full options, measured performance, format details of the three JSONL flavours: [`app/README.md`](app/README.md).**
+Development and contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
 
-**两边都要防注入包装**：Codex 实测会在真实提问前塞一条 10865 字的
-`<recommended_plugins>…</environment_context>`，Claude 则是 `<local-command-caveat>` / `<command-name>` 那一套。
-直接拿「第一条 user 消息」当标题会得到一屏垃圾。
+---
 
-核心手势落地就一行：
+## How it works (three-minute version)
+
+**"Remembering state" is really three layers.** atm touches two of them and leaves the third to tmux:
+
+| Layer | Meaning | Who owns it |
+|---|---|---|
+| **L1 visual** | split layout, cwd per pane, scrollback | tmux-resurrect (installed by `atm install`) |
+| **L2 process** | the `claude` process keeps running after the UI is closed | the tmux server itself; atm's sidebar `swap-pane`s at this layer |
+| **L3 session** | the AI conversation context | the CLI's own `--resume`; atm's index + popup find it and drop it into the right pane |
+
+> **L3 can't substitute for L2**: `--resume` restores the conversation, not the half-finished process. That is why
+> the sidebar exists.
+
+**Where the data comes from**: only the session files the three CLIs write themselves, and only their heads (title /
+cwd / branch are all in the head, measured) cached by `(mtime_ns, size)` — 213 sessions, 1.73 GB of corpus: cold
+start 198 ms, warm start 5 ms. The formats were reverse-engineered, not published contracts, so parsing is
+defensive throughout: one dirty line never takes down the whole list.
+
+**The core gesture is one line**:
 
 ```
 tmux send-keys -t %<pane-id> -l -- "cd <cwd> && claude --resume <sessionId>"
 ```
 
-（`-l --` 是必须的：否则命令里的 `Enter` / `C-c` 这类词会被 tmux 当**键名**解释。）
+(`-l --` is mandatory: without it words like `Enter` / `C-c` inside the command are interpreted by tmux as **key
+names**.)
 
-> ~~这部分是整个想法里最容易做、又最有差异化的 —— 没人把「AI 会话历史」当一等公民。~~
-> ❌ **2026-08-12 调研推翻**：clauhist、claude-sessions 已经在做历史浏览+resume，
-> tmux-agent-sidebar / tmux-agent-status / opensessions 在做 agent 侧栏，官方 Desktop 侧栏更是原生的。
-> 见 `notes/survey-existing-tools.md`。剩下的差异点只有一条：**跨 agent（Claude+Codex）统一历史 → 投到指定 pane**。
+---
 
-核心手势落地就一行：
+## Project status
 
-```
-tmux send-keys -t %<pane-id> "claude --resume <sessionId>" Enter
-```
+🟢 **Route C decided and shipped** (2026-08-12): scope narrowed to "unified cross-agent history → dispatch to a
+chosen tmux pane", followed by the persistent sidebar (09-02), Pi support and persistence install (09-05).
+Python 3.11+, zero runtime dependencies, 170+ tests, MIT.
 
-## ⚠️ 未拍板的分岔口（下次讨论从这里开始）
+> Architecture forks A (tmux backend + GUI) / B (own daemon) were **not rejected, just not built** — the deciding
+> variable (do you need cross-device SSH takeover?) is still unanswered. If they are ever built, the
+> `app/src/atm/index.py` layer can be reused wholesale. See the research log below.
 
-**决策变量只有一个：你需不需要从别的地方（纯 SSH 进来、手机、另一台机器）接管同一批会话？**
+---
 
-| | 路线 A：tmux 当后端 | 路线 B：自写常驻 daemon |
+# Research log below
+
+## Origin (the user's own words)
+
+> I want to build a terminal manager, because I now develop mostly with claude code / codex and every editor and IDE
+> feels too heavy. The problem is that many open windows are hard to manage, so I want something with a relatively
+> free layout that remembers the final state of each command line; a collapsible window on the left where I can
+> quickly open a recent conversation into a chosen split.
+
+## Key concept: "remembering state" has three layers
+
+| Layer | Meaning | Who can provide it |
 |---|---|---|
-| L2 | 免费 | 自己实现（PTY 归 daemon，GUI 只是 attach 的渲染器） |
-| 布局自由度 | 受限于**二叉分割树**，做不到浮动/重叠 | **完全自由，浮动重叠都行** |
-| 协议 | 控制模式 `tmux -CC`，纯文本行协议，man page 有定义 | 自己定，一个 stdio/WebSocket 就够 |
-| 最脏的活 | **两份布局真相要同步**（tmux 拥有布局，你得镜像它的树）—— 这类项目 bug 最密集处 | 没有这个问题 |
-| 解析器 | 控制模式状态机 300~500 行，琐碎 | 不需要 |
-| 断线重连 / 换机器 SSH 接管 | 免费 | 做不到 |
-| 十几年的边界打磨（resize 竞态 / SIGWINCH / terminfo） | 免费 | 丢掉 |
+| **L1 visual** | split layout, cwd per pane, scrollback text | store JSON yourself, easy; tmux-resurrect gives it too |
+| **L2 process** | the `claude` process keeps running after the UI is closed | **only a resident process host** (tmux server or your own daemon) |
+| **L3 session** | the AI conversation itself | built into the CLIs: `claude --resume` / `codex resume` |
 
-> **纠正一个常见误解**：推荐 tmux **不是因为工作量小**，恰恰相反 —— 前期工作量更大。
-> 推荐理由只有一条：L2 + 跨端接管是自己写买不到的。不需要跨端接管的话，自写 daemon 总复杂度更低且布局自由。
+> **L3 can't substitute for L2**: `--resume` restores conversation history, not a process that was halfway through.
+> If a ten-minute refactor is half done when the UI crashes, L3 only saves you from re-explaining the task; it
+> can't bring back the work that was already running.
 
-**还有路线 C（当时的最新建议）**：先别写 app。tmux 生态可能已经把布局吃掉了 ——
+**The exact boundary of L2** (in the measured local configuration): survives "UI closed / crashed" and "all login
+sessions exited" (because `KillUserProcesses=no`); does **not** survive `wsl --shutdown` / a Windows reboot — the whole
+VM is gone and only L3 remains as a degraded recovery.
 
-| 能力 | 谁提供 | 到什么程度 |
+## Confirmed
+
+| Topic | Conclusion |
+|---|---|
+| **Is L2 required** | **Yes** — long tasks are always running; the UI's lifetime can't be tied to the process |
+| **Runtime shape** | native Windows GUI connecting into WSL (the choice at the time) |
+| **Sidebar data source** | exists already, nothing to record ourselves, see next section |
+| ~~**Sidebar is not a tmux pane**~~ | ~~build a native component — collapsing shouldn't disturb the layout tree~~ **Revised 2026-09-02**: the sidebar *is* a persistent full-height left tmux pane (`prefix + b` open / switch / collapse) listing **running** panes; select one and it `swap-pane`s into the main pane. Collapse = kill that pane, the main area fills up again; the only disturbance to the layout tree is width |
+
+## Sidebar data sources (re-measured during implementation on 2026-08-12; corrected version below)
+
+> ⚠️ Three earlier statements in this section were **overturned by measurement during implementation**. The
+> originals are in git history; only what holds today is written here. Full details in `app/README.md`, "data
+> sources".
+
+**Codex** — the real data source is `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<uuid>.jsonl` (86 files, 125 MB).
+
+- ❌ ~~`~/.codex/session_index.jsonl`, one line per session with a title~~ — that file **stopped updating on
+  2026-08-03 with 5 entries left**; unusable as a session list. But those few `thread_name`s are the best titles
+  available, so they remain the first priority for titles.
+- ❌ `~/.codex/thread_history_1.sqlite` looks like an index; measured, it is a **projection cache of a single
+  thread** (1 thread / 3 turns), not a global index.
+- ✅ Line 1 `session_meta` carries `session_id` / `cwd` / `git` (`git` can be `null`, measured).
+- Resume: `codex resume <SESSION_ID>` (verified with `codex resume --help`)
+
+**Claude Code** — `~/.claude/projects/<cwd with '/' replaced by '-'>/<sessionId>.jsonl`, 63 project directories on
+this machine.
+
+- ❌ ~~take the title from a `type:"summary"` line~~ — sampled the tails of 120 files, **not one summary**.
+- ⚠️ `type:"ai-title"` does exist (new in 2.1.228) but coverage is only **2%** (3 of 150 sampled).
+- ✅ **The real title workhorse is "the first non-`isMeta` user message", 94% coverage**; `cwd` / `gitBranch` likewise 94%.
+- ⚠️ **Of 1459 jsonl files only 127 are resumable sessions**; the other 1332 live under
+  `<sessionId>/{subagents,workflows,tool-results}/` — artefacts of a session with no sessionId of their own. Scan
+  exactly one level; a recursive scan adds 1332 dead entries that do nothing when selected.
+- Resume: `claude --resume <sessionId>`
+
+**Pi** — `~/.pi/agent/sessions/--<cwd with '/' replaced by '-'>--/<ts>_<uuid>.jsonl` (schema v3). The adapter was
+written from the upstream `session-format.md`; **pi is not installed here and it has not been validated against real
+data.** `cwd` appears only in the line-1 SessionHeader; the display name is a separate `session_info` record that can
+change repeatedly (the tail is scanned again to take the last one). Resume: `pi --session <id>`.
+
+**All three need injection-wrapper filtering**: Codex measurably inserts a 10,865-character
+`<recommended_plugins>…</environment_context>` before the real question; Claude has its
+`<local-command-caveat>` / `<command-name>` family; Pi's role enum is wider (`toolResult` / `bashExecution` /
+`compactionSummary`) and without filtering, bash output masquerades as a title. Taking "the first user message" raw
+as the title yields a screen of garbage.
+
+> ~~This part is the easiest to build and the most differentiated in the whole idea — nobody treats "AI session
+> history" as a first-class citizen.~~
+> ❌ **Overturned by the 2026-08-12 survey**: clauhist and claude-sessions already do history browsing + resume;
+> tmux-agent-sidebar / tmux-agent-status / opensessions do agent sidebars; the official Desktop sidebar is native.
+> See `notes/survey-existing-tools.md`. The one differentiator left: **unified cross-agent (Claude + Codex + Pi)
+> history → dispatch to a chosen pane**, serving the server / SSH crowd who have no GUI available.
+
+## ⚠️ Undecided fork (start the next discussion here)
+
+**There is exactly one deciding variable: do you need to take over the same sessions from somewhere else (plain SSH,
+a phone, another machine)?**
+
+| | Route A: tmux as backend | Route B: own resident daemon |
 |---|---|---|
-| 布局序列化 | 原生 `#{window_layout}` / `select-layout <串>` | 只能给**已存在的 pane** 重排，不能重建 pane |
-| 重启后重建 session/window/pane/cwd | tmux-resurrect | 重建结构和目录，**是重新拉起进程，不是恢复进程状态**（即 L1+cwd，非 L2） |
-| 自动定期存档 + 开机自动恢复 | tmux-continuum | 补上「不用手动存」 |
-| 项目模板（打开项目 X 的标准布局） | tmuxinator / tmuxp（YAML 声明） | 现成 |
+| L2 | free | build it yourself (PTYs belong to the daemon, the GUI is just an attached renderer) |
+| Layout freedom | limited to a **binary split tree**; no floating / overlapping | **completely free**, floating and overlapping fine |
+| Protocol | control mode `tmux -CC`, plain text line protocol, defined in the man page | your own; one stdio / WebSocket is enough |
+| Dirtiest job | **two sources of truth for layout to keep in sync** (tmux owns the layout, you mirror its tree) — where such projects have the densest bugs | doesn't exist |
+| Parser | control-mode state machine, 300–500 lines, fiddly | not needed |
+| Reconnect / takeover from another machine over SSH | free | impossible |
+| A decade-plus of edge-case polish (resize races / SIGWINCH / terminfo) | free | thrown away |
 
-~~本机**这些一个都没装**（无 `.tmux.conf`、无 tpm、无 tmuxinator）。~~
-**已过期(2026-08-12 当天就装了)**：`~/.tmux.conf` 已有，resurrect + continuum 已装并实测生效
-（tmuxinator 仍未装）。结论是**布局这块 tmux 生态确实够用**，路线 C 成立。
-所以最省事的验证路径：**先把这套装上用两天**，看布局这块到底还缺什么 —— 很可能答案是「不缺」，
-那整个构想就缩成一个几百行的 tmux 侧栏（`display-popup -E` 浮层，`prefix + a` 唤出，选完消失，**完全不占布局**），
-Windows GUI / 控制模式解析器 / 布局同步全部蒸发。
+> **Correcting a common misconception**: tmux is recommended **not because it's less work** — quite the opposite,
+> the upfront work is larger. The only reason is that L2 + cross-device takeover can't be bought by writing your own.
+> If you don't need cross-device takeover, an own daemon is lower total complexity and layout-free.
 
-## 已知的坑（查证过，别重新踩）
+**And Route C (the one taken)**: don't write an app yet. The tmux ecosystem may already have eaten layout —
 
-1. **控制模式 `%output` 的转义会放大流量。** man page 原文：`value escapes non-printable characters and backslash as octal \xxx`。
-   Claude Code 是重 ANSI 重刷的 TUI，ESC(`\033`) 本身就是非打印字符 —— 几乎每个转义序列都膨胀成 4 字节。
-   **实际膨胀多少没测过**，走 tmux 路线的第一件事就是做吞吐压测；扛不住就退回「每个 pane 一条独立 `tmux attach` 管道」。
-2. **inotify 事件不会通过 9p 传到 Windows 侧的 `\\wsl.localhost\`** —— 文件监听必须在 WSL 内做。
-3. **tmux 有两个完全不同的协议层**，别搞混：
-   - 客户端↔服务端 `/tmp/tmux-<UID>/default` unix socket —— **二进制、内部、未文档化、版本间会变，绝不碰**。
-   - 控制模式 `-CC` —— 走客户端进程的 stdin/stdout，纯文本行协议，公开接口，iTerm2 靠它多年。
-   - 正确姿势是**把 tmux 客户端当子进程拉起来**（`spawn tmux -CC attach -t <session>`），让它替你说那个二进制协议。
-4. **tmux-continuum 会静默关掉自动存档 —— 只要加载时机器上还有别的 tmux server。**
-   源码 `continuum.tmux:main()`：
+| Capability | Provided by | How far |
+|---|---|---|
+| Layout serialization | native `#{window_layout}` / `select-layout <string>` | only rearranges **existing panes**; can't recreate panes |
+| Rebuild session/window/pane/cwd after reboot | tmux-resurrect | rebuilds structure and directories; **relaunches processes, does not restore process state** (i.e. L1 + cwd, not L2) |
+| Periodic autosave + restore at boot | tmux-continuum | adds "no need to save manually" |
+| Project templates (standard layout for project X) | tmuxinator / tmuxp (YAML) | ready-made |
+
+~~**None of these are installed** on this machine (no `.tmux.conf`, no tpm, no tmuxinator).~~
+**Outdated (installed the same day, 2026-08-12)**: `~/.tmux.conf` exists, resurrect + continuum installed and
+verified working (tmuxinator still not). Conclusion: **the tmux ecosystem really is enough for layout**, Route C
+stands. So the whole idea shrank to a few hundred lines of tmux sidebar (`display-popup -E` popup, summoned by
+`prefix + a`, disappears after selection, **occupies no layout at all**); the Windows GUI / control-mode parser /
+layout sync all evaporated. Since 2026-09-05, `atm install` installs resurrect + continuum directly.
+
+## Known pitfalls (verified — don't step on them again)
+
+1. **Control-mode `%output` escaping inflates traffic.** Man page: `value escapes non-printable characters and
+   backslash as octal \xxx`. Claude Code is a heavily ANSI-redrawing TUI and ESC (`\033`) is itself non-printable —
+   nearly every escape sequence balloons to 4 bytes. **The actual inflation was never measured**; the first job on the
+   tmux route would be a throughput benchmark, falling back to "one independent `tmux attach` pipe per pane" if it
+   can't keep up.
+2. **inotify events do not cross 9p to the Windows side `\\wsl.localhost\`** — file watching must run inside WSL.
+3. **tmux has two completely different protocol layers**; don't confuse them:
+   - client↔server `/tmp/tmux-<UID>/default` unix socket — **binary, internal, undocumented, changes between versions,
+     never touch it**.
+   - control mode `-CC` — over the client process's stdin/stdout, plain text line protocol, public interface, iTerm2
+     has relied on it for years.
+   - the right posture is to **spawn the tmux client as a subprocess** (`spawn tmux -CC attach -t <session>`) and let
+     it speak the binary protocol for you.
+4. **tmux-continuum silently disables autosave — whenever another tmux server exists on the machine at load time.**
+   Source, `continuum.tmux:main()`:
 
    ```bash
    if ! another_tmux_server_running; then
-       add_resurrect_save_interpolation   # 把 #(continuum_save.sh) 塞进 status-right
+       add_resurrect_save_interpolation   # injects #(continuum_save.sh) into status-right
    fi
    ```
 
-   自动存档**完全靠状态栏刷新驱动**（`status-interval` 秒跑一次那个 `#()`），钩子没装上就永不存档，
-   而且**没有任何提示**：`@continuum-restore` 仍然显示 `on`，插件目录也在，一切看着都正常。
+   Autosave is **driven entirely by status-line refresh** (that `#()` runs every `status-interval` seconds); if the
+   hook isn't installed it never saves, and **there is no indication whatsoever**: `@continuum-restore` still shows
+   `on`, the plugin directory is there, everything looks fine.
 
-   2026-08-12 实测踩中：跑实验留下游离 socket，主 server 恰好在那之后重启，
-   于是 **9 小时 40 分钟一次档都没存**，直到手动核对 `status-right` 才发现。
+   Hit on 2026-08-12: an experiment left a stray socket, the main server happened to restart after that, and **not
+   a single save happened for 9 h 40 min** until `status-right` was checked by hand.
 
-   自检（唯一可靠的判据是**看 status-right 里有没有那个 `#()`**，不是看 `@continuum-*` 选项）：
+   Self-check (the only reliable criterion is **whether that `#()` is in status-right**, not the `@continuum-*`
+   options; `atm doctor` checks exactly this):
 
    ```bash
    tmux show-options -gv status-right | grep -q continuum_save.sh \
-     && echo "自动存档正常" || echo "❌ 钩子没装上，永不存档"
-   ls -lt ~/.tmux/resurrect/ | head -3      # 最新存档时间应当在 save-interval 之内
+     && echo "autosave OK" || echo "❌ hook missing, will never save"
+   ls -lt ~/.local/share/tmux/resurrect/ | head -3      # newest save should be within save-interval
    ```
 
-   修复：确保只剩一个 server（`ls /tmp/tmux-$UID/`，清掉游离 socket）后
-   `tmux source-file ~/.tmux.conf`。注意重新加载会把「上次存档时间」重置成当下，
-   所以要立刻补一次 `~/.tmux/plugins/tmux-resurrect/scripts/save.sh`，否则空窗一个 interval。
+   Fix: make sure only one server is left (`ls /tmp/tmux-$UID/`, clear stray sockets), then
+   `tmux source-file ~/.tmux.conf`. Note that reloading resets "last save time" to now, so immediately run
+   `~/.tmux/plugins/tmux-resurrect/scripts/save.sh` once or you have a gap of one interval.
 
-   **推论：本项目跑任何 tmux 实验都必须用 `-L` 独立 socket 并当场清理** ——
-   残留 socket 不只是脏，它会让用户的自动存档静默失效。
+   **Corollary: every tmux experiment in this project must use a `-L` isolated socket and clean up on the spot** —
+   a leftover socket isn't just untidy, it silently kills the user's autosave.
+5. **An empty tmux-resurrect save file kills a freshly started server** (measured 2026-09-05). restore only checks
+   that `last` exists, not that it is non-empty (`restore.sh:check_saved_session_exists`). A 0-byte save → judged
+   "restoring from scratch" → `handle_session_0` kills the only session 0 → the server has no sessions and exits.
+   The empty file comes from `save.sh` being called after the server is already dead (e.g. a systemd unit's
+   `ExecStop`). A unit that autostarts tmux at boot needs an `ExecStartPre` that repoints an empty `last` at the
+   newest non-empty save.
+6. **tmux 3.4 prints control characters in `-F` format output as the literal `\037`; 3.6 emits the raw byte**
+   (measured 2026-09-05). A parser using `\x1f` as field separator gets "one field per line" on 3.4, and the
+   "skip lines that don't match the format" defence then silently swallows **every** line. `tmux.py:_split_fields`
+   accepts both, but only the exact `\037` sequence — no general octal unescaping (a `C:\123` in a pane title must
+   not be mangled).
+7. **The tmux server's environment is a snapshot from the moment it started.** PATH inside `run-shell` /
+   `display-popup` is not your current shell's PATH; `atm` lives in `~/.local/bin` and if the server started before
+   that PATH entry existed, `run-shell 'atm …'` is exit 127 with a one-line error. So `atm install` always writes
+   absolute paths into tmux.conf.
+8. **Two tmux features that fit the scenario exactly**:
+   - `refresh-client -A %<pane>:off` — makes tmux **stop reading output** from a given pane. With 6 Claude Codes
+     running and only 2 in view, switch the rest off. This is the key switch for not burning CPU; combined with
+     `pause-after` it pauses automatically, resume with `%continue`.
+   - `refresh-client -B <name>:<what>:<format>` — subscribe to a format string; changes are pushed as
+     `%subscription-changed`. Pane title, activity, current command — all push-based, no polling — the sidebar's
+     "this pane is busy" indicator relies on it.
 
-5. **两个刚好命中场景的 tmux 特性**：
-   - `refresh-client -A %<pane>:off` —— 让 tmux 对指定 pane **停止读取输出**。同时挂 6 个 Claude Code 但只有 2 个在视野里时，其余直接关推送。这是不炸 CPU 的关键开关；配合 `pause-after` 可自动暂停，恢复时发 `%continue`。
-   - `refresh-client -B <name>:<what>:<format>` —— 订阅格式串，变化时推 `%subscription-changed`。pane 标题、是否有活动、当前跑什么命令全部推送式拿到，不用轮询 —— 侧栏「这个格子正在忙」的指示器靠它。
+## To be confirmed
 
-## 待确认
+1. **Cross-device takeover or not** → decides Route A / B. **Still unanswered**, but no longer blocking: Route C has
+   shipped something usable.
+2. ~~Route C validation first, or straight to A/B~~ → decided: **Route C**, and implemented (`app/`).
+3. ~~Sidebar shape~~ → **both coexist** (2026-09-02): the `display-popup -E` popup handles "look up history, dispatch
+   once" (`prefix + a`); the **persistent full-height left pane** handles "switch between running processes"
+   (`prefix + b`, `atm sidebar`). The latter is a new dimension: atm used to touch only L3 (conversations on disk);
+   the sidebar touches L2 (panes already running in tmux) and the core gesture changes from `send-keys` to
+   `swap-pane`. Measured on tmux 3.6: `swap-pane` works across windows and across sessions; processes out of view
+   keep running in the `bg` window. End-to-end in `experiments/2026-09-02-sidebar-swap/`.
+4. ~~GUI tech stack~~ → no GUI. `app/` is **Python 3.11+, zero runtime dependencies**.
+5. ~~The "open into a chosen split" interaction~~ → decided: **a second-step picker after selecting a session**,
+   listing every pane (with busy/idle state) + "split a new pane" + "new window" + "just print".
+   `display-panes` was not used: it needs focus on tmux, and calling it from the popup breaks the gesture.
 
-1. **跨端接管要不要** → 决定 A / B 路线。**仍未回答**，但不再阻塞：路线 C 已经交付可用的东西了。
-2. ~~先做路线 C 验证还是直接进 A/B~~ → 已定：**路线 C**，且已实现（`app/`）。
-3. ~~侧栏形态~~ → **两种并存**（2026-09-02）：`display-popup -E` 浮层管「查历史、投一次」（`prefix + a`）；
-   **常驻通高左侧 pane** 管「切换正在跑的进程」（`prefix + b`，`atm sidebar`）。
-   后者是新维度：原来 atm 只碰 L3（磁盘上的对话），侧栏碰的是 L2（tmux 里已经在跑的 pane），
-   核心手势从 `send-keys` 变成 `swap-pane`。实测 tmux 3.6 `swap-pane` 跨 window / 跨 session 都行，
-   不在视野里的进程停在 `bg` 窗口继续跑。端到端在 `experiments/2026-09-02-sidebar-swap/`。
-4. ~~若做 GUI 的技术栈~~ → 不做 GUI。`app/` 定为 **Python 3.11+，零运行时依赖**。
-5. ~~「打开到指定分窗口」的交互~~ → 已定：**选中会话后进第二步选择器**，
-   列出所有 pane（带忙闲状态）+ 「新分一个 pane」+「新开 window」+「只打印」。
-   没用 `display-panes`：那需要焦点在 tmux 上，从浮层里调用会打断手势。
+**What to do next** (by value):
 
-**下一步该做的**（按价值排）：
+1. Validate the Pi adapter on a machine that has pi installed (it is currently written from documentation).
+2. Watch session files (inotify) → incremental index updates. Mind pitfall #2: must run inside WSL.
+3. Title quality: 94% of titles are the truncated first message; long questions truncate into mediocre titles.
+   Options: a small local model to fill in titles, or wait for Claude's `ai-title` coverage to grow.
+4. Cross-CLI session handoff (continue a Claude Code conversation in Codex and vice versa) — how to carry context
+   is not yet clear.
 
-1. 实机用两天，看浮层手势是不是真顺；顺便验证 `display-popup` 里 `TMUX_PANE` 到底是什么
-   （headless 验不了，代码目前对两种情况都成立）。
-2. 会话文件的 watch（inotify）→ 索引增量更新。注意坑 #2：必须在 WSL 内做。
-3. 标题质量：94% 靠截首条消息，长提问截出来的标题可读性一般。
-   可以考虑本地跑个小模型补标题，或等 Claude 的 `ai-title` 覆盖率自然涨上来。
+## Local environment facts (measured 2026-08-12)
 
-## 本机环境事实（实测，2026-08-12）
+- `tmux 3.6`, `node v24.19.0`, `python 3.13.13`; **no** zellij / wezterm; no `.tmux.conf` / tpm / tmuxinator / tmuxp.
+- WSL2: `systemd=true`, `Linger=no`, but `KillUserProcesses=no` (default) → logging out doesn't kill the tmux
+  server.
+- `.wslconfig`: `memory=6GB`, `autoMemoryReclaim=gradual`; **`vmIdleTimeout` not set**, VM has run 23 h
+  continuously → it doesn't reclaim itself in daily use.
+- Because of Mirrored + hostAddressLoopback, **TCP localhost between Windows and WSL works** (the earlier advice
+  "avoid TCP ports, use `wsl.exe --exec` + stdio JSON-RPC" is therefore no longer a hard constraint, though stdio is
+  still simpler: no port, no firewall prompt, no auth).
 
-- `tmux 3.6`、`node v24.19.0`、`python 3.13.13`；**无** zellij / wezterm；无 `.tmux.conf` / tpm / tmuxinator / tmuxp。
-- WSL2：`systemd=true`，`Linger=no`，但 `KillUserProcesses=no`（默认）→ 退出登录不会连坐杀掉 tmux server。
-- `.wslconfig`：`memory=6GB`、`autoMemoryReclaim=gradual`；
-  **没设 `vmIdleTimeout`**，VM 已连续跑 23h → 日常不会自己回收。
-- 因为 Mirrored + hostAddressLoopback，**Windows↔WSL 的 TCP localhost 是通的**
-  （早前「别用 TCP 端口、走 `wsl.exe --exec` + stdio JSON-RPC」的建议因此不再是硬约束，但 stdio 仍更省事：无端口、无防火墙弹窗、无鉴权）。
+## Measured performance (`experiments/2026-08-12-index-bench/`)
 
-## 目录
-
-见 `CLAUDE.md`。实际项目代码放 `app/`。
-
-## 实测性能（`experiments/2026-08-12-index-bench/`）
-
-| 指标 | 实测值 |
+| Metric | Measured |
 |---|---|
-| 语料 | 213 个会话，1.73 GB（最大单文件 **680 MB**） |
-| 冷启动（全量解析） | **198ms** 中位数 |
-| 热启动（缓存命中） | **5ms** 中位数 |
-| 冷启动实际读取 | 47 MB / 1.73 GB = **2.7%** |
+| Corpus | 213 sessions, 1.73 GB (largest single file **680 MB**) |
+| Cold start (full parse) | **198 ms** median |
+| Warm start (cache hit) | **5 ms** median |
+| Bytes actually read on cold start | 47 MB / 1.73 GB = **2.7%** |
 
-关键是**只读文件头部**（标题/cwd/branch 实测都在头部）+ 按 `(mtime_ns, size)` 缓存。
+The key is **reading only file heads** (title / cwd / branch are all in the head, measured) + caching by
+`(mtime_ns, size)`.
 
-## 日志
+## Layout
 
-- 2026-08-12 建目录；从会话 `00000000-0000-4000-8000-000000000004` 提炼需求与架构讨论，详见 `notes/2026-08-12-design-session.md`。
-- 2026-08-12 调研现成工具，推翻「没人做」的判断，见 `notes/survey-existing-tools.md`。
-- 2026-08-12 **路线 C 拍板并实现**：`app/` 里的 `atm`（当时 68 测试通过）。
-  实现过程中实测推翻了本文件关于两个 jsonl 格式的三条描述（见上「侧栏数据源」节）。
-  端到端验证 `experiments/2026-08-12-tmux-e2e/`，压测 `experiments/2026-08-12-index-bench/`。
-- 2026-09-02 **常驻侧栏 + swap 换位**（分支 `sidebar-swap`）：`atm sidebar` 常驻在最左边的通高 pane 里，
-  上半段列正在跑的格子（Claude Code 自己会把 pane 标题设成 `✳ <任务名>`，不用反查会话 id），
-  下半段接历史；选中运行中的 → `swap-pane` 换进主格，选中历史 → 新 window 里 resume 再换进来。
-  `prefix + b` 开/切/收，`prefix + B` 把当前格子收进 `bg`。推翻了「侧栏不做成 tmux pane」的旧结论（见上）。
+See `CLAUDE.md`. The actual project code lives in `app/`.
 
-## 贡献
+## Log
 
-欢迎 issue / PR。开发环境与约定见 [CONTRIBUTING.md](CONTRIBUTING.md)；
-安全问题不要开公开 issue，见 [SECURITY.md](SECURITY.md)。许可证 [MIT](LICENSE)。
+- 2026-08-12 Directory created; requirements and architecture discussion distilled from session
+  `00000000-0000-4000-8000-000000000004`, see `notes/2026-08-12-design-session.md`.
+- 2026-08-12 Surveyed existing tools, overturning the "nobody does this" assumption, see
+  `notes/survey-existing-tools.md`.
+- 2026-08-12 **Route C decided and implemented**: `atm` in `app/` (68 tests passing at the time). Implementation
+  overturned three statements in this file about the two jsonl formats (see "Sidebar data sources"). End-to-end
+  validation in `experiments/2026-08-12-tmux-e2e/`, benchmark in `experiments/2026-08-12-index-bench/`.
+- 2026-09-02 **Persistent sidebar + swap** (branch `sidebar-swap`): `atm sidebar` lives in a full-height pane on
+  the far left; the upper half lists running panes (Claude Code sets the pane title to `✳ <task>` itself, no need to
+  look up the session id), the lower half is history; selecting a running one → `swap-pane` into the main pane,
+  selecting history → resume in a new window and swap in. `prefix + b` open / switch / collapse, `prefix + B` parks
+  the current pane in `bg`. Overturned the old "sidebar is not a tmux pane" conclusion (see above).
+- 2026-09-05 **Two tmux 3.4 bugs found on a real machine** (PR #3 / #4): a bare `atm` in the binding gave 127 inside
+  the server; the `\x1f` separator escaped to a literal by 3.4 made parsing come back empty.
+  **Pi session source** (PR #5): third CLI, adapter written from upstream docs, not validated on a real machine;
+  also fixed the "if not Claude then Codex" tag bug in `cli.py`, source tags moved into `model.SOURCE_TAG` with a
+  guard test. **`atm install` installs resurrect + continuum** (PR #6), and the positioning was written into this
+  README: multi-session management on servers / over SSH.
+
+## Contributing
+
+Issues and PRs welcome. Development setup and conventions: [CONTRIBUTING.md](CONTRIBUTING.md); for security issues
+don't open a public issue, see [SECURITY.md](SECURITY.md). License: [MIT](LICENSE).

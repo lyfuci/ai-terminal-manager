@@ -59,6 +59,12 @@ def _install_mod():
     return install
 
 
+def _persist_mod():
+    from . import persist
+
+    return persist
+
+
 def _sidebar_mod():
     from . import sidebar
 
@@ -214,6 +220,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("--width", default=_install_mod().DEFAULT_WIDTH, help="浮层宽度")
     p_install.add_argument("--height", default=_install_mod().DEFAULT_HEIGHT, help="浮层高度")
     p_install.add_argument("--print", action="store_true", help="只看会写什么，不动文件")
+    p_install.add_argument(
+        "--no-persist",
+        action="store_true",
+        help="不装 tmux-resurrect / tmux-continuum（默认一起装，重启后能恢复窗口布局）",
+    )
     p_install.set_defaults(handler=_cmd_install)
 
     p_uninstall = sub.add_parser("uninstall", help="从 ~/.tmux.conf 里移除 atm 的绑定")
@@ -498,6 +509,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print(f"  tmux: 已装，server {'在跑' if tmux.has_server() else '没起来'}")
         print(f"  当前在 tmux 里: {'是' if tmux.inside_tmux() else '否'}")
 
+    print("\n== 持久化（resurrect + continuum）==")
+    _report_persist(_persist_mod().status())
+
     print("\n== 索引 ==")
     result = index_mod.build()
     print(f"  {result.stats.describe()}")
@@ -506,9 +520,15 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def _cmd_install(args: argparse.Namespace) -> int:
+    persist = _persist_mod()
+    if not tmux.is_installed():
+        print(f"tmux 没装。先装：{persist.tmux_install_hint()}")
+        print("（配置照样可以先写好，装完 tmux 直接生效。）\n")
+
     plan = _install_mod().build_plan(
         key=args.key, sidebar_key=args.sidebar_key, width=args.width, height=args.height
     )
+    persist_plan = None if args.no_persist else persist.build_plan()
 
     print(plan.describe())
     if plan.atm_command != "atm":
@@ -516,6 +536,9 @@ def _cmd_install(args: argparse.Namespace) -> int:
             f"\n注意：PATH 里没找到 `atm`，绑定会用 `{plan.atm_command}`。\n"
             "     装成 PATH 命令会更快（`uv tool install --editable <app 目录>`）。"
         )
+    if persist_plan is not None:
+        print()
+        print(persist_plan.describe())
 
     if args.print:
         return EXIT_OK
@@ -538,7 +561,31 @@ def _cmd_install(args: argparse.Namespace) -> int:
         print("（配置已写好，下次起 tmux 或 `prefix + :source-file ~/.tmux.conf` 后生效）")
     else:
         print("当前没有运行中的 tmux server；下次 `tmux new` 时自动生效。")
+
+    if persist_plan is not None:
+        _apply_persist(persist_plan)
     return EXIT_OK
+
+
+def _apply_persist(plan) -> None:
+    result = _persist_mod().apply(plan)
+    print()
+    if result.cloned:
+        print(f"已克隆插件：{', '.join(result.cloned)}")
+    for name, err in result.clone_errors.items():
+        print(f"克隆 {name} 失败：{err}")
+    if result.clone_errors:
+        print("（配置已写好；网络好了在 tmux 里按 prefix + I 让 tpm 补装）")
+    if not result.block_written:
+        return
+    print(f"已写入持久化块 → {result.conf_path}")
+    if result.backup_path:
+        print(f"备份    {result.backup_path}")
+    if tmux.has_server():
+        print("持久化在下次起 tmux server 时生效；想现在就要：`tmux source-file ~/.tmux.conf`")
+        print("（刻意不自动 source —— 那会重跑你整份配置里带副作用的行）")
+    print("手动存/恢复：prefix + Ctrl-s / prefix + Ctrl-r；")
+    print("自动存档每 10 分钟，只在有客户端 attach 时触发")
 
 
 def _cmd_uninstall(args: argparse.Namespace) -> int:
@@ -550,13 +597,19 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
             return EXIT_CANCELLED
 
     removed, backup = _install_mod().remove(conf_path)
-    if not removed:
+    removed_persist, backup_persist = _persist_mod().remove(conf_path)
+    if not removed and not removed_persist:
         print("没找到 atm 的配置块，无需移除。")
         return EXIT_OK
-    print(f"已从 {conf_path} 移除")
-    if backup:
-        print(f"备份 {backup}")
-    print("已解绑的键位在下次启动 tmux 时消失（当前 server 可手动 `unbind-key`）。")
+    if removed:
+        print(f"已从 {conf_path} 移除键位块")
+        if backup:
+            print(f"备份 {backup}")
+        print("已解绑的键位在下次启动 tmux 时消失（当前 server 可手动 `unbind-key`）。")
+    if removed_persist:
+        print(f"已从 {conf_path} 移除持久化块（~/.tmux/plugins 里已克隆的插件没动，不要了自己 rm）")
+        if backup_persist:
+            print(f"备份 {backup_persist}")
     return EXIT_OK
 
 
@@ -573,6 +626,32 @@ def _confirm(prompt: str) -> bool:
 
 
 # ---------------------------------------------------------------- helpers
+
+
+def _report_persist(st) -> None:
+    print(f"  配置块: {'已装' if st.block_installed else '未装（atm install 会一起装）'}")
+    if st.plugins_missing:
+        missing = ", ".join(st.plugins_missing)
+        print(f"  插件缺: {missing}（在 tmux 里按 prefix + I，或重跑 atm install）")
+    else:
+        print(f"  插件: {', '.join(st.plugins_present)} 都在")
+    if st.autosave_hooked is None:
+        print("  自动存档钩子: server 没起来，查不了")
+    elif st.autosave_hooked:
+        print("  自动存档钩子: 在 status-right 里，正常")
+    else:
+        print(
+            "  自动存档钩子: ❌ 不在 status-right 里 —— "
+            "continuum 加载时机器上还有别的 tmux server 就会静默跳过。"
+            " 关掉多余的 server（含 -L 隔离 socket）后重起主 server"
+        )
+    if st.last_save:
+        import datetime as _dt
+
+        when = _dt.datetime.fromtimestamp(st.last_save.resolve().stat().st_mtime)
+        print(f"  最近存档: {when:%Y-%m-%d %H:%M}")
+    else:
+        print("  最近存档: 还没有")
 
 
 def _report_root(name: str, root: Path, count: int) -> None:
