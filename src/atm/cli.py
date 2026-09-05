@@ -782,7 +782,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
     print("\n== CLI ==")
     for program, found in report["clis"].items():
-        print(f"  {program}: {found or '不在 PATH 里 —— 投递出去会失败'}")
+        print(f"  {program}: {found or _('不在 PATH 里 —— 投递出去会失败')}")
 
     print("\n== tmux ==")
     t = report["tmux"]

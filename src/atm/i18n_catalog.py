@@ -300,6 +300,7 @@ EN: dict[str, str] = {
     "源码目录": "the source directory",
     "认不出这份 atm 是怎么装的。手动升级：\n  uv tool upgrade {DIST_NAME}        # uv tool 装的\n  pipx upgrade {DIST_NAME}           # pipx 装的\n  pip install -U {DIST_NAME}         # pip 装的（注意 PyPI 上的 `atm` 是别人的包）": "Cannot tell how this atm was installed. Upgrade by hand:\n  uv tool upgrade {DIST_NAME}        # installed with uv tool\n  pipx upgrade {DIST_NAME}           # installed with pipx\n  pip install -U {DIST_NAME}         # installed with pip (note: `atm` on PyPI is someone else's package)",
     "这是 editable 安装（{where}），升级就是 `git pull`；改了依赖再 `uv sync --frozen`。": "This is an editable install ({where}); upgrading means `git pull`, then `uv sync --frozen` if dependencies changed.",
+    "不在 PATH 里 —— 投递出去会失败": "not on PATH — dispatch will fail",
 }
 
 JA: dict[str, str] = {
@@ -594,6 +595,7 @@ JA: dict[str, str] = {
     "源码目录": "ソースディレクトリ",
     "认不出这份 atm 是怎么装的。手动升级：\n  uv tool upgrade {DIST_NAME}        # uv tool 装的\n  pipx upgrade {DIST_NAME}           # pipx 装的\n  pip install -U {DIST_NAME}         # pip 装的（注意 PyPI 上的 `atm` 是别人的包）": "この atm のインストール方法が判別できません。手動で更新：\n  uv tool upgrade {DIST_NAME}        # uv tool で入れた場合\n  pipx upgrade {DIST_NAME}           # pipx で入れた場合\n  pip install -U {DIST_NAME}         # pip で入れた場合（PyPI の `atm` は別人のパッケージ）",
     "这是 editable 安装（{where}），升级就是 `git pull`；改了依赖再 `uv sync --frozen`。": "これは editable インストール（{where}）です。更新は `git pull`；依存が変わったら `uv sync --frozen`。",
+    "不在 PATH 里 —— 投递出去会失败": "PATH にありません —— 投入は失敗します",
 }
 
 CATALOG: dict[str, dict[str, str]] = {"en": EN, "ja": JA}
