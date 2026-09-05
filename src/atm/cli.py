@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -28,9 +29,27 @@ EXIT_ERROR = 1
 EXIT_CANCELLED = 130
 
 
+LAUNCH_PROGRAMS = ("claude", "codex", "pi")
+
+
+def _launch_args(argv: Sequence[str]) -> argparse.Namespace | None:
+    """`atm claude …` 不走 argparse。
+
+    REMAINDER 有个老毛病：第一个位置参数之前的 `--xxx` 仍会被当成 atm 自己的选项解析，
+    `atm claude --resume x` 会报 unrecognized arguments。这里在 parse 之前把它截下来，
+    程序名后面的每一个字节都原样归 claude / codex / pi。
+    """
+    if argv and argv[0] in LAUNCH_PROGRAMS:
+        return argparse.Namespace(handler=_cmd_launch, program=argv[0], args=list(argv[1:]))
+    return None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    args = _launch_args(raw)
+    if args is None:
+        parser = _build_parser()
+        args = parser.parse_args(raw)
     try:
         return args.handler(args)
     except (DispatchError, ValueError) as exc:
@@ -63,6 +82,18 @@ def _persist_mod():
     from . import persist
 
     return persist
+
+
+def _config_mod():
+    from . import config
+
+    return config
+
+
+def _guard_mod():
+    from . import guard
+
+    return guard
 
 
 def _sidebar_mod():
@@ -117,16 +148,8 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="不给会话套 cgroup 内存闸门（默认套）",
     )
-    p_pick.add_argument(
-        "--mem-high",
-        default=dispatch_mod.DEFAULT_MEMORY_HIGH,
-        help=f"软上限，超了节流+回收不杀（默认 {dispatch_mod.DEFAULT_MEMORY_HIGH}）",
-    )
-    p_pick.add_argument(
-        "--mem-max",
-        default=dispatch_mod.DEFAULT_MEMORY_MAX,
-        help=f"硬上限，回收压不住才杀（默认 {dispatch_mod.DEFAULT_MEMORY_MAX}）",
-    )
+    p_pick.add_argument("--mem-high", help="软上限，超了节流+回收不杀（默认取 atm config）")
+    p_pick.add_argument("--mem-max", help="硬上限，回收压不住才杀（默认取 atm config）")
     p_pick.set_defaults(handler=_cmd_pick)
 
     p_resume = sub.add_parser("resume", help="按 id 直接投递（不进 TUI）")
@@ -143,16 +166,8 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="不给会话套 cgroup 内存闸门（默认套）",
     )
-    p_resume.add_argument(
-        "--mem-high",
-        default=dispatch_mod.DEFAULT_MEMORY_HIGH,
-        help=f"软上限，超了节流+回收不杀（默认 {dispatch_mod.DEFAULT_MEMORY_HIGH}）",
-    )
-    p_resume.add_argument(
-        "--mem-max",
-        default=dispatch_mod.DEFAULT_MEMORY_MAX,
-        help=f"硬上限，回收压不住才杀（默认 {dispatch_mod.DEFAULT_MEMORY_MAX}）",
-    )
+    p_resume.add_argument("--mem-high", help="软上限，超了节流+回收不杀（默认取 atm config）")
+    p_resume.add_argument("--mem-max", help="硬上限，回收压不住才杀（默认取 atm config）")
     p_resume.set_defaults(handler=_cmd_resume, source=None, cwd=None, here=False)
 
     p_index = sub.add_parser("index", help="构建/查看索引")
@@ -180,8 +195,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_sidebar.add_argument(
         "--no-mem-limit", action="store_true", help="从侧栏恢复历史时不套内存闸门"
     )
-    p_sidebar.add_argument("--mem-high", default=dispatch_mod.DEFAULT_MEMORY_HIGH)
-    p_sidebar.add_argument("--mem-max", default=dispatch_mod.DEFAULT_MEMORY_MAX)
+    p_sidebar.add_argument("--mem-high", help="默认取 atm config")
+    p_sidebar.add_argument("--mem-max", help="默认取 atm config")
     p_sidebar.set_defaults(handler=_cmd_sidebar)
 
     p_swap = sub.add_parser("swap", help="把某个 pane 换进当前 window 的主格（不进 TUI）")
@@ -227,7 +242,44 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="不装 tmux-resurrect / tmux-continuum（默认一起装，重启后能恢复窗口布局）",
     )
+    p_install.add_argument(
+        "--no-slice",
+        action="store_true",
+        help="不写总量闸门的 systemd slice（默认写 ~/.config/systemd/user/atm-ai.slice）",
+    )
     p_install.set_defaults(handler=_cmd_install)
+
+    p_config = sub.add_parser(
+        "config",
+        help="查看 / 修改用户配置（内存闸门参数）。不带参数就是查看",
+        description=(
+            "atm config                       查看\n"
+            "atm config memory.high 4G        设置\n"
+            "atm config --unset memory.high   恢复默认\n"
+            "atm config --reset               全部恢复默认"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_config.add_argument("key", nargs="?", help="配置项，如 memory.high")
+    p_config.add_argument("value", nargs="?", help="新值")
+    p_config.add_argument("--unset", metavar="KEY", help="把某项恢复默认")
+    p_config.add_argument("--reset", action="store_true", help="全部恢复默认（删掉配置文件）")
+    p_config.add_argument("--path", action="store_true", help="只打印配置文件路径")
+    p_config.set_defaults(handler=_cmd_config)
+
+    # `atm claude …` / `atm codex …` / `atm pi …`：带闸门启动。参数原样透传，
+    # 所以这里不接管 -h —— `atm claude --help` 看到的是 claude 自己的帮助。
+    for program in LAUNCH_PROGRAMS:
+        # 只为了出现在 `atm --help` 里；真正的分发在 main() 的 _launch_args 里。
+        p_launch = sub.add_parser(
+            program,
+            add_help=False,
+            help=(
+                f"按 atm config 的内存闸门启动 {program}（参数原样透传；直接敲 {program} 则不受限）"
+            ),
+        )
+        p_launch.add_argument("args", nargs=argparse.REMAINDER)
+        p_launch.set_defaults(handler=_cmd_launch, program=program)
 
     p_uninstall = sub.add_parser("uninstall", help="从 ~/.tmux.conf 里移除 atm 的绑定")
     p_uninstall.add_argument("-y", "--yes", action="store_true")
@@ -514,6 +566,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print("\n== 持久化（resurrect + continuum）==")
     _report_persist(_persist_mod().status())
 
+    print("\n== 内存闸门 ==")
+    _report_guard()
+
     print("\n== 索引 ==")
     result = index_mod.build()
     print(f"  {result.stats.describe()}")
@@ -568,7 +623,27 @@ def _cmd_install(args: argparse.Namespace) -> int:
 
     if persist_plan is not None:
         _apply_persist(persist_plan)
+    if not args.no_slice:
+        _apply_slice()
     return EXIT_OK
+
+
+def _apply_slice() -> None:
+    guard = _guard_mod()
+    cfg = _config_mod().load()
+    if not dispatch_mod.memory_limits_available():
+        print("\n这台机器拿不到 cgroup，跳过总量闸门 slice。")
+        return
+    path, written = guard.install(cfg.memory_slice)
+    st = guard.status(cfg.memory_slice)
+    if written:
+        print(
+            f"\n已写总量闸门 {path}"
+            f"（MemoryHigh={st.high} / MemoryMax={st.max}，按物理内存 50% / 65%）"
+        )
+        print("所有 atm 启动 / 投递的会话共同受这个总量约束；单个会话的上限看 `atm config`。")
+    else:
+        print(f"\n总量闸门 {path} 已存在（MemoryHigh={st.high} / MemoryMax={st.max}），不动。")
 
 
 def _apply_persist(plan) -> None:
@@ -590,6 +665,62 @@ def _apply_persist(plan) -> None:
         print("（刻意不自动 source —— 那会重跑你整份配置里带副作用的行）")
     print("手动存/恢复：prefix + Ctrl-s / prefix + Ctrl-r；")
     print("自动存档每 10 分钟，只在有客户端 attach 时触发")
+
+
+def _cmd_config(args: argparse.Namespace) -> int:
+    config = _config_mod()
+    if args.path:
+        print(config.config_path())
+        return EXIT_OK
+    if args.reset:
+        path = config.config_path()
+        if path.exists():
+            path.unlink()
+            print(f"已删 {path}，全部恢复默认")
+        else:
+            print("本来就是默认，没有配置文件")
+        return EXIT_OK
+    try:
+        cfg = config.load()
+        if args.unset:
+            cfg = config.unset_value(cfg, args.unset)
+            path = config.save(cfg)
+            print(f"{args.unset} 已恢复默认 → {path}")
+            return EXIT_OK
+        if args.key and args.value is None:
+            raise config.ConfigError(f"要给 {args.key} 一个值，比如 `atm config {args.key} 4G`")
+        if args.key:
+            cfg = config.set_value(cfg, args.key, args.value)
+            path = config.save(cfg)
+            print(f"{args.key} = {args.value} → {path}")
+            return EXIT_OK
+    except config.ConfigError as exc:
+        print(f"atm: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    print(config.describe(cfg))
+    return EXIT_OK
+
+
+def _cmd_launch(args: argparse.Namespace) -> int:
+    """`atm claude …`：套上闸门后 exec 过去。进程被替换，退出码和 tty 都是 claude 自己的。"""
+    config = _config_mod()
+    program = args.program
+    found = config.resolve_program(program)
+    if found is None:
+        print(f"atm: PATH 里没有 {program}", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        cfg = config.load()
+    except config.ConfigError as exc:
+        print(f"atm: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    argv = config.launch_argv(found, list(args.args), cfg)
+    if argv[0] != found and config.resolve_program(argv[0]) is None:
+        # systemd-run 不在 PATH 上（非 systemd 环境）：退回裸跑，但要说一声，别让人以为限了。
+        print(f"atm: 找不到 {argv[0]}，本次不套内存闸门", file=sys.stderr)
+        argv = [found, *args.args]
+    os.execvp(argv[0], argv)
+    return EXIT_ERROR  # execvp 成功不会回来
 
 
 def _cmd_uninstall(args: argparse.Namespace) -> int:
@@ -614,6 +745,9 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
         print(f"已从 {conf_path} 移除持久化块（~/.tmux/plugins 里已克隆的插件没动，不要了自己 rm）")
         if backup_persist:
             print(f"备份 {backup_persist}")
+    slice_name = _config_mod().load().memory_slice
+    if _guard_mod().remove(slice_name):
+        print(f"已删总量闸门 {slice_name}（只删 atm 自己写的那份）")
     return EXIT_OK
 
 
@@ -630,6 +764,39 @@ def _confirm(prompt: str) -> bool:
 
 
 # ---------------------------------------------------------------- helpers
+
+
+def _report_guard() -> None:
+    config = _config_mod()
+    guard = _guard_mod()
+    try:
+        cfg = config.load()
+    except config.ConfigError as exc:
+        print(f"  ❌ {exc}")
+        return
+    if not dispatch_mod.memory_limits_available():
+        print(
+            "  cgroup: 不可用（无 systemd user manager 或 memory 控制器未 delegate）"
+            "—— 一切限制被忽略"
+        )
+        return
+    if not cfg.memory_enabled:
+        print("  已关闭（memory.enabled=false）")
+        return
+    print(
+        f"  单会话: MemoryHigh={cfg.memory_high} MemoryMax={cfg.memory_max}"
+        "（atm claude / 投递时套）"
+    )
+    st = guard.status(cfg.memory_slice)
+    if st.exists:
+        who = "atm 写的" if st.ours else "用户自己的"
+        print(f"  总量 {st.name}: MemoryHigh={st.high} MemoryMax={st.max}（{who}）")
+    else:
+        print(
+            f"  总量 {st.name}: ❌ 单元不存在 —— systemd 会建一个无限制的同名 slice，"
+            "总量闸门形同虚设。跑 atm install 补上"
+        )
+    print("  直接敲 claude / codex 不受以上任何限制；要限就用 atm claude / atm codex")
 
 
 def _report_persist(st) -> None:
@@ -782,11 +949,14 @@ def _memory_limit(args: argparse.Namespace) -> dispatch_mod.MemoryLimit | None:
     """
     if getattr(args, "no_mem_limit", False):
         return None
-    if not dispatch_mod.memory_limits_available():
+    cfg = _config_mod().load()
+    base = cfg.memory_limit()  # 已经考虑了 memory.enabled 和机器支持
+    if base is None:
         return None
+    high = getattr(args, "mem_high", None) or base.high
+    max_ = getattr(args, "mem_max", None) or base.max
     return dispatch_mod.MemoryLimit(
-        high=getattr(args, "mem_high", dispatch_mod.DEFAULT_MEMORY_HIGH),
-        max=getattr(args, "mem_max", dispatch_mod.DEFAULT_MEMORY_MAX),
+        high=high, max=max_, swap_max=base.swap_max, slice_name=base.slice_name, user=base.user
     )
 
 

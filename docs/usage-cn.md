@@ -46,6 +46,19 @@ atm index --rebuild       # 清缓存全量重建
 
 ---
 
+## 内存闸门：`atm claude` 和 `claude` 的区别
+
+```bash
+atm config memory.high 4G      # 软上限：节流 + 回收，不杀
+atm config memory.max 8G       # 硬上限：杀整个会话 scope（含子进程）
+atm claude --resume <id>       # 在这个 cgroup 里启动 claude；参数原样透传
+claude                         # 不带前缀 = 原生，不套任何限制
+```
+
+`atm codex …` / `atm pi …` 同理。`prefix + a` 投递和侧栏恢复用的是同一套设置。
+`atm install` 还会写一个总量 `atm-ai.slice`（物理内存的 50% / 65%），N 个会话加起来也压不垮机器；
+`atm doctor` 两层都报。默认值怎么来的见 [reference.md](reference.md#内存闸门默认开)。
+
 ## 它怎么工作（三分钟版）
 
 **「记住状态」其实是三层**，atm 只碰其中两层，第三层交给 tmux：

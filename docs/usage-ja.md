@@ -46,6 +46,19 @@ atm index --rebuild       # キャッシュを消して全再構築
 
 ---
 
+## メモリゲート：`atm claude` と `claude` の違い
+
+```bash
+atm config memory.high 4G      # ソフト上限：スロットリング + 回収、殺さない
+atm config memory.max 8G       # ハード上限：セッションの scope 全体（子プロセス含む）を kill
+atm claude --resume <id>       # その cgroup 内で claude を起動；引数はそのまま透過
+claude                         # プレフィックスなし = ネイティブ、制限なし
+```
+
+`atm codex …` / `atm pi …` も同じ。`prefix + a` の投入とサイドバーの resume も同じ設定を使う。
+`atm install` は合計用の `atm-ai.slice`（物理メモリの 50% / 65%）も書き、N 本合計でもマシンを落とさない；
+`atm doctor` は両層を報告する。デフォルト値の根拠は [reference.md](reference.md#内存闸门默认开)。
+
 ## 仕組み（三分版）
 
 **「状態を覚える」は実は三層**。atm はそのうち二層に触れ、残りは tmux に任せる：

@@ -184,20 +184,45 @@ eval "$(atm pick --print)"
 
 ## 内存闸门（默认开）
 
-每次投递会把会话裹进一个带 cgroup 限制的 systemd scope：
+两层，都是 cgroup：
 
+| 层 | 管什么 | 谁设 |
+|---|---|---|
+| **单会话** scope | 一个会话（含它拉起的 MCP server / bash 工具等子进程）最多用多少 | `atm config memory.high / memory.max` |
+| **总量** slice | 所有 atm 启动或投递的会话合计最多用多少 | `atm install` 写 `~/.config/systemd/user/atm-ai.slice`，按物理内存 50% / 65% |
+
+### 三条进闸门的路，一条不进
+
+```bash
+atm claude --resume <id>     # 带闸门启动 claude；参数原样透传，包括 --help
+atm codex resume <id>        # 同理
+atm pi --session <id>
+claude                       # 不带 atm 前缀 = 原生，不套任何限制
 ```
-cd <cwd> && systemd-run --user --scope -q --description 'atm: <名字>' \
-    -p MemoryHigh=2G -p MemoryMax=4G -p MemorySwapMax=512M \
-    claude --resume <id>
+
+`prefix + a` 投递和侧栏恢复历史走的是同一套参数。**前缀即选择**：atm 不劫持 `claude` 命令本身，
+你随时可以裸跑。
+
+### 配置
+
+```bash
+atm config                        # 看当前值（哪些是默认、哪些设过）
+atm config memory.high 4G         # 软上限：超了节流 + 回收，不杀
+atm config memory.max 8G          # 硬上限：回收压不住才杀 —— 杀的是整个 scope，会话和它的子命令一起没
+atm config memory.enabled false   # 全关（atm claude 就等于 claude）
+atm config --unset memory.high    # 恢复单项默认
+atm config --reset                # 全部默认
 ```
 
-**为什么需要**：实测一个持续干活 1h40m 的 claude 会话内存峰值到过 **4.7GB**，
-四个长会话合计约 8GB —— 正好是本机 WSL 的上限。撞上限的后果不是「那个会话变慢」，
-而是**整个 tmux server 连同所有会话一起死掉**（2026-08-12 11:59 实际发生过一次）。
-套上 cgroup 后，最坏情况从「全丢」变成「丢一个」。
+配置文件 `~/.config/atm/config.toml`（尊重 `$XDG_CONFIG_HOME`），改完立即生效。
+其它可设项：`memory.swap-max`（默认 512M，WSL 的 swap 在宿主 SSD 上，别放大）、
+`memory.slice`（默认 `atm-ai.slice`）、`memory.user`（systemd-run 是否走 `--user`，一般 true）。
 
-**阈值怎么来的**（journal 里 25 个真实会话的 `memory.peak` 分布）：
+单次覆盖：`atm pick --mem-high 3G --mem-max 6G`、`atm pick --no-mem-limit`。
+
+### 默认值怎么来的
+
+单会话默认 **2G / 4G**，来自 8G 机器上 25 个真实会话的 `memory.peak` 分布：
 
 | 上限 | 会杀掉 |
 |---|---|
@@ -205,24 +230,23 @@ cd <cwd> && systemd-run --user --scope -q --description 'atm: <名字>' \
 | **2G** | **1/25（4%）** |
 | 4G | 1/25（4%）|
 
-2G 是拐点 —— 再往上加没有任何改善，只有那个 4813MB 的失控户超标。
+2G 是拐点——再往上加没有改善，只有那个 4813MB 的失控户超标。**大内存机器请自己往上调**
+（48G 的机器 4G / 8G 比较合理）：默认值偏保守是因为它是为 8G 的 WSL 定的，不是为你的机器定的。
 
-**为什么 High/Max 分开**：实测峰值大多是**瞬时尖峰**，同一批会话 peak→current 回落达 60~75%。
-所以 `MemoryHigh` 只节流 + 强制回收（**不杀**），让尖峰自然被压回去；
-`MemoryMax` 是硬底线，只在回收也压不住时才动手。只设 Max 会误杀正常尖峰。
+**为什么 High / Max 分开**：实测峰值大多是瞬时尖峰，同一批会话 peak→current 回落 60~75%。
+`MemoryHigh` 只节流 + 强制回收（**不杀**），让尖峰自然压回去；`MemoryMax` 是硬底线。只设 Max 会误杀正常尖峰。
 
-**内存增长跟「开多久」无关，跟「干多少活」有关** —— 实测一个挂了 22h35m 的会话只用 346MB，
-而一个 CPU 时间 49 分钟的会话到了 4.7GB。tmux 不参与任何内存管理；claude 也确实会回收
-（那 60~75% 的回落就是证据）。
+**内存增长跟「开多久」无关，跟「干多少活」有关**——一个挂了 22h35m 的会话只用 346MB，
+一个 CPU 时间 49 分钟的会话到了 4.7GB。
 
-调整：
+### 为什么需要
 
-```bash
-atm pick --mem-high 3G --mem-max 6G   # 放宽
-atm pick --no-mem-limit               # 关掉
-```
+一个持续干活的 claude 会话内存峰值到过 **4.7GB**，四个长会话合计约 8GB——正好是当时 WSL 的上限。
+撞上限的后果不是「那个会话变慢」，而是**整个 tmux server 连同所有会话一起死掉**（2026-08-12 11:59 实际发生过）。
+套上 cgroup 后，最坏情况从「全丢」变成「丢一个」。
 
-拿不到 cgroup 支持（无 systemd user manager / memory 控制器未 delegate）时**静默降级为不限**。
+拿不到 cgroup 支持（无 systemd user manager / memory 控制器未 delegate）时**静默降级为不限**，
+`atm config` 和 `atm doctor` 会把这件事说出来。
 
 ## 实测数字（不是估的）
 

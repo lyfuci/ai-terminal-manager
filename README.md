@@ -100,6 +100,10 @@ atm install     # write key bindings to ~/.tmux.conf + install resurrect/continu
   right pane. Don't want it: `--no-persist`. If you already manage tpm yourself it is skipped, nothing is written
   twice.
 
+Optional but recommended on a shared or memory-tight box: `atm config memory.high 4G` then launch with
+`atm claude` / `atm codex` / `atm pi` to run inside a cgroup memory gate. Plain `claude` stays unlimited —
+the prefix is the choice. See [docs/usage.md](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md).
+
 If tmux isn't installed, `atm install` prints the install command for your package manager; it never runs sudo for
 you. Uninstall: `atm uninstall && uv tool uninstall ai-terminal-manager` — removes only those two blocks, not a character of your
 own config, and leaves the cloned plugins alone.
