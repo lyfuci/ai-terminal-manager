@@ -190,6 +190,18 @@ def remove(conf_path: Path | None = None) -> tuple[bool, Path | None]:
     return True, backup
 
 
+def save_dir() -> Path:
+    """resurrect 的存档目录。用户设了 `@resurrect-dir` 就跟它（server 在跑才问得到），否则默认。"""
+    if tmux.has_server():
+        try:
+            custom = tmux.run(["show-option", "-gqv", "@resurrect-dir"]).strip()
+        except tmux.TmuxError:
+            custom = ""
+        if custom:
+            return Path(custom).expanduser()
+    return SAVE_DIR
+
+
 def status(*, conf_path: Path | None = None, plugins_dir: Path | None = None) -> PersistStatus:
     path = conf_path or Path.home() / ".tmux.conf"
     pdir = plugins_dir or DEFAULT_PLUGINS_DIR
@@ -203,7 +215,7 @@ def status(*, conf_path: Path | None = None, plugins_dir: Path | None = None) ->
         except tmux.TmuxError:
             hooked = None
 
-    last = SAVE_DIR / "last"
+    last = save_dir() / "last"
     return PersistStatus(
         block_installed=_has_marker(_read(path), MARKER_BEGIN),
         plugins_present=present,

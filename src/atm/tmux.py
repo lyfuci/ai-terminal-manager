@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import shutil
 import subprocess
@@ -24,6 +25,8 @@ from enum import StrEnum
 SIDEBAR_OPTION = "@atm_sidebar"
 
 # 用 \x1f (unit separator) 当分隔符：pane 标题和路径里可能有 | 或 tab，但不会有控制字符。
+log = logging.getLogger(__name__)
+
 _SEP = "\x1f"
 # tmux 3.4 把 _SEP 转义成这 4 个字面字符打出来；3.6 输出原字节。见 `_split_fields`。
 _SEP_ESCAPED = "\\037"
@@ -179,6 +182,7 @@ def run(args: list[str], *, timeout: float = 10.0) -> str:
     """跑一条 tmux 命令，返回 stdout。失败抛 TmuxError。"""
     if not is_installed():
         raise TmuxError("tmux 没装或不在 PATH 里")
+    log.debug("tmux %s", " ".join(args))
     try:
         result = subprocess.run(
             ["tmux", *args],

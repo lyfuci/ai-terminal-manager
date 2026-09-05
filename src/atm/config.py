@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -22,6 +23,8 @@ from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
 from . import dispatch
+
+log = logging.getLogger(__name__)
 
 # systemd 认的内存大小：纯数字（字节）或带 K/M/G/T 后缀；`infinity` 表示不限。
 _SIZE_RE = re.compile(r"^(\d+(\.\d+)?[KMGT]?|infinity)$", re.IGNORECASE)
@@ -53,7 +56,11 @@ class Config:
 
     def memory_limit(self) -> dispatch.MemoryLimit | None:
         """按配置生成闸门；关了或机器不支持就是 None（= 不套）。"""
-        if not self.memory_enabled or not dispatch.memory_limits_available():
+        if not self.memory_enabled:
+            log.debug("memory.enabled=false，不套闸门")
+            return None
+        if not dispatch.memory_limits_available():
+            log.info("这台机器拿不到 cgroup（systemd-run 或 memory 控制器缺），本次不套内存闸门")
             return None
         return dispatch.MemoryLimit(
             high=self.memory_high,
@@ -88,17 +95,43 @@ class ConfigError(ValueError):
     pass
 
 
+ENV_PREFIX = "ATM_"
+
+
+def env_var_for(key: str) -> str:
+    """memory.swap-max → ATM_MEMORY_SWAP_MAX"""
+    return ENV_PREFIX + key.replace(".", "_").replace("-", "_").upper()
+
+
 def load(path: Path | None = None) -> Config:
-    """读配置。文件不存在 → 默认；文件坏了 → 抛 ConfigError 而不是静默用默认值，
-    否则用户以为限制生效了其实没有。"""
+    """读配置。优先级：环境变量 > 文件 > 默认（命令行参数由调用方再盖一层）。
+
+    文件不存在 → 默认；文件坏了 → 抛 ConfigError 而不是静默用默认值，
+    否则用户以为限制生效了其实没有。
+    """
+    return load_with_sources(path)[0]
+
+
+def load_with_sources(path: Path | None = None) -> tuple[Config, dict[str, str]]:
+    """同 load()，外加每个 key 的值来自哪里：default / file / env。`atm config` 用它标来源。"""
     p = path or config_path()
+    sources = dict.fromkeys(KEYS, "default")
     try:
         raw = tomllib.loads(p.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return Config()
+        raw = {}
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ConfigError(f"{p} 读不了：{exc}") from exc
-    return _from_raw(raw, p)
+    cfg = _from_raw(raw, p)
+    for key, field in KEYS.items():
+        if getattr(cfg, field) != getattr(Config(), field):
+            sources[key] = "file"
+    for key, field in KEYS.items():
+        env_value = os.environ.get(env_var_for(key))
+        if env_value is not None and env_value != "":
+            cfg = replace(cfg, **{field: _coerce(key, env_value)})
+            sources[key] = f"env {env_var_for(key)}"
+    return cfg, sources
 
 
 def _from_raw(raw: dict, p: Path) -> Config:
@@ -162,17 +195,19 @@ def unset_value(cfg: Config, key: str) -> Config:
     return replace(cfg, **{field: getattr(Config(), field)})
 
 
-def describe(cfg: Config) -> str:
-    """`atm config` 不带参数时的输出：值 + 是否默认 + 一句说明。"""
-    default = Config()
+def describe(cfg: Config, sources: dict[str, str] | None = None) -> str:
+    """`atm config` 不带参数时的输出：值 + 来源 + 一句说明。"""
+    sources = sources or dict.fromkeys(KEYS, "default")
     lines = [
         f"配置文件：{config_path()}{'' if config_path().exists() else '（不存在，全部默认）'}",
+        f"优先级：命令行参数 > 环境变量（{ENV_PREFIX}MEMORY_HIGH 这类）> 文件 > 默认",
         "",
     ]
     for key, field in KEYS.items():
         value = getattr(cfg, field)
         shown = str(value).lower() if isinstance(value, bool) else value
-        tag = "" if value == getattr(default, field) else "  ← 已设置"
+        src = sources.get(key, "default")
+        tag = "" if src == "default" else f"  ← {src}"
         lines.append(f"  {key:<16} {shown:<12}{tag}")
         lines.append(f"  {'':<16} {_HELP[key]}")
     lines.append("")
@@ -182,6 +217,18 @@ def describe(cfg: Config) -> str:
         )
         lines.append("  以上设置会被静默忽略，atm claude 等价于直接跑 claude。")
     return "\n".join(lines)
+
+
+def to_json(cfg: Config, sources: dict[str, str]) -> dict:
+    """`atm config --json`：机器可读，字段名与语言无关。"""
+    return {
+        "path": str(config_path()),
+        "exists": config_path().exists(),
+        "values": {
+            key: {"value": getattr(cfg, field), "source": sources.get(key, "default")}
+            for key, field in KEYS.items()
+        },
+    }
 
 
 def dumps(cfg: Config) -> str:

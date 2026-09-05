@@ -216,7 +216,7 @@ def test_config_command_set_and_show(cfg_path: Path, capsys) -> None:
     assert cli.main(["config", "memory.high", "5G"]) == cli.EXIT_OK
     assert cli.main(["config"]) == cli.EXIT_OK
     out = capsys.readouterr().out
-    assert "memory.high" in out and "5G" in out and "已设置" in out
+    assert "memory.high" in out and "5G" in out and "← file" in out
 
 
 def test_config_command_rejects_garbage(cfg_path: Path, capsys) -> None:

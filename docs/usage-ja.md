@@ -47,6 +47,24 @@ atm update                # atm 自身を更新（uv tool / pipx / pip を判別
 
 ---
 
+## 日常の CLI 基礎
+
+```bash
+atm -v list                    # stderr に進行情報；-vv でファイル単位 / tmux コマンド単位（ATM_DEBUG=1 は -vv と同じ）
+atm doctor --json              # 機械可読な健診レポート；設定ファイルが壊れているときだけ exit 1
+atm config --json              # 各項目の値と由来：default / file / env
+atm update --check --json
+eval "$(atm completion bash)"  # 実際のパーサ定義から生成した補完（zsh、fish も）
+NO_COLOR=1 atm pick            # https://no-color.org に従う
+```
+
+設定の優先順位：**コマンドライン引数 > 環境変数 > ファイル > デフォルト**。全キーに環境変数がある：
+`memory.high` → `ATM_MEMORY_HIGH`、`memory.swap-max` → `ATM_MEMORY_SWAP_MAX` など。
+未知のキーや壊れたファイルはエラーであり、黙って無視しない——制限が効いていると思い込むのを防ぐため。
+
+`atm install --conf PATH` / `atm uninstall --conf PATH` で `~/.tmux.conf` 以外の設定を対象にできる。
+`eval "$(atm pick --print)"` は stdout が捕捉されていても動く：ピッカーは `/dev/tty` に描く。
+
 ## メモリゲート：`atm claude` と `claude` の違い
 
 ```bash

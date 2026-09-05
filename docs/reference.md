@@ -186,7 +186,7 @@ eval "$(atm pick --print)"
 
 ```bash
 atm update            # 识别安装方式后跑对应命令：uv tool upgrade / pipx upgrade / pip install -U
-atm update --check    # 只比对版本，不动
+atm update --check    # 只比对版本，不动；--json 机器可读
 atm --version
 ```
 
@@ -194,6 +194,28 @@ atm --version
 （git 装的跟 main 最新 commit，PyPI 装的跟最新发行版；editable 装的只提示 `git pull`，不代劳）。
 **不要**对 uv tool 装的 atm 用 `pip install -U`：那会装进另一个解释器，PATH 上的 `atm` 还是旧的；
 而且 PyPI 上的 `atm` 是别人的包，本项目叫 `ai-terminal-manager`。
+
+## 日志与诊断
+
+```bash
+atm -v list        # INFO：概要（比如「机器拿不到 cgroup，本次不套闸门」）
+atm -vv list       # DEBUG：逐文件解析失败原因、每条 tmux 命令
+ATM_DEBUG=1 atm …  # 等于 -vv，且预期错误也给完整堆栈
+atm doctor --json  # 结构化体检；只有配置文件坏了才 exit 1
+```
+
+默认输出保持安静：一条脏会话文件不会刷屏。日志全走 stderr，不污染 `--json` 的 stdout。
+日志里没有会话正文、标题或完整命令行；atm 不上传任何东西。
+
+## 补全
+
+```bash
+eval "$(atm completion bash)"      # ~/.bashrc
+eval "$(atm completion zsh)"       # ~/.zshrc（需要 compinit）
+atm completion fish > ~/.config/fish/completions/atm.fish
+```
+
+补全脚本从 argparse 的定义生成（子命令、每个子命令的选项、`memory.*` 配置键、`--source` 的取值），不会和 `--help` 漂移。
 
 ## 内存闸门（默认开）
 
@@ -228,6 +250,8 @@ atm config --reset                # 全部默认
 ```
 
 配置文件 `~/.config/atm/config.toml`（尊重 `$XDG_CONFIG_HOME`），改完立即生效。
+**优先级：命令行参数 > 环境变量 > 文件 > 默认**；每个键对应一个环境变量（`memory.high` → `ATM_MEMORY_HIGH`，`memory.swap-max` → `ATM_MEMORY_SWAP_MAX`）。`atm config` 会标出每项的来源，`--json` 给机器读。
+未知的键 / 段、`[memory]` 不是表、值格式不对，都是错误而不是静默忽略。
 其它可设项：`memory.swap-max`（默认 512M，WSL 的 swap 在宿主 SSD 上，别放大）、
 `memory.slice`（默认 `atm-ai.slice`）、`memory.user`（systemd-run 是否走 `--user`，一般 true）。
 

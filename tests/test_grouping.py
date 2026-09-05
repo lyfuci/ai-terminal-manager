@@ -194,7 +194,8 @@ def test_control_chars_stripped_before_drawing() -> None:
     """display_width 把控制符算 0 列，ncurses 却渲染成 ^X 占 2 列 —— 必须先剥掉。"""
     from atm.tui import _Screen
 
-    assert _Screen._sanitize("A\x1b[31mRED\x07B") == "A[31mREDB"
+    # 整段 CSI 一起剥（不只 ESC），否则留下 `[31m` 这种尾巴
+    assert _Screen._sanitize("A\x1b[31mRED\x07B") == "AREDB"
     assert _Screen._sanitize("正常标题") == "正常标题"
     assert _Screen._sanitize("tab\there") == "tab\there"
 

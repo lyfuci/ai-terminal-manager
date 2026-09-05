@@ -47,6 +47,24 @@ atm update                # 升级 atm 自己（识别 uv tool / pipx / pip）�
 
 ---
 
+## 日常 CLI 基础
+
+```bash
+atm -v list                    # stderr 打过程信息；-vv 到逐文件 / 逐条 tmux 命令（ATM_DEBUG=1 等于 -vv）
+atm doctor --json              # 机器可读的体检报告；只有配置文件坏了才 exit 1
+atm config --json              # 每一项的值和来源：default / file / env
+atm update --check --json
+eval "$(atm completion bash)"  # 从真实的参数定义生成补全（zsh、fish 同理）
+NO_COLOR=1 atm pick            # 遵守 https://no-color.org
+```
+
+配置优先级：**命令行参数 > 环境变量 > 文件 > 默认**。每个键都有环境变量：
+`memory.high` → `ATM_MEMORY_HIGH`，`memory.swap-max` → `ATM_MEMORY_SWAP_MAX`，以此类推。
+拼错的键、坏掉的文件都是错误，不会静默忽略——否则你会以为限制生效了其实没有。
+
+`atm install --conf PATH` / `atm uninstall --conf PATH` 可以指向 `~/.tmux.conf` 以外的配置。
+`eval "$(atm pick --print)"` 在 stdout 被接走时也能用：选择器画在 `/dev/tty` 上。
+
 ## 内存闸门：`atm claude` 和 `claude` 的区别
 
 ```bash

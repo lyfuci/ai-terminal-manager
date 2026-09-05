@@ -135,6 +135,21 @@ def char_width(ch: str) -> int:
     return 1
 
 
+def strip_control(text: str) -> str:
+    """剥掉 C0 控制字符和 DEL，只留 tab。
+
+    会话标题、pane 标题、路径里混进 ANSI 转义并不罕见；直接 print 会改终端状态，
+    curses 的 addstr 会把它们渲染成 `^[` 这种 2 列形式让对齐全乱。展示用的一律先过这里，
+    JSON 输出保留原值。
+    """
+    text = _ANSI_SEQ.sub("", text)
+    return "".join(ch for ch in text if ch == "\t" or (ord(ch) >= 32 and ord(ch) != 0x7F))
+
+
+# CSI（ESC [ … 终结字节）和 OSC（ESC ] … BEL 或 ESC \）整段去掉，光删 ESC 会留下 `[31m` 这种尾巴。
+_ANSI_SEQ = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+
+
 def display_width(text: str) -> int:
     """终端里这段文本占几列。"""
     return sum(char_width(ch) for ch in text)

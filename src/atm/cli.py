@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 from collections.abc import Sequence
@@ -21,7 +22,7 @@ from . import index as index_mod
 from . import tmux
 from .dispatch import DispatchError, DispatchTarget, TargetKind
 from .model import SOURCE_TAG, SessionEntry, SessionIndex, Source
-from .text import humanize_age, pad_display, truncate_display
+from .text import humanize_age, pad_display, strip_control, truncate_display
 from .tmux import Pane, SplitDirection
 
 EXIT_OK = 0
@@ -32,16 +33,37 @@ EXIT_CANCELLED = 130
 LAUNCH_PROGRAMS = ("claude", "codex", "pi")
 
 
+_VERBOSE_FLAGS = {"-v": 1, "-vv": 2, "--verbose": 1}
+
+
 def _launch_args(argv: Sequence[str]) -> argparse.Namespace | None:
     """`atm claude …` 不走 argparse。
 
     REMAINDER 有个老毛病：第一个位置参数之前的 `--xxx` 仍会被当成 atm 自己的选项解析，
     `atm claude --resume x` 会报 unrecognized arguments。这里在 parse 之前把它截下来，
-    程序名后面的每一个字节都原样归 claude / codex / pi。
+    程序名后面的每一个字节都原样归 claude / codex / pi。前面允许带 atm 自己的 -v。
     """
-    if argv and argv[0] in LAUNCH_PROGRAMS:
-        return argparse.Namespace(handler=_cmd_launch, program=argv[0], args=list(argv[1:]))
+    verbose = 0
+    i = 0
+    while i < len(argv) and argv[i] in _VERBOSE_FLAGS:
+        verbose += _VERBOSE_FLAGS[argv[i]]
+        i += 1
+    rest = argv[i:]
+    if rest and rest[0] in LAUNCH_PROGRAMS:
+        return argparse.Namespace(
+            handler=_cmd_launch, program=rest[0], args=list(rest[1:]), verbose=verbose
+        )
     return None
+
+
+def _setup_logging(verbose: int) -> None:
+    """-v → INFO，-vv → DEBUG，ATM_DEBUG=1 → DEBUG。全部走 stderr，不污染 --json 的 stdout。"""
+    if os.environ.get("ATM_DEBUG"):
+        verbose = max(verbose, 2)
+    level = logging.WARNING if verbose == 0 else logging.INFO if verbose == 1 else logging.DEBUG
+    logging.basicConfig(
+        level=level, stream=sys.stderr, format="atm: %(levelname)s %(name)s: %(message)s"
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -50,6 +72,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args is None:
         parser = _build_parser()
         args = parser.parse_args(raw)
+    _setup_logging(getattr(args, "verbose", 0))
     try:
         return args.handler(args)
     except KeyboardInterrupt:
@@ -125,6 +148,13 @@ def _build_parser() -> argparse.ArgumentParser:
     from . import __version__
 
     parser.add_argument("--version", action="version", version=f"atm {__version__}")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="多打点过程信息到 stderr（-v 概要，-vv 逐文件/逐条 tmux 命令；ATM_DEBUG=1 同 -vv）",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_filters(p: argparse.ArgumentParser) -> None:
@@ -243,6 +273,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_prune.set_defaults(handler=_cmd_prune)
 
     p_doctor = sub.add_parser("doctor", help="体检：数据源在不在、tmux 通不通")
+    p_doctor.add_argument("--json", action="store_true", help="机器可读输出")
     p_doctor.set_defaults(handler=_cmd_doctor)
 
     p_install = sub.add_parser("install", help="装 tmux 键位绑定（会改 ~/.tmux.conf）")
@@ -256,6 +287,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("--width", default=_install_mod().DEFAULT_WIDTH, help="浮层宽度")
     p_install.add_argument("--height", default=_install_mod().DEFAULT_HEIGHT, help="浮层高度")
     p_install.add_argument("--print", action="store_true", help="只看会写什么，不动文件")
+    p_install.add_argument("--conf", type=Path, help="tmux 配置文件路径（默认 ~/.tmux.conf）")
     p_install.add_argument(
         "--no-persist",
         action="store_true",
@@ -270,8 +302,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_update = sub.add_parser("update", help="升级 atm 自己（按安装方式选 uv tool / pipx / pip）")
     p_update.add_argument("--check", action="store_true", help="只看有没有新版本，不升级")
+    p_update.add_argument("--json", action="store_true", help="配合 --check：机器可读输出")
     p_update.add_argument("-y", "--yes", action="store_true", help="不问直接升")
     p_update.set_defaults(handler=_cmd_update)
+
+    p_completion = sub.add_parser(
+        "completion",
+        help='打印 shell 补全脚本：eval "$(atm completion bash)"',
+    )
+    p_completion.add_argument("shell", choices=("bash", "zsh", "fish"))
+    p_completion.set_defaults(handler=_cmd_completion)
 
     p_config = sub.add_parser(
         "config",
@@ -289,6 +329,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_config.add_argument("--unset", metavar="KEY", help="把某项恢复默认")
     p_config.add_argument("--reset", action="store_true", help="全部恢复默认（删掉配置文件）")
     p_config.add_argument("--path", action="store_true", help="只打印配置文件路径")
+    p_config.add_argument("--json", action="store_true", help="机器可读：每项的值和来源")
     p_config.set_defaults(handler=_cmd_config)
 
     # `atm claude …` / `atm codex …` / `atm pi …`：带闸门启动。参数原样透传，
@@ -307,6 +348,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_uninstall = sub.add_parser("uninstall", help="从 ~/.tmux.conf 里移除 atm 的绑定")
     p_uninstall.add_argument("-y", "--yes", action="store_true")
+    p_uninstall.add_argument("--conf", type=Path, help="tmux 配置文件路径（默认 ~/.tmux.conf）")
     p_uninstall.set_defaults(handler=_cmd_uninstall)
 
     return parser
@@ -333,8 +375,9 @@ def _cmd_list(args: argparse.Namespace) -> int:
         branch = f" ({entry.git_branch})" if entry.git_branch else ""
         named = f"⟨{entry.name}⟩ " if entry.name else ""
         print(
-            f"{pad_display(age, 4)} {tag} {pad_display(entry.project_name + branch, 26)} "
-            f"{truncate_display(named + entry.title, 80)}"
+            f"{pad_display(age, 4)} {tag} "
+            f"{pad_display(strip_control(entry.project_name + branch), 26)} "
+            f"{truncate_display(strip_control(named + entry.title), 80)}"
         )
         print(f"     {entry.id}")
     if len(limited) < len(entries):
@@ -348,16 +391,19 @@ def _cmd_pick(args: argparse.Namespace) -> int:
         print("没有找到会话。跑 `atm doctor` 看看数据源在不在。", file=sys.stderr)
         return EXIT_ERROR
 
-    if not sys.stdin.isatty() or not sys.stdout.isatty():
+    if not sys.stdin.isatty():
         print("atm pick 需要一个交互终端；非交互场景用 `atm list --json`。", file=sys.stderr)
         return EXIT_ERROR
 
-    entry = _tui().pick_session(
-        entries,
-        initial_query=args.query,
-        mode=_tui().GroupMode[args.group.upper()],
-        missing_cwds=dispatch_mod.missing_cwds(entries),
-    )
+    def choose():
+        return _tui().pick_session(
+            entries,
+            initial_query=args.query,
+            mode=_tui().GroupMode[args.group.upper()],
+            missing_cwds=dispatch_mod.missing_cwds(entries),
+        )
+
+    entry = _on_tty(choose)
     if entry is None:
         return EXIT_CANCELLED
 
@@ -417,6 +463,32 @@ def _cmd_index(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _on_tty(fn):
+    """stdout 被 `$(…)` 或管道接走时，把 TUI 画到 /dev/tty，完事再把 stdout 换回来。
+
+    这就是文档里 `eval "$(atm pick --print)"` 能成立的原因：curses 只认 fd 1，
+    所以临时把 fd 1 指到控制终端，选完再还给调用方去接那行命令。
+    """
+    if sys.stdout.isatty():
+        return fn()
+    try:
+        tty_fd = os.open("/dev/tty", os.O_RDWR)
+    except OSError as exc:
+        raise RuntimeError(
+            "atm pick 需要一个终端来画选择器（/dev/tty 打不开）；非交互场景用 `atm list --json`。"
+        ) from exc
+    saved = os.dup(1)
+    sys.stdout.flush()
+    try:
+        os.dup2(tty_fd, 1)
+        return fn()
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved, 1)
+        os.close(saved)
+        os.close(tty_fd)
+
+
 def _cmd_panes(args: argparse.Namespace) -> int:
     if not tmux.has_server():
         print("没有正在运行的 tmux server。", file=sys.stderr)
@@ -446,8 +518,8 @@ def _cmd_panes(args: argparse.Namespace) -> int:
         marker = "*" if pane.active else " "
         state = "idle" if pane.is_idle_shell else f"busy:{pane.current_command}"
         print(
-            f"{marker} {pad_display(pane.id, 5)} {pad_display(pane.label, 18)} "
-            f"{pad_display(state, 16)} {pane.current_path}"
+            f"{marker} {pad_display(pane.id, 5)} {pad_display(strip_control(pane.label), 18)} "
+            f"{pad_display(strip_control(state), 16)} {strip_control(pane.current_path)}"
         )
     return EXIT_OK
 
@@ -558,35 +630,127 @@ def _cmd_prune(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _cmd_doctor(args: argparse.Namespace) -> int:
+def _doctor_report() -> dict:
+    """体检数据，供文本和 --json 两种输出。字段名与语言无关。"""
+    import shutil
+
     from .sources import claude as claude_src
     from .sources import codex as codex_src
     from .sources import pi as pi_src
 
-    print("== 数据源 ==")
-    claude_root = claude_src.DEFAULT_ROOT
-    codex_root = codex_src.DEFAULT_ROOT
-    _report_root("Claude", claude_root, len(list(claude_src.discover())))
-    _report_root("Codex", codex_root, len(list(codex_src.discover())))
-    _report_root("Pi", pi_src.DEFAULT_ROOT, len(list(pi_src.discover())))
+    config = _config_mod()
+    guard = _guard_mod()
 
+    sources = {}
+    for name, mod in (("claude", claude_src), ("codex", codex_src), ("pi", pi_src)):
+        root = mod.DEFAULT_ROOT
+        sources[name] = {
+            "root": str(root),
+            "exists": root.is_dir(),
+            "files": len(list(mod.discover())),
+        }
     legacy = codex_src.LEGACY_INDEX
-    titles = codex_src.load_legacy_titles()
-    print(f"  Codex 老索引 {legacy}: {'有' if legacy.exists() else '无'}（{len(titles)} 条标题）")
+    sources["codex"]["legacyIndex"] = {
+        "path": str(legacy),
+        "exists": legacy.exists(),
+        "titles": len(codex_src.load_legacy_titles()),
+    }
+
+    clis = {program: shutil.which(program) for program in LAUNCH_PROGRAMS}
+
+    tmux_info = {
+        "installed": tmux.is_installed(),
+        "serverRunning": tmux.is_installed() and tmux.has_server(),
+        "insideTmux": tmux.inside_tmux(),
+    }
+
+    st = _persist_mod().status()
+    persist = {
+        "blockInstalled": st.block_installed,
+        "pluginsPresent": list(st.plugins_present),
+        "pluginsMissing": list(st.plugins_missing),
+        "autosaveHooked": st.autosave_hooked,
+        "lastSave": str(st.last_save) if st.last_save else None,
+    }
+
+    memory: dict = {"cgroupAvailable": dispatch_mod.memory_limits_available()}
+    config_error = None
+    try:
+        cfg = config.load()
+        memory.update(
+            {
+                "enabled": cfg.memory_enabled,
+                "high": cfg.memory_high,
+                "max": cfg.memory_max,
+                "slice": cfg.memory_slice,
+            }
+        )
+        sl = guard.status(cfg.memory_slice)
+        memory["sliceUnit"] = {
+            "path": str(sl.path),
+            "exists": sl.exists,
+            "ours": sl.ours,
+            "high": sl.high,
+            "max": sl.max,
+        }
+    except config.ConfigError as exc:
+        config_error = str(exc)
+
+    result = index_mod.build()
+    stats = result.stats
+    per_source = {}
+    for source in Source:
+        n = sum(1 for e in result.entries if e.source is source)
+        per_source[source.value] = n
+
+    return {
+        "version": __import__("atm").__version__,
+        "sources": sources,
+        "clis": clis,
+        "tmux": tmux_info,
+        "persistence": persist,
+        "memory": memory,
+        "configError": config_error,
+        "indexDescribe": stats.describe(),
+        "index": {
+            "total": stats.total,
+            "fromCache": stats.from_cache,
+            "parsed": stats.parsed,
+            "skipped": stats.skipped,
+            "elapsedMs": stats.elapsed_ms,
+            "perSource": per_source,
+        },
+        "ok": config_error is None,
+    }
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    report = _doctor_report()
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return EXIT_OK if report["ok"] else EXIT_ERROR
+
+    print("== 数据源 ==")
+    for name, info in report["sources"].items():
+        status = "存在" if info["exists"] else "不存在"
+        print(f"  {name.capitalize()} {info['root']}: {status}，{info['files']} 个会话文件")
+    legacy = report["sources"]["codex"]["legacyIndex"]
+    print(
+        f"  Codex 老索引 {legacy['path']}: {'有' if legacy['exists'] else '无'}"
+        f"（{legacy['titles']} 条标题）"
+    )
 
     print("\n== CLI ==")
-    for program in ("claude", "codex", "pi"):
-        import shutil
-
-        found = shutil.which(program)
+    for program, found in report["clis"].items():
         print(f"  {program}: {found or '不在 PATH 里 —— 投递出去会失败'}")
 
     print("\n== tmux ==")
-    if not tmux.is_installed():
+    t = report["tmux"]
+    if not t["installed"]:
         print("  tmux: 没装 —— 只能用 --print 模式")
     else:
-        print(f"  tmux: 已装，server {'在跑' if tmux.has_server() else '没起来'}")
-        print(f"  当前在 tmux 里: {'是' if tmux.inside_tmux() else '否'}")
+        print(f"  tmux: 已装，server {'在跑' if t['serverRunning'] else '没起来'}")
+        print(f"  当前在 tmux 里: {'是' if t['insideTmux'] else '否'}")
 
     print("\n== 持久化（resurrect + continuum）==")
     _report_persist(_persist_mod().status())
@@ -595,9 +759,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     guard_ok = _report_guard()
 
     print("\n== 索引 ==")
-    result = index_mod.build()
-    print(f"  {result.stats.describe()}")
-    _print_source_breakdown(result)
+    idx = report["index"]
+    print(f"  {report['indexDescribe']}")
+    for source, n in idx["perSource"].items():
+        print(f"    {SOURCE_TAG.get(Source(source), '??')} {source}: {n}")
     # 没装某家 CLI 不算故障；配置文件读不了才算 —— 那意味着用户以为的限制根本没生效。
     return EXIT_OK if guard_ok else EXIT_ERROR
 
@@ -609,9 +774,13 @@ def _cmd_install(args: argparse.Namespace) -> int:
         print("（配置照样可以先写好，装完 tmux 直接生效。）\n")
 
     plan = _install_mod().build_plan(
-        key=args.key, sidebar_key=args.sidebar_key, width=args.width, height=args.height
+        conf_path=args.conf,
+        key=args.key,
+        sidebar_key=args.sidebar_key,
+        width=args.width,
+        height=args.height,
     )
-    persist_plan = None if args.no_persist else persist.build_plan()
+    persist_plan = None if args.no_persist else persist.build_plan(conf_path=args.conf)
 
     print(plan.describe())
     # resolve_atm_command 永远返回绝对路径，所以不能拿 != "atm" 判断「没装成命令」——
@@ -704,6 +873,27 @@ def _cmd_update(args: argparse.Namespace) -> int:
     info = update.detect()
     current = update.current_version()
     latest = update.latest_version()
+    command = update.upgrade_command(info)
+
+    if getattr(args, "json", False):
+        print(
+            json.dumps(
+                {
+                    "current": current,
+                    "latest": latest,
+                    "updateAvailable": bool(
+                        latest and update.version_tuple(latest) > update.version_tuple(current)
+                    ),
+                    "installer": info.installer.value,
+                    "origin": info.origin.value,
+                    "detail": info.detail,
+                    "command": command,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return EXIT_OK
 
     print(f"当前 {current}（{info.describe()}）")
     if latest is None:
@@ -715,7 +905,6 @@ def _cmd_update(args: argparse.Namespace) -> int:
         if info.origin is update.Origin.GIT:
             print("（git 装的会跟 main 最新 commit，可能比 PyPI 发行版还新）")
 
-    command = update.upgrade_command(info)
     if command is None:
         print()
         print(update.manual_hint(info))
@@ -742,6 +931,22 @@ def _cmd_update(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_completion(args: argparse.Namespace) -> int:
+    from . import completion
+
+    config = _config_mod()
+    print(
+        completion.render(
+            args.shell,
+            _build_parser(),
+            config_keys=tuple(config.KEYS),
+            sources=tuple(s.value for s in Source),
+        ),
+        end="",
+    )
+    return EXIT_OK
+
+
 def _cmd_config(args: argparse.Namespace) -> int:
     config = _config_mod()
     if args.path:
@@ -756,7 +961,10 @@ def _cmd_config(args: argparse.Namespace) -> int:
             print("本来就是默认，没有配置文件")
         return EXIT_OK
     try:
-        cfg = config.load()
+        cfg, sources = config.load_with_sources()
+        if args.json and not (args.key or args.unset):
+            print(json.dumps(config.to_json(cfg, sources), ensure_ascii=False, indent=2))
+            return EXIT_OK
         if args.unset:
             cfg = config.unset_value(cfg, args.unset)
             path = config.save(cfg)
@@ -772,7 +980,7 @@ def _cmd_config(args: argparse.Namespace) -> int:
     except config.ConfigError as exc:
         print(f"atm: {exc}", file=sys.stderr)
         return EXIT_ERROR
-    print(config.describe(cfg))
+    print(config.describe(cfg, sources))
     return EXIT_OK
 
 
@@ -799,7 +1007,7 @@ def _cmd_launch(args: argparse.Namespace) -> int:
 
 
 def _cmd_uninstall(args: argparse.Namespace) -> int:
-    conf_path = Path.home() / ".tmux.conf"
+    conf_path = args.conf or Path.home() / ".tmux.conf"
     if not args.yes:
         print(f"将从 {conf_path} 移除 atm 的绑定块（marker 之外的内容一律不动）。")
         if not _confirm("继续吗？"):

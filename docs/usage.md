@@ -50,6 +50,24 @@ Development and contributing: [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ---
 
+## Everyday CLI plumbing
+
+```bash
+atm -v list                    # progress info on stderr; -vv per-file / per-tmux-command detail (ATM_DEBUG=1 = -vv)
+atm doctor --json              # machine-readable health report; exit 1 only when the config file is broken
+atm config --json              # every setting with its source: default / file / env
+atm update --check --json
+eval "$(atm completion bash)"  # shell completions generated from the real parser (also zsh, fish)
+NO_COLOR=1 atm pick            # honours https://no-color.org
+```
+
+Configuration precedence: **flag > environment variable > file > default**. Every key has an env var:
+`memory.high` → `ATM_MEMORY_HIGH`, `memory.swap-max` → `ATM_MEMORY_SWAP_MAX`, and so on.
+Unknown keys or a malformed file are errors, never silently ignored — otherwise you'd believe a limit is active when it isn't.
+
+`atm install --conf PATH` / `atm uninstall --conf PATH` target a tmux config other than `~/.tmux.conf`.
+`eval "$(atm pick --print)"` works even though stdout is captured: the picker draws on `/dev/tty`.
+
 ## Memory gate: `atm claude` vs `claude`
 
 ```bash

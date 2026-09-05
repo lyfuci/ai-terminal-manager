@@ -19,6 +19,8 @@ jobs:
       - run: uv run --frozen ruff check .
       - run: uv run --frozen pytest
       - run: uv build
+      # 装一遍刚打出来的 wheel，确认入口和 import 都活着，再上传
+      - run: uv tool install --from dist/*.whl ai-terminal-manager && atm --version && atm doctor >/dev/null || true
       - uses: actions/upload-artifact@v4
         with:
           name: dist

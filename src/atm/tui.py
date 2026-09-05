@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import curses
 import locale
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,7 +21,14 @@ from pathlib import Path
 from . import dispatch
 from .fuzzy import ScoredEntry, rank
 from .model import SOURCE_TAG, SessionEntry, Source
-from .text import display_width, humanize_age_ago, pad_display, tail_display, truncate_display
+from .text import (
+    display_width,
+    humanize_age_ago,
+    pad_display,
+    strip_control,
+    tail_display,
+    truncate_display,
+)
 
 # 各列的固定宽度（显示宽度，不是字符数）
 _AGE_WIDTH = 9
@@ -134,6 +142,9 @@ class _Screen:
         # 三种 `tput civis` 都失败）会让它抛 _curses.error，整个 picker 起不来。
         with contextlib.suppress(curses.error):
             curses.curs_set(0)
+        if os.environ.get("NO_COLOR"):
+            # https://no-color.org：不调 start_color/init_pair，所有 color_pair() 变成无色属性。
+            return
         try:
             curses.use_default_colors()
             curses.init_pair(1, curses.COLOR_CYAN, -1)  # 选中行
@@ -153,7 +164,7 @@ class _Screen:
         `^[` / `^G` 这样的**2 列**形式 —— 两边对不上，返回的 x 就偏小，
         后面的列会被冲掉、整行盖出预留边界。会话标题里混进 ANSI 转义并不罕见。
         """
-        return "".join(ch for ch in text if ch == "\t" or (ord(ch) >= 32 and ord(ch) != 0x7F))
+        return strip_control(text)
 
     @staticmethod
     def _put(win: curses.window, y: int, x: int, text: str, attr: int = 0) -> int:
