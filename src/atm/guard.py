@@ -116,6 +116,23 @@ def install(
     return path, True
 
 
+def describe_plan(slice_name: str, directory: Path | None = None) -> str:
+    """`atm install --print` 用：会不会写、写多少。"""
+    st = status(slice_name, directory)
+    if st.exists:
+        who = "atm 写的" if st.ours else "你自己的"
+        return (
+            f"总量闸门 {st.path} 已存在（MemoryHigh={st.high} / MemoryMax={st.max}，{who}），不动。"
+        )
+    total = total_memory_bytes()
+    high, max_ = suggested_totals(total) if total else ("4G", "5G")
+    return (
+        f"将写入总量闸门 {st.path}：MemoryHigh={high} / MemoryMax={max_}"
+        f"（物理内存 {total >> 30 if total else '?'}G 的 50% / 65%），"
+        "然后 systemctl --user daemon-reload。"
+    )
+
+
 def remove(slice_name: str, directory: Path | None = None) -> bool:
     """只删我们自己写的（带 HEADER）。用户手写的一律不碰。"""
     st = status(slice_name, directory)

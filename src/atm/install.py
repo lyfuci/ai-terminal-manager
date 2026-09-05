@@ -319,12 +319,28 @@ def _strip_block(text: str, begin: str = MARKER_BEGIN, end: str = MARKER_END) ->
     return "\n".join(out) + ("\n" if out else "")
 
 
-def _backup(path: Path) -> Path | None:
-    """改全局配置前先留一份。备份失败不算致命，但要让调用方知道。"""
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = path.with_name(f"{path.name}.bak-atm-{stamp}")
-    try:
-        shutil.copy2(path, backup)
+class BackupFailed(RuntimeError):
+    """备份写不出去。**不能**继续改原文件——没有退路的修改不做。"""
+
+
+def _backup(path: Path) -> Path:
+    """改全局配置前先留一份。
+
+    之前备份失败返回 None 然后照样往下写，等于「备份」是装饰。现在失败就抛，调用方整个中止。
+    文件名带微秒并在碰撞时加序号：同一秒内连跑两次 `atm install` 不会互相覆盖备份。
+    """
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S.%f")
+    for n in range(100):
+        suffix = f".bak-atm-{stamp}" + (f"-{n}" if n else "")
+        backup = path.with_name(path.name + suffix)
+        if backup.exists():
+            continue
+        try:
+            shutil.copy2(path, backup)
+        except OSError as exc:
+            raise BackupFailed(
+                f"备份 {path} 到 {backup} 失败（{exc.__class__.__name__}: {exc}）。"
+                f"为避免没有退路地改你的配置，这里直接中止。"
+            ) from exc
         return backup
-    except OSError:
-        return None
+    raise BackupFailed(f"{path} 的备份文件名连撞 100 次，放弃。")

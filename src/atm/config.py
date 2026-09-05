@@ -98,20 +98,53 @@ def load(path: Path | None = None) -> Config:
         return Config()
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ConfigError(f"{p} 读不了：{exc}") from exc
+    return _from_raw(raw, p)
+
+
+def _from_raw(raw: dict, p: Path) -> Config:
+    """把 TOML 字典变成 Config。结构错 / 键拼错都报错——静默忽略会让人以为设置生效了。"""
+    known_sections = {k.split(".", 1)[0] for k in KEYS}
+    for section in raw:
+        if section not in known_sections:
+            raise ConfigError(
+                f"{p}：不认识的段 [{section}]，只有 {', '.join(sorted(known_sections))}"
+            )
     cfg = Config()
-    for key, field in KEYS.items():
-        section, name = key.split(".", 1)
-        value = (raw.get(section) or {}).get(name.replace("-", "_"))
-        if value is not None:
-            cfg = replace(cfg, **{field: _coerce(key, value)})
+    for section in known_sections:
+        table = raw.get(section)
+        if table is None:
+            continue
+        if not isinstance(table, dict):
+            raise ConfigError(f"{p}：[{section}] 应该是一个表，收到 {type(table).__name__}")
+        valid = {
+            k.split(".", 1)[1].replace("-", "_"): k for k in KEYS if k.startswith(section + ".")
+        }
+        for name, value in table.items():
+            key = valid.get(name)
+            if key is None:
+                raise ConfigError(
+                    f"{p}：[{section}] 里不认识 {name!r}，可用：{', '.join(sorted(valid))}"
+                )
+            cfg = replace(cfg, **{KEYS[key]: _coerce(key, value)})
     return cfg
 
 
 def save(cfg: Config, path: Path | None = None) -> Path:
+    """原子写：先写临时文件再 rename，中途断电不会留下半个 TOML。"""
     p = path or config_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(dumps(cfg), encoding="utf-8")
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(dumps(cfg), encoding="utf-8")
+    tmp.replace(p)
     return p
+
+
+def validate_size(label: str, value: str) -> str:
+    """给命令行参数用的同一套校验：`--mem-high lots` 在这里就报，不等 systemd-run。"""
+    s = str(value).strip()
+    if not _SIZE_RE.match(s):
+        raise ConfigError(f"{label} 要形如 4G / 512M / infinity，收到 {value!r}")
+    return s.upper() if s.lower() != "infinity" else "infinity"
 
 
 def set_value(cfg: Config, key: str, value: str) -> Config:
@@ -186,9 +219,7 @@ def _coerce(key: str, value: object):
         if not re.match(r"^[\w.-]+\.slice$", s):
             raise ConfigError(f"{key} 要形如 name.slice，收到 {value!r}")
         return s
-    if not _SIZE_RE.match(s):
-        raise ConfigError(f"{key} 要形如 4G / 512M / infinity，收到 {value!r}")
-    return s.upper() if s != "infinity" else s
+    return validate_size(key, s)
 
 
 # ---------------------------------------------------------------- 启动包装

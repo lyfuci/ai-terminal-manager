@@ -13,6 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+      # tag 直接发 PyPI，之前没有任何门：这里至少把测试和 lint 跑一遍再 build。
+      - run: uv sync --frozen
+      - run: uv run --frozen ruff check .
+      - run: uv run --frozen pytest
       - run: uv build
       - uses: actions/upload-artifact@v4
         with:
