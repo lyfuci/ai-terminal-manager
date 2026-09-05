@@ -324,7 +324,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_config = sub.add_parser(
         "config",
-        help=_("查看 / 修改用户配置（内存闸门参数）。不带参数就是查看"),
+        help=_("查看 / 修改用户配置（内存闸门参数）。不带参数在终端里进交互式编辑器"),
         description=(
             _(
                 "atm config                       查看\n"
@@ -341,6 +341,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_config.add_argument("--reset", action="store_true", help=_("全部恢复默认（删掉配置文件）"))
     p_config.add_argument("--path", action="store_true", help=_("只打印配置文件路径"))
     p_config.add_argument("--json", action="store_true", help=_("机器可读：每项的值和来源"))
+    p_config.add_argument(
+        "--show", action="store_true", help=_("只打印当前配置（不进交互式编辑器）")
+    )
     p_config.set_defaults(handler=_cmd_config)
 
     # `atm claude …` / `atm codex …` / `atm pi …`：带闸门启动。参数原样透传，
@@ -1049,6 +1052,10 @@ def _cmd_config(args: argparse.Namespace) -> int:
     except config.ConfigError as exc:
         print(f"atm: {exc}", file=sys.stderr)
         return EXIT_ERROR
+    if not args.show and sys.stdin.isatty() and sys.stdout.isatty():
+        from . import config_tui
+
+        return config_tui.run_config_editor()
     print(config.describe(cfg, sources))
     return EXIT_OK
 

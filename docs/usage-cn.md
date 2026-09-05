@@ -69,6 +69,7 @@ ATM_LANG=en atm --help         # 界面语言：跟系统 LC_ALL / LC_MESSAGES /
 ## 内存闸门：`atm claude` 和 `claude` 的区别
 
 ```bash
+atm config                     # 交互式编辑器：↑↓ 选键，Enter 改/切换，s 保存（atm config --show 只打印）
 atm config memory.high 4G      # 软上限：节流 + 回收，不杀
 atm config memory.max 8G       # 硬上限：杀整个会话 scope（含子进程）
 atm claude --resume <id>       # 在这个 cgroup 里启动 claude；参数原样透传
