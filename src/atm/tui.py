@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import curses
 import locale
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,8 +20,16 @@ from pathlib import Path
 
 from . import dispatch
 from .fuzzy import ScoredEntry, rank
+from .i18n import _
 from .model import SOURCE_TAG, SessionEntry, Source
-from .text import display_width, humanize_age_ago, pad_display, tail_display, truncate_display
+from .text import (
+    display_width,
+    humanize_age_ago,
+    pad_display,
+    strip_control,
+    tail_display,
+    truncate_display,
+)
 
 # 各列的固定宽度（显示宽度，不是字符数）
 _AGE_WIDTH = 9
@@ -134,6 +143,9 @@ class _Screen:
         # 三种 `tput civis` 都失败）会让它抛 _curses.error，整个 picker 起不来。
         with contextlib.suppress(curses.error):
             curses.curs_set(0)
+        if os.environ.get("NO_COLOR"):
+            # https://no-color.org：不调 start_color/init_pair，所有 color_pair() 变成无色属性。
+            return
         try:
             curses.use_default_colors()
             curses.init_pair(1, curses.COLOR_CYAN, -1)  # 选中行
@@ -153,7 +165,7 @@ class _Screen:
         `^[` / `^G` 这样的**2 列**形式 —— 两边对不上，返回的 x 就偏小，
         后面的列会被冲掉、整行盖出预留边界。会话标题里混进 ANSI 转义并不罕见。
         """
-        return "".join(ch for ch in text if ch == "\t" or (ord(ch) >= 32 and ord(ch) != 0x7F))
+        return strip_control(text)
 
     @staticmethod
     def _put(win: curses.window, y: int, x: int, text: str, attr: int = 0) -> int:
@@ -428,14 +440,14 @@ class _SessionPicker(_Screen):
             stamp = selected.updated_at.astimezone().strftime("%Y-%m-%d %H:%M")
             size_mb = selected.size_bytes / 1048576
             risk = dispatch.size_risk(selected)
-            mark = "  ⚠ resume 会让 CLI 读完整个文件" if risk is not dispatch.SizeRisk.OK else ""
-            gone = "⚠ 工作目录已不存在  " if selected.cwd in self._missing_cwds else ""
+            mark = _("  ⚠ resume 会让 CLI 读完整个文件") if risk is not dispatch.SizeRisk.OK else ""
+            gone = _("⚠ 工作目录已不存在  ") if selected.cwd in self._missing_cwds else ""
             named = f"{gone}⟨{selected.name}⟩  " if selected.name else gone
             detail = f"{named}{stamp}  {size_mb:.1f}MB{mark}  {selected.cwd}"
             attr = _color(6) if risk is dispatch.SizeRisk.BLOCK else _color(5)
             self._put(stdscr, height - 2, 0, truncate_display(detail, width - 1), attr)
 
-        hint = "↑↓/^N^P 移动  Tab 切来源  ^G 切聚合(目录/agent/平铺)  Enter 选中  Esc 取消"
+        hint = _("↑↓/^N^P 移动  Tab 切来源  ^G 切聚合(目录/agent/平铺)  Enter 选中  Esc 取消")
         self._put(stdscr, height - 1, 0, truncate_display(hint, width - 1), _color(5))
 
     def _sync_offset(self, rows: int) -> None:
@@ -496,7 +508,7 @@ class _SessionPicker(_Screen):
         # 工作目录已删除的会话直接标出来 —— 投递它只会得到一句 cd 失败。
         # 实测本机 210 条里有 33 条（16%）是这种，选之前就该看见。
         if entry.cwd in self._missing_cwds:
-            x = self._put(stdscr, y, x, "⚠目录已删 ", base | _color(6))
+            x = self._put(stdscr, y, x, _("⚠目录已删 "), base | _color(6))
 
         if entry.name:
             tag_text = f"⟨{entry.name}⟩ "
@@ -565,7 +577,7 @@ class _OptionPicker(_Screen):
         if count == 0:
             return
         index = self._cursor
-        for _ in range(count):
+        for _step in range(count):
             index = max(0, min(count - 1, index + delta))
             if self._options[index].enabled:
                 self._cursor = index
@@ -608,10 +620,13 @@ class _OptionPicker(_Screen):
                 self._put(stdscr, y, x + 1, option.detail, attr | _color(5))
 
         more = len(self._options) - (self._offset + rows)
-        hint = "↑↓ 移动  数字键直选  Enter 确认  Esc 取消"
+        hint = _("↑↓ 移动  数字键直选  Enter 确认  Esc 取消")
         if more > 0 or self._offset > 0:
-            hint = f"↑↓ 移动({self._offset + 1}-{min(self._offset + rows, len(self._options))}"
-            hint += f"/{len(self._options)})  数字键直选  Enter 确认  Esc 取消"
+            hint = _("↑↓ 移动({first}-{last}/{total})  数字键直选  Enter 确认  Esc 取消").format(
+                first=self._offset + 1,
+                last=min(self._offset + rows, len(self._options)),
+                total=len(self._options),
+            )
         self._put(stdscr, height - 1, 0, truncate_display(hint, width - 1), _color(5))
         stdscr.refresh()
 

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from . import cache as cache_mod
 from .cache import CachedEntry, IndexCache
 from .model import FileRef, IndexStats, SessionEntry, SessionIndex, Source
 from .sources import claude, codex, pi
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------- 噪音会话
 #
@@ -193,7 +196,9 @@ def _safe_parse(
     """一个文件解析炸了不能让整个索引挂掉 —— 格式假设本来就是逆向出来的。"""
     try:
         return parse(ref)
-    except Exception:
+    except Exception as exc:
+        # 默认静默（一条脏文件不该刷屏），`atm -vv` 时能看到是哪个文件、为什么
+        log.debug("跳过 %s：%s: %s", ref.path, exc.__class__.__name__, exc)
         return None
 
 

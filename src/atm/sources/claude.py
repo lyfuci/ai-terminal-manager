@@ -49,7 +49,7 @@ def discover(root: Path | None = None) -> Iterator[FileRef]:
 
 
 def decode_project_dir(name: str) -> str:
-    """把 `-home-sean-IdeaProjects-foo` 还原成 `/home/sean/IdeaProjects/foo`。
+    """把 `-home-user-IdeaProjects-foo` 还原成 `/home/user/IdeaProjects/foo`。
 
     这是**有损**的 —— 目录名里本来就有的 '-' 和路径分隔符的 '-' 无法区分。
     所以只当 cwd 的兜底，记录里读到真的 cwd 一律优先。

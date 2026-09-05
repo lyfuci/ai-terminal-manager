@@ -84,6 +84,8 @@ atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把�
   刻意**不**让它重新拉起 claude / codex ——开机批量拉起会瞬间吃光内存（`research/notes/2026-08-12-incident.md` 附三）；
   会话由你在对应格子里按需 resume。不想要：`--no-persist`。你自己已经在用 tpm 会自动跳过，不重复写。
 
+界面语言跟系统 locale（中 / 英 / 日），`ATM_LANG=zh|en|ja` 可强制。
+
 可选：`atm config memory.high 4G` 设一次，之后 `atm claude` / `atm codex` / `atm pi` 就在 cgroup 内存闸门里启动；
 直接敲 `claude` 仍然不受限——前缀即选择。见 [docs/usage-cn.md](docs/usage-cn.md)。
 

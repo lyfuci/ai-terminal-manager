@@ -42,7 +42,7 @@ _LEADING_TAG = re.compile(r"^\s*<([A-Za-z][\w:.-]*)(?:\s[^>]*)?>")
 
 # 注入包装前面**带一行 Markdown 标题**的形状。实测 Codex 注入 AGENTS.md 时是：
 #
-#     # AGENTS.md instructions for /home/sean/IdeaProjects/sample-backend
+#     # AGENTS.md instructions for /home/user/IdeaProjects/sample-backend
 #
 #     <INSTRUCTIONS>… 8645 字 …</INSTRUCTIONS>
 #
@@ -133,6 +133,21 @@ def char_width(ch: str) -> int:
     if unicodedata.east_asian_width(ch) in ("W", "F"):
         return 2
     return 1
+
+
+def strip_control(text: str) -> str:
+    """剥掉 C0 控制字符和 DEL，只留 tab。
+
+    会话标题、pane 标题、路径里混进 ANSI 转义并不罕见；直接 print 会改终端状态，
+    curses 的 addstr 会把它们渲染成 `^[` 这种 2 列形式让对齐全乱。展示用的一律先过这里，
+    JSON 输出保留原值。
+    """
+    text = _ANSI_SEQ.sub("", text)
+    return "".join(ch for ch in text if ch == "\t" or (ord(ch) >= 32 and ord(ch) != 0x7F))
+
+
+# CSI（ESC [ … 终结字节）和 OSC（ESC ] … BEL 或 ESC \）整段去掉，光删 ESC 会留下 `[31m` 这种尾巴。
+_ANSI_SEQ = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
 def display_width(text: str) -> int:

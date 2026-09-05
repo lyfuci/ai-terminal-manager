@@ -71,6 +71,8 @@ src = ["src", "tests"]
 extend-exclude = ["research"]
 
 [tool.ruff.lint]
+# 翻译表一行一条消息，天然超长；键必须和源码原文逐字一致，不能拆
+per-file-ignores = { "src/atm/i18n_catalog.py" = ["E501"] }
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "C4", "PTH"]
 ignore = [
     "RUF001", # 全角标点在中文注释里是正常的

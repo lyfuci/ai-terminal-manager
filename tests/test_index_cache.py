@@ -80,7 +80,7 @@ def test_cache_invalidated_when_file_changes(
 
     write_jsonl(
         claude_session,
-        [{"type": "user", "cwd": "/home/sean/IdeaProjects/demo", "message": {"content": "改过了"}}],
+        [{"type": "user", "cwd": "/home/user/IdeaProjects/demo", "message": {"content": "改过了"}}],
     )
 
     result = index_mod.build(roots=roots, cache_path=cache_path)
@@ -168,24 +168,24 @@ def test_cache_save_is_atomic_and_leaves_no_temp(tmp_path: Path) -> None:
 def test_filter_entries_by_cwd_prefix_respects_boundaries(
     claude_root: Path, codex_root: Path, tmp_path: Path
 ) -> None:
-    """/home/sean/demo 不该匹配到 /home/sean/demo-other。"""
+    """/home/user/demo 不该匹配到 /home/user/demo-other。"""
     write_jsonl(
         claude_root / "-a" / "1111.jsonl",
-        [{"type": "user", "cwd": "/home/sean/demo", "message": {"content": "in"}}],
+        [{"type": "user", "cwd": "/home/user/demo", "message": {"content": "in"}}],
     )
     write_jsonl(
         claude_root / "-b" / "2222.jsonl",
-        [{"type": "user", "cwd": "/home/sean/demo-other", "message": {"content": "out"}}],
+        [{"type": "user", "cwd": "/home/user/demo-other", "message": {"content": "out"}}],
     )
     write_jsonl(
         claude_root / "-c" / "3333.jsonl",
-        [{"type": "user", "cwd": "/home/sean/demo/sub", "message": {"content": "nested"}}],
+        [{"type": "user", "cwd": "/home/user/demo/sub", "message": {"content": "nested"}}],
     )
 
     result = index_mod.build(
         roots=_roots(claude_root, codex_root, tmp_path), cache_path=tmp_path / "c.json"
     )
-    filtered = index_mod.filter_entries(result.entries, cwd_prefix="/home/sean/demo")
+    filtered = index_mod.filter_entries(result.entries, cwd_prefix="/home/user/demo")
     titles = {e.title for e in filtered}
     assert titles == {"in", "nested"}
 
@@ -206,7 +206,7 @@ def test_build_survives_unreadable_file(
     """一个文件读不了不能让整个索引挂掉。"""
     good = write_jsonl(
         claude_root / "-a" / "1111.jsonl",
-        [{"type": "user", "cwd": "/home/sean/a", "message": {"content": "ok"}}],
+        [{"type": "user", "cwd": "/home/user/a", "message": {"content": "ok"}}],
     )
     bad = write_jsonl(claude_root / "-b" / "2222.jsonl", [{"type": "user"}])
     bad.chmod(0o000)
@@ -252,7 +252,7 @@ def test_agents_md_injection_is_not_noise() -> None:
     标题提取没剥掉它才浮成标题。实测被它藏掉的一条 625KB 会话里有 4 条真人消息。
     真正的修法在 text.py 的 _HEADING_BEFORE_TAG。
     """
-    assert not index_mod.is_noise(_entry("AGENTS.md instructions for /home/sean/x"))
+    assert not index_mod.is_noise(_entry("AGENTS.md instructions for /home/user/x"))
 
 
 def test_real_prompts_are_not_noise() -> None:
@@ -347,7 +347,7 @@ def test_cache_still_written_when_content_changes(
 
     write_jsonl(
         claude_session,
-        [{"type": "user", "cwd": "/home/sean/x", "message": {"content": "改了"}}],
+        [{"type": "user", "cwd": "/home/user/x", "message": {"content": "改了"}}],
     )
     index_mod.build(roots=roots, cache_path=cache_path)
     assert cache_mod.load(cache_path).entries[str(claude_session)].entry.title == "改了"

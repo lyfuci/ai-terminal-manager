@@ -24,6 +24,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from . import tmux
+from .i18n import _
 
 MARKER_BEGIN = "# >>> atm (ai-terminal-manager) >>>"
 MARKER_END = "# <<< atm <<<"
@@ -93,15 +94,15 @@ class InstallPlan:
     atm_command: str
 
     def describe(self) -> str:
-        lines = [f"将写入 {self.conf_path}：", ""]
+        lines = [_("将写入 {self_conf_path}：").format(self_conf_path=self.conf_path), ""]
         lines += [f"  {line}" for line in self.block.splitlines()]
         lines.append("")
-        lines.append("绑定说明：")
+        lines.append(_("绑定说明："))
         for binding in self.bindings:
             lines.append(f"  prefix + {binding.key}  →  {binding.description}")
         if self.already_installed:
             lines.append("")
-            lines.append("（已存在 atm 配置块，会被整块替换掉，不会重复追加）")
+            lines.append(_("（已存在 atm 配置块，会被整块替换掉，不会重复追加）"))
         return "\n".join(lines)
 
 
@@ -142,12 +143,14 @@ def build_plan(
     for name, value in (("--key", key), ("--sidebar-key", sidebar_key)):
         if not _VALID_KEY.match(value):
             raise ValueError(
-                f"{name} 只能是单个小写字母，收到 {value!r}。"
-                f"（配套的第二条绑定靠 .upper() 区分，非字母的 upper() 是恒等变换，"
-                f"两条绑定会撞成同一个键、第一条静默失效。）"
+                _(
+                    "{name} 只能是单个小写字母，收到 {value!r}。（配套的第二条绑定靠 "
+                    ".upper() 区分，非字母的 upper() 是恒等变换，"
+                    "两条绑定会撞成同一个键、第一条静默失效。）"
+                ).format(name=name, value=value)
             )
     if key == sidebar_key:
-        raise ValueError(f"--key 和 --sidebar-key 不能相同（都是 {key!r}）")
+        raise ValueError(_("--key 和 --sidebar-key 不能相同（都是 {key!r}）").format(key=key))
     path = conf_path or Path.home() / ".tmux.conf"
     atm_command = resolve_atm_command()
 
@@ -155,14 +158,14 @@ def build_plan(
         Binding(
             key=key,
             command=f"{atm_command} pick",
-            description="全部会话",
+            description=_("全部会话"),
             width=width,
             height=height,
         ),
         Binding(
             key=key.upper(),
             command=f"{atm_command} pick --here",
-            description="只看当前目录的会话",
+            description=_("只看当前目录的会话"),
             width=width,
             height=height,
         ),
@@ -171,13 +174,13 @@ def build_plan(
         Binding(
             key=sidebar_key,
             command=f"{atm_command} sidebar --toggle --pane '#{{pane_id}}'",
-            description="侧栏：开 / 切过去 / 收起",
+            description=_("侧栏：开 / 切过去 / 收起"),
             kind=BindingKind.SHELL,
         ),
         Binding(
             key=sidebar_key.upper(),
             command=f"{atm_command} park '#{{pane_id}}'",
-            description="把当前格子收进后台窗口 bg",
+            description=_("把当前格子收进后台窗口 bg"),
             kind=BindingKind.SHELL,
         ),
     )
@@ -266,9 +269,10 @@ def _read(path: Path) -> str:
         return ""
     except (OSError, UnicodeDecodeError) as exc:
         raise ConfUnreadable(
-            f"{path} 存在但读不出来（{exc.__class__.__name__}）。"
-            f"为避免覆盖掉你现有的配置，这里直接中止。"
-            f"请先确认它的编码/权限，或手动备份后删除它。"
+            _(
+                "{path} 存在但读不出来（{v0}）。"
+                "为避免覆盖掉你现有的配置，这里直接中止。请先确认它的编码/权限，或手动备份后删除它。"
+            ).format(path=path, v0=exc.__class__.__name__)
         ) from exc
 
 
@@ -297,8 +301,10 @@ def _strip_block(text: str, begin: str = MARKER_BEGIN, end: str = MARKER_END) ->
     ends = [i for i, ln in enumerate(lines) if ln.strip() == end]
     if not ends or ends[-1] < begins[0]:
         raise ConfUnreadable(
-            f"{begin} 有开始标记但找不到对应的 {end}。"
-            f"为避免误删标记之后的配置，这里不做任何改动 —— 请手动检查 ~/.tmux.conf。"
+            _(
+                "{begin} 有开始标记但找不到对应的 {end}。"
+                "为避免误删标记之后的配置，这里不做任何改动 —— 请手动检查 ~/.tmux.conf。"
+            ).format(begin=begin, end=end)
         )
 
     out: list[str] = []
@@ -339,8 +345,10 @@ def _backup(path: Path) -> Path:
             shutil.copy2(path, backup)
         except OSError as exc:
             raise BackupFailed(
-                f"备份 {path} 到 {backup} 失败（{exc.__class__.__name__}: {exc}）。"
-                f"为避免没有退路地改你的配置，这里直接中止。"
+                _(
+                    "备份 {path} 到 {backup} "
+                    "失败（{v0}: {exc}）。为避免没有退路地改你的配置，这里直接中止。"
+                ).format(path=path, backup=backup, v0=exc.__class__.__name__, exc=exc)
             ) from exc
         return backup
-    raise BackupFailed(f"{path} 的备份文件名连撞 100 次，放弃。")
+    raise BackupFailed(_("{path} 的备份文件名连撞 100 次，放弃。").format(path=path))

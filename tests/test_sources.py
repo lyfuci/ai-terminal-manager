@@ -24,7 +24,7 @@ def test_claude_parse_extracts_title_cwd_branch(claude_session: Path) -> None:
     assert entry is not None
     assert entry.id == "aaaaaaaa-1111-2222-3333-444444444444"
     assert entry.title == "帮我把索引层的缓存加上 第二行会被折叠"  # 多行折叠成一行
-    assert entry.cwd == "/home/sean/IdeaProjects/demo"
+    assert entry.cwd == "/home/user/IdeaProjects/demo"
     assert entry.git_branch == "feature/atm"
     assert entry.source is Source.CLAUDE
 
@@ -32,9 +32,9 @@ def test_claude_parse_extracts_title_cwd_branch(claude_session: Path) -> None:
 def test_claude_ai_title_wins_over_first_user_message(claude_root: Path) -> None:
     """ai-title 是 CLI 自己生成的，质量比截首条消息高，优先级要更高。"""
     path = write_jsonl(
-        claude_root / "-home-sean-demo" / "bbbbbbbb-0000-0000-0000-000000000000.jsonl",
+        claude_root / "-home-user-demo" / "bbbbbbbb-0000-0000-0000-000000000000.jsonl",
         [
-            {"type": "user", "cwd": "/home/sean/demo", "message": {"content": "随便问一句"}},
+            {"type": "user", "cwd": "/home/user/demo", "message": {"content": "随便问一句"}},
             {"type": "ai-title", "aiTitle": "Add cache layer to index", "sessionId": "bbbbbbbb"},
         ],
     )
@@ -46,7 +46,7 @@ def test_claude_ai_title_wins_over_first_user_message(claude_root: Path) -> None
 def test_claude_skips_junk_prompts(claude_root: Path) -> None:
     """slash command 的包装和 system-reminder 都不该当标题。"""
     path = write_jsonl(
-        claude_root / "-home-sean-demo" / "cccccccc-0000-0000-0000-000000000000.jsonl",
+        claude_root / "-home-user-demo" / "cccccccc-0000-0000-0000-000000000000.jsonl",
         [
             {"type": "user", "message": {"content": "<command-name>/effort</command-name>"}},
             {
@@ -55,7 +55,7 @@ def test_claude_skips_junk_prompts(claude_root: Path) -> None:
             },
             {
                 "type": "user",
-                "cwd": "/home/sean/demo",
+                "cwd": "/home/user/demo",
                 "message": {"content": "真正的第一句话"},
             },
         ],
@@ -68,11 +68,11 @@ def test_claude_skips_junk_prompts(claude_root: Path) -> None:
 def test_claude_tolerates_corrupt_lines(claude_root: Path) -> None:
     """一条脏行不能让整个文件解析失败 —— 这是 CLAUDE.md 明确要求的。"""
     path = write_jsonl(
-        claude_root / "-home-sean-demo" / "dddddddd-0000-0000-0000-000000000000.jsonl",
+        claude_root / "-home-user-demo" / "dddddddd-0000-0000-0000-000000000000.jsonl",
         [
             "{not json at all",
             "[1, 2, 3]",  # 合法 JSON 但不是 dict
-            '{"type": "user", "cwd": "/home/sean/demo", "message": {"content": "活下来了"}}',
+            '{"type": "user", "cwd": "/home/user/demo", "message": {"content": "活下来了"}}',
         ],
     )
     entry = claude.parse(FileRef.from_path(path))
@@ -83,13 +83,13 @@ def test_claude_tolerates_corrupt_lines(claude_root: Path) -> None:
 def test_claude_falls_back_to_untitled_and_decoded_dir(claude_root: Path) -> None:
     """空会话也要出现在列表里 —— 有 6% 的文件就是这样。"""
     path = write_jsonl(
-        claude_root / "-home-sean-IdeaProjects-demo" / "eeeeeeee-0000-0000-0000-000000000000.jsonl",
+        claude_root / "-home-user-IdeaProjects-demo" / "eeeeeeee-0000-0000-0000-000000000000.jsonl",
         [{"type": "assistant", "message": {"content": "no user message here"}}],
     )
     entry = claude.parse(FileRef.from_path(path))
     assert entry is not None
     assert entry.title == UNTITLED
-    assert entry.cwd == "/home/sean/IdeaProjects/demo"  # 从目录名反解
+    assert entry.cwd == "/home/user/IdeaProjects/demo"  # 从目录名反解
     assert entry.id == "eeeeeeee-0000-0000-0000-000000000000"  # 从文件名兜底
 
 
@@ -97,8 +97,8 @@ def test_claude_ignores_oversized_lines(claude_root: Path) -> None:
     """attachment 之类的巨行要跳过，否则 648MB 的文件会拖死冷启动。"""
     huge = json.dumps({"type": "user", "message": {"content": "x" * 200_000}}, ensure_ascii=False)
     path = write_jsonl(
-        claude_root / "-home-sean-demo" / "ffffffff-0000-0000-0000-000000000000.jsonl",
-        [huge, {"type": "user", "cwd": "/home/sean/demo", "message": {"content": "小行赢"}}],
+        claude_root / "-home-user-demo" / "ffffffff-0000-0000-0000-000000000000.jsonl",
+        [huge, {"type": "user", "cwd": "/home/user/demo", "message": {"content": "小行赢"}}],
     )
     entry = claude.parse(FileRef.from_path(path))
     assert entry is not None
@@ -115,7 +115,7 @@ def test_claude_discover_on_missing_root(tmp_path: Path) -> None:
 
 
 def test_decode_project_dir_is_lossy_but_documented() -> None:
-    assert claude.decode_project_dir("-home-sean-demo") == "/home/sean/demo"
+    assert claude.decode_project_dir("-home-user-demo") == "/home/user/demo"
     assert claude.decode_project_dir("relative") == "relative"
 
 
@@ -132,7 +132,7 @@ def _codex_file(root: Path, session_id: str, *, extra: list[dict] | None = None)
                 "payload": {
                     "session_id": session_id,
                     "id": session_id,
-                    "cwd": "/home/sean/IdeaProjects/sample-project",
+                    "cwd": "/home/user/IdeaProjects/sample-project",
                     "cli_version": "0.147.0",
                     "git": {"branch": "main"},
                 },
@@ -158,7 +158,7 @@ def test_codex_parse_reads_session_meta_and_first_user_message(codex_root: Path)
     assert entry.source is Source.CODEX
     assert entry.id == "00000000-0000-7000-8000-000000000002"
     assert entry.title == "修复 recordId 入库重复"
-    assert entry.cwd == "/home/sean/IdeaProjects/sample-project"
+    assert entry.cwd == "/home/user/IdeaProjects/sample-project"
     assert entry.git_branch == "main"
 
 
@@ -276,7 +276,7 @@ def test_codex_skips_subagent_rollouts(codex_root: Path) -> None:
                     "forked_from_id": "ffffffff-9999-9999-9999-999999999999",
                     "thread_source": "subagent",
                     "agent_nickname": "Kepler",
-                    "cwd": "/home/sean/demo",
+                    "cwd": "/home/user/demo",
                 },
             }
         ],
@@ -295,7 +295,7 @@ def test_codex_parent_thread_uses_its_own_id(codex_root: Path) -> None:
                     "id": "bbbbbbbb-0000-0000-0000-000000000002",
                     "session_id": "bbbbbbbb-0000-0000-0000-000000000002",
                     "thread_source": "user",
-                    "cwd": "/home/sean/demo",
+                    "cwd": "/home/user/demo",
                 },
             },
             {"type": "event_msg", "payload": {"type": "user_message", "message": "父线程的提问"}},
@@ -310,10 +310,10 @@ def test_codex_parent_thread_uses_its_own_id(codex_root: Path) -> None:
 def test_claude_reads_custom_title_as_name(claude_root: Path) -> None:
     """`custom-title` 是**用户手取的名字**，要和推断出来的 title 分开存。"""
     path = write_jsonl(
-        claude_root / "-home-sean-demo" / "11112222-0000-0000-0000-000000000000.jsonl",
+        claude_root / "-home-user-demo" / "11112222-0000-0000-0000-000000000000.jsonl",
         [
             {"type": "custom-title", "customTitle": "sample-project", "sessionId": "11112222"},
-            {"type": "user", "cwd": "/home/sean/demo", "message": {"content": "推断出来的标题"}},
+            {"type": "user", "cwd": "/home/user/demo", "message": {"content": "推断出来的标题"}},
         ],
     )
     entry = claude.parse(FileRef.from_path(path))
@@ -332,10 +332,10 @@ def test_named_session_is_searchable_by_name(claude_root: Path) -> None:
     from atm.fuzzy import rank
 
     path = write_jsonl(
-        claude_root / "-home-sean-demo" / "33334444-0000-0000-0000-000000000000.jsonl",
+        claude_root / "-home-user-demo" / "33334444-0000-0000-0000-000000000000.jsonl",
         [
             {"type": "custom-title", "customTitle": "sample-project"},
-            {"type": "user", "cwd": "/home/sean/demo", "message": {"content": "完全无关的标题"}},
+            {"type": "user", "cwd": "/home/user/demo", "message": {"content": "完全无关的标题"}},
         ],
     )
     entry = claude.parse(FileRef.from_path(path))
@@ -350,9 +350,9 @@ def test_claude_finds_rename_beyond_head_window(claude_root: Path) -> None:
     """
     filler = [{"type": "assistant", "message": {"content": "x" * 900}} for _ in range(500)]
     path = write_jsonl(
-        claude_root / "-home-sean-demo" / "77778888-0000-0000-0000-000000000000.jsonl",
+        claude_root / "-home-user-demo" / "77778888-0000-0000-0000-000000000000.jsonl",
         [
-            {"type": "user", "cwd": "/home/sean/demo", "message": {"content": "起初没有名字"}},
+            {"type": "user", "cwd": "/home/user/demo", "message": {"content": "起初没有名字"}},
             *filler,
             {"type": "custom-title", "customTitle": "wsl"},
         ],
@@ -366,10 +366,10 @@ def test_claude_finds_rename_beyond_head_window(claude_root: Path) -> None:
 def test_claude_takes_latest_rename_not_first(claude_root: Path) -> None:
     """改过多次名要用**最后一次**。实测有一条头部读到旧名、最终是新名。"""
     path = write_jsonl(
-        claude_root / "-home-sean-demo" / "99990000-0000-0000-0000-000000000000.jsonl",
+        claude_root / "-home-user-demo" / "99990000-0000-0000-0000-000000000000.jsonl",
         [
             {"type": "custom-title", "customTitle": "旧名字"},
-            {"type": "user", "cwd": "/home/sean/demo", "message": {"content": "正文"}},
+            {"type": "user", "cwd": "/home/user/demo", "message": {"content": "正文"}},
             {"type": "custom-title", "customTitle": "新名字"},
         ],
     )
@@ -381,10 +381,10 @@ def test_claude_takes_latest_rename_not_first(claude_root: Path) -> None:
 def test_claude_takes_latest_ai_title(claude_root: Path) -> None:
     """ai-title 也会反复重写，后写的更贴合会话最终内容。"""
     path = write_jsonl(
-        claude_root / "-home-sean-demo" / "aaaa1111-0000-0000-0000-000000000000.jsonl",
+        claude_root / "-home-user-demo" / "aaaa1111-0000-0000-0000-000000000000.jsonl",
         [
             {"type": "ai-title", "aiTitle": "早期猜的标题"},
-            {"type": "user", "cwd": "/home/sean/demo", "message": {"content": "正文"}},
+            {"type": "user", "cwd": "/home/user/demo", "message": {"content": "正文"}},
             {"type": "ai-title", "aiTitle": "最终的标题"},
         ],
     )
@@ -402,14 +402,14 @@ def test_claude_takes_latest_ai_title(claude_root: Path) -> None:
 
 def _pi_file(root: Path, session_id: str, *, extra: list[dict | str] | None = None) -> Path:
     return write_jsonl(
-        root / "--home-sean-IdeaProjects-demo--" / f"2026-09-05T01_20_00_{session_id}.jsonl",
+        root / "--home-user-IdeaProjects-demo--" / f"2026-09-05T01_20_00_{session_id}.jsonl",
         [
             {
                 "type": "session",
                 "version": 3,
                 "id": session_id,
                 "timestamp": "2026-09-05T01:20:00.000Z",
-                "cwd": "/home/sean/IdeaProjects/demo",
+                "cwd": "/home/user/IdeaProjects/demo",
             },
             *(extra or []),
         ],
@@ -435,7 +435,7 @@ def test_pi_parse_reads_header_and_first_user_message(pi_root: Path) -> None:
     assert entry.source is Source.PI
     assert entry.id == "abc12345"
     assert entry.title == "把索引层的缓存加上"
-    assert entry.cwd == "/home/sean/IdeaProjects/demo"
+    assert entry.cwd == "/home/user/IdeaProjects/demo"
     assert entry.git_branch is None  # schema v3 没有 git 字段
 
 
@@ -504,7 +504,7 @@ def test_pi_tolerates_corrupt_lines(pi_root: Path) -> None:
 def test_pi_falls_back_to_filename_id_and_decoded_dir(pi_root: Path) -> None:
     """header 整行坏掉时也不能让这条会话从列表里消失。"""
     path = write_jsonl(
-        pi_root / "--home-sean-IdeaProjects-demo--" / "2026-09-05T01_20_00_deadbeef.jsonl",
+        pi_root / "--home-user-IdeaProjects-demo--" / "2026-09-05T01_20_00_deadbeef.jsonl",
         [_pi_user("没有 header 的会话")],
     )
 
@@ -512,7 +512,7 @@ def test_pi_falls_back_to_filename_id_and_decoded_dir(pi_root: Path) -> None:
 
     assert entry is not None
     assert entry.id == "deadbeef"
-    assert entry.cwd == "/home/sean/IdeaProjects/demo"
+    assert entry.cwd == "/home/user/IdeaProjects/demo"
     assert entry.title == "没有 header 的会话"
 
 

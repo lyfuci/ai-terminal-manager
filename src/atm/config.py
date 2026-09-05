@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -22,6 +23,9 @@ from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
 from . import dispatch
+from .i18n import _
+
+log = logging.getLogger(__name__)
 
 # systemd 认的内存大小：纯数字（字节）或带 K/M/G/T 后缀；`infinity` 表示不限。
 _SIZE_RE = re.compile(r"^(\d+(\.\d+)?[KMGT]?|infinity)$", re.IGNORECASE)
@@ -53,7 +57,11 @@ class Config:
 
     def memory_limit(self) -> dispatch.MemoryLimit | None:
         """按配置生成闸门；关了或机器不支持就是 None（= 不套）。"""
-        if not self.memory_enabled or not dispatch.memory_limits_available():
+        if not self.memory_enabled:
+            log.debug("memory.enabled=false，不套闸门")
+            return None
+        if not dispatch.memory_limits_available():
+            log.info("这台机器拿不到 cgroup（systemd-run 或 memory 控制器缺），本次不套内存闸门")
             return None
         return dispatch.MemoryLimit(
             high=self.memory_high,
@@ -88,17 +96,43 @@ class ConfigError(ValueError):
     pass
 
 
+ENV_PREFIX = "ATM_"
+
+
+def env_var_for(key: str) -> str:
+    """memory.swap-max → ATM_MEMORY_SWAP_MAX"""
+    return ENV_PREFIX + key.replace(".", "_").replace("-", "_").upper()
+
+
 def load(path: Path | None = None) -> Config:
-    """读配置。文件不存在 → 默认；文件坏了 → 抛 ConfigError 而不是静默用默认值，
-    否则用户以为限制生效了其实没有。"""
+    """读配置。优先级：环境变量 > 文件 > 默认（命令行参数由调用方再盖一层）。
+
+    文件不存在 → 默认；文件坏了 → 抛 ConfigError 而不是静默用默认值，
+    否则用户以为限制生效了其实没有。
+    """
+    return load_with_sources(path)[0]
+
+
+def load_with_sources(path: Path | None = None) -> tuple[Config, dict[str, str]]:
+    """同 load()，外加每个 key 的值来自哪里：default / file / env。`atm config` 用它标来源。"""
     p = path or config_path()
+    sources = dict.fromkeys(KEYS, "default")
     try:
         raw = tomllib.loads(p.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return Config()
+        raw = {}
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise ConfigError(f"{p} 读不了：{exc}") from exc
-    return _from_raw(raw, p)
+        raise ConfigError(_("{p} 读不了：{exc}").format(p=p, exc=exc)) from exc
+    cfg = _from_raw(raw, p)
+    for key, field in KEYS.items():
+        if getattr(cfg, field) != getattr(Config(), field):
+            sources[key] = "file"
+    for key, field in KEYS.items():
+        env_value = os.environ.get(env_var_for(key))
+        if env_value is not None and env_value != "":
+            cfg = replace(cfg, **{field: _coerce(key, env_value)})
+            sources[key] = f"env {env_var_for(key)}"
+    return cfg, sources
 
 
 def _from_raw(raw: dict, p: Path) -> Config:
@@ -107,7 +141,9 @@ def _from_raw(raw: dict, p: Path) -> Config:
     for section in raw:
         if section not in known_sections:
             raise ConfigError(
-                f"{p}：不认识的段 [{section}]，只有 {', '.join(sorted(known_sections))}"
+                _("{p}：不认识的段 [{section}]，只有 {v0}").format(
+                    p=p, section=section, v0=", ".join(sorted(known_sections))
+                )
             )
     cfg = Config()
     for section in known_sections:
@@ -115,7 +151,11 @@ def _from_raw(raw: dict, p: Path) -> Config:
         if table is None:
             continue
         if not isinstance(table, dict):
-            raise ConfigError(f"{p}：[{section}] 应该是一个表，收到 {type(table).__name__}")
+            raise ConfigError(
+                _("{p}：[{section}] 应该是一个表，收到 {v0}").format(
+                    p=p, section=section, v0=type(table).__name__
+                )
+            )
         valid = {
             k.split(".", 1)[1].replace("-", "_"): k for k in KEYS if k.startswith(section + ".")
         }
@@ -123,7 +163,9 @@ def _from_raw(raw: dict, p: Path) -> Config:
             key = valid.get(name)
             if key is None:
                 raise ConfigError(
-                    f"{p}：[{section}] 里不认识 {name!r}，可用：{', '.join(sorted(valid))}"
+                    _("{p}：[{section}] 里不认识 {name!r}，可用：{v0}").format(
+                        p=p, section=section, name=name, v0=", ".join(sorted(valid))
+                    )
                 )
             cfg = replace(cfg, **{KEYS[key]: _coerce(key, value)})
     return cfg
@@ -143,7 +185,11 @@ def validate_size(label: str, value: str) -> str:
     """给命令行参数用的同一套校验：`--mem-high lots` 在这里就报，不等 systemd-run。"""
     s = str(value).strip()
     if not _SIZE_RE.match(s):
-        raise ConfigError(f"{label} 要形如 4G / 512M / infinity，收到 {value!r}")
+        raise ConfigError(
+            _("{label} 要形如 4G / 512M / infinity，收到 {value!r}").format(
+                label=label, value=value
+            )
+        )
     return s.upper() if s.lower() != "infinity" else "infinity"
 
 
@@ -151,44 +197,66 @@ def set_value(cfg: Config, key: str, value: str) -> Config:
     """校验并返回新配置。key 不认识 / 值不合法都抛 ConfigError，带可读原因。"""
     field = KEYS.get(key)
     if field is None:
-        raise ConfigError(f"不认识的配置项 {key!r}，可用：{', '.join(KEYS)}")
+        raise ConfigError(
+            _("不认识的配置项 {key!r}，可用：{v0}").format(key=key, v0=", ".join(KEYS))
+        )
     return replace(cfg, **{field: _coerce(key, value)})
 
 
 def unset_value(cfg: Config, key: str) -> Config:
     field = KEYS.get(key)
     if field is None:
-        raise ConfigError(f"不认识的配置项 {key!r}，可用：{', '.join(KEYS)}")
+        raise ConfigError(
+            _("不认识的配置项 {key!r}，可用：{v0}").format(key=key, v0=", ".join(KEYS))
+        )
     return replace(cfg, **{field: getattr(Config(), field)})
 
 
-def describe(cfg: Config) -> str:
-    """`atm config` 不带参数时的输出：值 + 是否默认 + 一句说明。"""
-    default = Config()
+def describe(cfg: Config, sources: dict[str, str] | None = None) -> str:
+    """`atm config` 不带参数时的输出：值 + 来源 + 一句说明。"""
+    sources = sources or dict.fromkeys(KEYS, "default")
     lines = [
-        f"配置文件：{config_path()}{'' if config_path().exists() else '（不存在，全部默认）'}",
+        _("配置文件：{v0}{v1}").format(
+            v0=config_path(), v1="" if config_path().exists() else _("（不存在，全部默认）")
+        ),
+        _("优先级：命令行参数 > 环境变量（{ENV_PREFIX}MEMORY_HIGH 这类）> 文件 > 默认").format(
+            ENV_PREFIX=ENV_PREFIX
+        ),
         "",
     ]
     for key, field in KEYS.items():
         value = getattr(cfg, field)
         shown = str(value).lower() if isinstance(value, bool) else value
-        tag = "" if value == getattr(default, field) else "  ← 已设置"
+        src = sources.get(key, "default")
+        tag = "" if src == "default" else f"  ← {src}"
         lines.append(f"  {key:<16} {shown:<12}{tag}")
-        lines.append(f"  {'':<16} {_HELP[key]}")
+        lines.append(f"  {'':<16} {_(_HELP[key])}")
     lines.append("")
     if not dispatch.memory_limits_available():
         lines.append(
-            "⚠ 这台机器拿不到 cgroup（无 systemd user manager 或 memory 控制器未 delegate），"
+            _("⚠ 这台机器拿不到 cgroup（无 systemd user manager 或 memory 控制器未 delegate），")
         )
-        lines.append("  以上设置会被静默忽略，atm claude 等价于直接跑 claude。")
+        lines.append(_("  以上设置会被静默忽略，atm claude 等价于直接跑 claude。"))
     return "\n".join(lines)
+
+
+def to_json(cfg: Config, sources: dict[str, str]) -> dict:
+    """`atm config --json`：机器可读，字段名与语言无关。"""
+    return {
+        "path": str(config_path()),
+        "exists": config_path().exists(),
+        "values": {
+            key: {"value": getattr(cfg, field), "source": sources.get(key, "default")}
+            for key, field in KEYS.items()
+        },
+    }
 
 
 def dumps(cfg: Config) -> str:
     """扁平 TOML：一个 [memory] 表，字符串和布尔。不支持别的类型，也不需要。"""
     lines = [
-        "# atm 的用户配置。改完立即生效，不用重启。",
-        "# `atm config` 查看，`atm config <key> <value>` 修改。",
+        _("# atm 的用户配置。改完立即生效，不用重启。"),
+        _("# `atm config` 查看，`atm config <key> <value>` 修改。"),
         "",
         "[memory]",
     ]
@@ -213,11 +281,13 @@ def _coerce(key: str, value: object):
             return True
         if s in _FALSE:
             return False
-        raise ConfigError(f"{key} 要 true/false，收到 {value!r}")
+        raise ConfigError(_("{key} 要 true/false，收到 {value!r}").format(key=key, value=value))
     s = str(value).strip()
     if key == "memory.slice":
         if not re.match(r"^[\w.-]+\.slice$", s):
-            raise ConfigError(f"{key} 要形如 name.slice，收到 {value!r}")
+            raise ConfigError(
+                _("{key} 要形如 name.slice，收到 {value!r}").format(key=key, value=value)
+            )
         return s
     return validate_size(key, s)
 

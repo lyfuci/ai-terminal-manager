@@ -21,6 +21,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .i18n import _
+
 HEADER = "# 由 atm install 生成；atm uninstall 会删掉它。手改无妨，但请去掉这一行，否则会被卸载。"
 HIGH_RATIO = 0.50
 MAX_RATIO = 0.65
@@ -61,9 +63,9 @@ def unit_text(*, high: str, max_: str, swap_max: str = "1G") -> str:
                 "",
                 "[Slice]",
                 "MemoryAccounting=yes",
-                "# 软限：超了强回收 + 节流，不杀。",
+                _("# 软限：超了强回收 + 节流，不杀。"),
                 f"MemoryHigh={high}",
-                "# 硬限：到这里才杀。宁可掉一个会话，也不要整机冻死。",
+                _("# 硬限：到这里才杀。宁可掉一个会话，也不要整机冻死。"),
                 f"MemoryMax={max_}",
                 f"MemorySwapMax={swap_max}",
             )
@@ -120,17 +122,16 @@ def describe_plan(slice_name: str, directory: Path | None = None) -> str:
     """`atm install --print` 用：会不会写、写多少。"""
     st = status(slice_name, directory)
     if st.exists:
-        who = "atm 写的" if st.ours else "你自己的"
-        return (
-            f"总量闸门 {st.path} 已存在（MemoryHigh={st.high} / MemoryMax={st.max}，{who}），不动。"
-        )
+        who = _("atm 写的") if st.ours else _("你自己的")
+        return _(
+            "总量闸门 {st_path} 已存在（MemoryHigh={st_high} / MemoryMax={st_max}，{who}），不动。"
+        ).format(st_path=st.path, st_high=st.high, st_max=st.max, who=who)
     total = total_memory_bytes()
     high, max_ = suggested_totals(total) if total else ("4G", "5G")
-    return (
-        f"将写入总量闸门 {st.path}：MemoryHigh={high} / MemoryMax={max_}"
-        f"（物理内存 {total >> 30 if total else '?'}G 的 50% / 65%），"
-        "然后 systemctl --user daemon-reload。"
-    )
+    return _(
+        "将写入总量闸门 {st_path}：MemoryHigh={high} / MemoryMax={max_}（物理内存 {v0}G "
+        "的 50% / 65%），然后 systemctl --user daemon-reload。"
+    ).format(st_path=st.path, high=high, max_=max_, v0=total >> 30 if total else "?")
 
 
 def remove(slice_name: str, directory: Path | None = None) -> bool:

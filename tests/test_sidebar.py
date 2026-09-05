@@ -35,7 +35,7 @@ def pane(
         window_name="w",
         pane_index=pane_index,
         current_command=command,
-        current_path="/home/sean",
+        current_path="/home/user",
         active=active,
         in_mode=False,
         window_active=True,
