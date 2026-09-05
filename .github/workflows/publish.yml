@@ -1,0 +1,33 @@
+name: publish
+
+# 打 v* tag 就发 PyPI。用 trusted publishing，仓库里不存任何 token：
+# 在 pypi.org 项目设置里加 GitHub publisher（owner lyfuci / repo ai-terminal-manager /
+# workflow publish.yml / environment pypi），再在 GitHub 仓库 Settings → Environments 建一个叫 pypi 的环境。
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
