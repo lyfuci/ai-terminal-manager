@@ -1,6 +1,6 @@
 # ai-terminal-manager (atm)
 
-**English** | [中文](README-cn.md) | [日本語](README-ja.md)
+**English** | [中文](https://github.com/lyfuci/ai-terminal-manager/blob/main/README-cn.md) | [日本語](https://github.com/lyfuci/ai-terminal-manager/blob/main/README-ja.md)
 
 ---
 
@@ -24,7 +24,7 @@ else.
 Two things you get for free along the way:
 
 - **It's light.** No Electron, no resident daemon. `atm` runs only in the instant you press a key (warm start 5 ms,
-  measured, see the [research log](research/README.md)); the sidebar is a Python TUI in an ordinary tmux pane. How much lighter than a desktop GUI this is
+  measured, see the [research log](https://github.com/lyfuci/ai-terminal-manager/blob/main/research/README.md)); the sidebar is a Python TUI in an ordinary tmux pane. How much lighter than a desktop GUI this is
   has *not* been quantified — this is a usage impression, not a measured number.
 - **tmux's own session restore just works.** tmux-resurrect / continuum rebuild windows, panes and directories after
   a reboot; you press one key in the right pane to resume yesterday's conversation. No need to invent another state
@@ -48,8 +48,8 @@ only reads local files.
 **Not for**: people who don't use tmux; people with a single AI session; people who need floating windows and free
 layouts (tmux is a binary split tree).
 
-> This repository doubles as a **research log**: "how to use" is in [docs/usage.md](docs/usage.md); "why it's designed
-> this way / what we measured and tripped over" is the [research log](research/README.md) and `research/notes/`.
+> This repository doubles as a **research log**: "how to use" is in [docs/usage.md](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md); "why it's designed
+> this way / what we measured and tripped over" is the [research log](https://github.com/lyfuci/ai-terminal-manager/blob/main/research/README.md) and `research/notes/`.
 > Every conclusion later overturned is kept with strikethrough, not erased.
 
 ---
@@ -91,7 +91,7 @@ atm install     # write key bindings to ~/.tmux.conf + install resurrect/continu
 
 `atm install` does two things, each written as its own marker-delimited block, with a backup taken first:
 
-- **Key-binding block**: four bindings — `prefix + a/A` popup, `prefix + b/B` sidebar (details in [docs/usage.md](docs/usage.md)). Applied to the running tmux server immediately. Keys can be
+- **Key-binding block**: four bindings — `prefix + a/A` popup, `prefix + b/B` sidebar (details in [docs/usage.md](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md)). Applied to the running tmux server immediately. Keys can be
   changed: `atm install --key s --sidebar-key g`.
 - **Persistence block**: installs **tmux-resurrect + tmux-continuum** via tpm (cloned into `~/.tmux/plugins/`),
   turns on `@continuum-restore`, autosaves every 10 minutes. After a reboot, sessions / windows / panes / cwd come
@@ -108,12 +108,12 @@ own config, and leaves the cloned plugins alone.
 
 ## Documentation
 
-- [Usage](docs/usage.md) — the four keys, popup and sidebar, command line, how it works
-- [Reference](docs/reference.md) — every option, measured performance, session-file formats, the memory gate
-- [Research log](research/README.md) — why it's designed this way, what was measured, every pitfall (overturned conclusions kept with strikethrough)
-- [Contributing](CONTRIBUTING.md)
+- [Usage](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md) — the four keys, popup and sidebar, command line, how it works
+- [Reference](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/reference.md) — every option, measured performance, session-file formats, the memory gate
+- [Research log](https://github.com/lyfuci/ai-terminal-manager/blob/main/research/README.md) — why it's designed this way, what was measured, every pitfall (overturned conclusions kept with strikethrough)
+- [Contributing](https://github.com/lyfuci/ai-terminal-manager/blob/main/CONTRIBUTING.md)
 
 ## Contributing
 
-Issues and PRs welcome. Development setup and conventions: [CONTRIBUTING.md](CONTRIBUTING.md); for security issues
-don't open a public issue, see [SECURITY.md](SECURITY.md). License: [MIT](LICENSE).
+Issues and PRs welcome. Development setup and conventions: [CONTRIBUTING.md](https://github.com/lyfuci/ai-terminal-manager/blob/main/CONTRIBUTING.md); for security issues
+don't open a public issue, see [SECURITY.md](https://github.com/lyfuci/ai-terminal-manager/blob/main/SECURITY.md). License: [MIT](https://github.com/lyfuci/ai-terminal-manager/blob/main/LICENSE).
