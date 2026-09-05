@@ -7,7 +7,7 @@
 
 ## 开发环境
 
-Linux 或 WSL2 + tmux（3.0+，开发基准 3.6）+ Python 3.11+。依赖管理统一用 [uv](https://docs.astral.sh/uv/)。
+Linux 或 WSL2 + tmux（3.2+，开发基准 3.6）+ Python 3.11+。依赖管理统一用 [uv](https://docs.astral.sh/uv/)。
 
 ```bash
 git clone https://github.com/lyfuci/ai-terminal-manager

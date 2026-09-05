@@ -47,7 +47,7 @@ atm はその層を補い、それ以外には触れない。
 
 ### 要件
 
-- Linux または WSL2 + **tmux ≥ 3.0**（開発基準 3.6、3.4 は実測で互換）
+- Linux または WSL2 + **tmux ≥ 3.2**（`display-popup` は 3.2 から；開発基準 3.6、3.4 は実測で互換）
 - **Python ≥ 3.11**、ランタイム依存ゼロ
 - Claude Code / Codex / Pi のうち少なくとも一つ（atm はそれらが `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/` に書くセッションファイルを読むだけ）
 

@@ -47,7 +47,7 @@ atm 就补这一层，别的都不碰。
 
 ### 要求
 
-- Linux 或 WSL2 + **tmux ≥ 3.0**（开发基准 3.6，3.4 实测兼容）
+- Linux 或 WSL2 + **tmux ≥ 3.2**（`display-popup` 是 3.2 才有的；开发基准 3.6，3.4 实测兼容）
 - **Python ≥ 3.11**，零运行时依赖
 - 装了 Claude Code / Codex / Pi 至少一个（atm 只读它们写在 `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/` 的会话文件）
 

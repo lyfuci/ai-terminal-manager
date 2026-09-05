@@ -58,7 +58,7 @@ layouts (tmux is a binary split tree).
 
 ### Requirements
 
-- Linux or WSL2 with **tmux ≥ 3.0** (developed against 3.6, tested compatible with 3.4)
+- Linux or WSL2 with **tmux ≥ 3.2** (`display-popup` appeared in 3.2; developed against 3.6, tested on 3.4)
 - **Python ≥ 3.11**, zero runtime dependencies
 - at least one of Claude Code / Codex / Pi installed (atm only reads the session files they write to
   `~/.claude/projects/`, `~/.codex/sessions/`, `~/.pi/agent/sessions/`)

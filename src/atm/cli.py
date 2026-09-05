@@ -52,13 +52,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = parser.parse_args(raw)
     try:
         return args.handler(args)
-    except (DispatchError, ValueError) as exc:
-        # ValueError = 参数自身不合法（如 --key 1）。argparse 管不到这类跨参数约束，
-        # 但用户不该为此看到一屏 traceback。
-        print(f"atm: {exc}", file=sys.stderr)
-        return EXIT_ERROR
     except KeyboardInterrupt:
         return EXIT_CANCELLED
+    except BrokenPipeError:
+        # `atm list | head`：下游先关了管道，不是错。
+        # 把 stdout 换成 devnull，免得解释器退出时再报一次。
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return EXIT_OK
+    except (DispatchError, ValueError, RuntimeError, OSError) as exc:
+        # 预期内的失败（参数不合法 / 配置读不了 / tmux 没起 / 文件写不进去）只给一行人话。
+        # RuntimeError 覆盖 ConfUnreadable / BackupFailed / TmuxError。要堆栈：ATM_DEBUG=1。
+        if os.environ.get("ATM_DEBUG"):
+            raise
+        print(f"atm: {exc}", file=sys.stderr)
+        return EXIT_ERROR
 
 
 # ---------------------------------------------------------------- parser
@@ -163,11 +170,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_resume = sub.add_parser("resume", help="按 id 直接投递（不进 TUI）")
     p_resume.add_argument("session_id", help="会话 id（可以只写前缀）")
-    p_resume.add_argument("--pane", help="投到这个 pane")
-    p_resume.add_argument("--split", action="store_true")
-    p_resume.add_argument("--window", action="store_true")
-    p_resume.add_argument("--vertical", action="store_true")
-    p_resume.add_argument("--print", action="store_true")
+    target = p_resume.add_mutually_exclusive_group()
+    target.add_argument("--pane", help="投到这个 pane")
+    target.add_argument("--split", action="store_true", help="从当前 pane 分一格出来投")
+    target.add_argument("--window", action="store_true", help="新开 window 投")
+    target.add_argument("--print", action="store_true", help="只打印命令，不投")
+    p_resume.add_argument(
+        "--vertical", action="store_true", help="配合 --split：上下分而不是左右分"
+    )
     p_resume.add_argument("--force", action="store_true")
     p_resume.add_argument("--no-cache", action="store_true")
     p_resume.add_argument(
@@ -307,13 +317,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _cmd_list(args: argparse.Namespace) -> int:
     entries = _load_entries(args)
-    if not entries:
-        print("没有找到会话。跑 `atm doctor` 看看数据源在不在。", file=sys.stderr)
-        return EXIT_OK
-
     limited = entries[: args.limit] if args.limit and args.limit > 0 else entries
     if args.json:
+        # 空也要是合法 JSON（`[]`），否则 `atm list --json | jq` 在没有会话的机器上直接炸。
         print(json.dumps([e.to_json() for e in limited], ensure_ascii=False, indent=2))
+        return EXIT_OK
+    if not entries:
+        print("没有找到会话。跑 `atm doctor` 看看数据源在不在。", file=sys.stderr)
         return EXIT_OK
 
     now = datetime.now(tz=UTC)
@@ -393,6 +403,7 @@ def _cmd_index(args: argparse.Namespace) -> int:
                     "parsed": stats.parsed,
                     "skipped": stats.skipped,
                     "elapsedMs": stats.elapsed_ms,
+                    "cacheWritten": stats.cache_written,
                     "cachePath": str(cache_mod.default_cache_path()),
                 },
                 ensure_ascii=False,
@@ -581,13 +592,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     _report_persist(_persist_mod().status())
 
     print("\n== 内存闸门 ==")
-    _report_guard()
+    guard_ok = _report_guard()
 
     print("\n== 索引 ==")
     result = index_mod.build()
     print(f"  {result.stats.describe()}")
     _print_source_breakdown(result)
-    return EXIT_OK
+    # 没装某家 CLI 不算故障；配置文件读不了才算 —— 那意味着用户以为的限制根本没生效。
+    return EXIT_OK if guard_ok else EXIT_ERROR
 
 
 def _cmd_install(args: argparse.Namespace) -> int:
@@ -612,6 +624,9 @@ def _cmd_install(args: argparse.Namespace) -> int:
     if persist_plan is not None:
         print()
         print(persist_plan.describe())
+    if not args.no_slice:
+        print()
+        print(_guard_mod().describe_plan(_config_mod().load().memory_slice))
 
     if args.print:
         return EXIT_OK
@@ -793,8 +808,10 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
 
     removed, backup = _install_mod().remove(conf_path)
     removed_persist, backup_persist = _persist_mod().remove(conf_path)
-    if not removed and not removed_persist:
-        print("没找到 atm 的配置块，无需移除。")
+    slice_name = _config_mod().load().memory_slice
+    removed_slice = _guard_mod().remove(slice_name)
+    if not (removed or removed_persist or removed_slice):
+        print("没找到 atm 写的任何东西（键位块 / 持久化块 / slice），无需移除。")
         return EXIT_OK
     if removed:
         print(f"已从 {conf_path} 移除键位块")
@@ -805,8 +822,7 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
         print(f"已从 {conf_path} 移除持久化块（~/.tmux/plugins 里已克隆的插件没动，不要了自己 rm）")
         if backup_persist:
             print(f"备份 {backup_persist}")
-    slice_name = _config_mod().load().memory_slice
-    if _guard_mod().remove(slice_name):
+    if removed_slice:
         print(f"已删总量闸门 {slice_name}（只删 atm 自己写的那份）")
     return EXIT_OK
 
@@ -826,23 +842,24 @@ def _confirm(prompt: str) -> bool:
 # ---------------------------------------------------------------- helpers
 
 
-def _report_guard() -> None:
+def _report_guard() -> bool:
+    """返回 False 表示配置本身有错（doctor 该非零退出）；机器不支持 cgroup 不算错。"""
     config = _config_mod()
     guard = _guard_mod()
     try:
         cfg = config.load()
     except config.ConfigError as exc:
         print(f"  ❌ {exc}")
-        return
+        return False
     if not dispatch_mod.memory_limits_available():
         print(
             "  cgroup: 不可用（无 systemd user manager 或 memory 控制器未 delegate）"
             "—— 一切限制被忽略"
         )
-        return
+        return True
     if not cfg.memory_enabled:
         print("  已关闭（memory.enabled=false）")
-        return
+        return True
     print(
         f"  单会话: MemoryHigh={cfg.memory_high} MemoryMax={cfg.memory_max}"
         "（atm claude / 投递时套）"
@@ -857,6 +874,7 @@ def _report_guard() -> None:
             "总量闸门形同虚设。跑 atm install 补上"
         )
     print("  直接敲 claude / codex 不受以上任何限制；要限就用 atm claude / atm codex")
+    return True
 
 
 def _report_persist(st) -> None:
@@ -1013,8 +1031,12 @@ def _memory_limit(args: argparse.Namespace) -> dispatch_mod.MemoryLimit | None:
     base = cfg.memory_limit()  # 已经考虑了 memory.enabled 和机器支持
     if base is None:
         return None
-    high = getattr(args, "mem_high", None) or base.high
-    max_ = getattr(args, "mem_max", None) or base.max
+    config = _config_mod()
+    high = getattr(args, "mem_high", None)
+    max_ = getattr(args, "mem_max", None)
+    # 命令行给的值走和 atm config 同一套校验：`--mem-high lots` 不该等到 systemd-run 才报错
+    high = config.validate_size("--mem-high", high) if high else base.high
+    max_ = config.validate_size("--mem-max", max_) if max_ else base.max
     return dispatch_mod.MemoryLimit(
         high=high, max=max_, swap_max=base.swap_max, slice_name=base.slice_name, user=base.user
     )
