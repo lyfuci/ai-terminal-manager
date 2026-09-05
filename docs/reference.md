@@ -195,6 +195,11 @@ atm --version
 **不要**对 uv tool 装的 atm 用 `pip install -U`：那会装进另一个解释器，PATH 上的 `atm` 还是旧的；
 而且 PyPI 上的 `atm` 是别人的包，本项目叫 `ai-terminal-manager`。
 
+## 界面语言
+
+CLI 的输出、`--help`、TUI 提示、报错都有中 / 英 / 日三语。选择顺序：`ATM_LANG`（`zh` / `en` / `ja`）> `LC_ALL` > `LC_MESSAGES` > `LANG` > `locale.getlocale()`；`C` / `POSIX` 或认不出的语言 → 英文。
+`--json` 的字段名与语言无关；`-v` 日志不翻译。源码里的消息是中文原文，翻译表在 `src/atm/i18n_catalog.py`，测试保证每条消息都有两种翻译且占位符一致——漏翻的会原样显示中文，不会崩。
+
 ## 日志与诊断
 
 ```bash

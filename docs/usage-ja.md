@@ -56,6 +56,7 @@ atm config --json              # 各項目の値と由来：default / file / env
 atm update --check --json
 eval "$(atm completion bash)"  # 実際のパーサ定義から生成した補完（zsh、fish も）
 NO_COLOR=1 atm pick            # https://no-color.org に従う
+ATM_LANG=ja atm --help         # 表示言語：LC_ALL / LC_MESSAGES / LANG に従う（zh / ja、その他は英語）；ATM_LANG で強制
 ```
 
 設定の優先順位：**コマンドライン引数 > 環境変数 > ファイル > デフォルト**。全キーに環境変数がある：

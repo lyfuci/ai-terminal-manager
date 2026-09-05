@@ -21,6 +21,7 @@ from . import dispatch as dispatch_mod
 from . import index as index_mod
 from . import tmux
 from .dispatch import DispatchError, DispatchTarget, TargetKind
+from .i18n import _
 from .model import SOURCE_TAG, SessionEntry, SessionIndex, Source
 from .text import humanize_age, pad_display, strip_control, truncate_display
 from .tmux import Pane, SplitDirection
@@ -142,7 +143,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="atm",
         description=(
-            "AI Terminal Manager — Claude Code / Codex / Pi 的统一会话历史，投到指定 tmux pane"
+            _("AI Terminal Manager — Claude Code / Codex / Pi 的统一会话历史，投到指定 tmux pane")
         ),
     )
     from . import __version__
@@ -153,183 +154,193 @@ def _build_parser() -> argparse.ArgumentParser:
         "--verbose",
         action="count",
         default=0,
-        help="多打点过程信息到 stderr（-v 概要，-vv 逐文件/逐条 tmux 命令；ATM_DEBUG=1 同 -vv）",
+        help=_("多打点过程信息到 stderr（-v 概要，-vv 逐文件/逐条 tmux 命令；ATM_DEBUG=1 同 -vv）"),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_filters(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--source", choices=[s.value for s in Source], help="只看某个 CLI 的会话")
-        p.add_argument("--cwd", help="只看这个目录（含子目录）下的会话")
-        p.add_argument("--here", action="store_true", help="等价于 --cwd $PWD")
-        p.add_argument("--no-cache", action="store_true", help="强制重新解析，不读缓存")
+        p.add_argument("--source", choices=[s.value for s in Source], help=_("只看某个 CLI 的会话"))
+        p.add_argument("--cwd", help=_("只看这个目录（含子目录）下的会话"))
+        p.add_argument("--here", action="store_true", help=_("等价于 --cwd $PWD"))
+        p.add_argument("--no-cache", action="store_true", help=_("强制重新解析，不读缓存"))
         p.add_argument(
             "--all",
             action="store_true",
-            help="连机器生成的一次性调用也列出来（默认隐藏，如 `Below is a conversation log…`）",
+            help=_("连机器生成的一次性调用也列出来（默认隐藏，如 `Below is a conversation log…`）"),
         )
 
-    p_list = sub.add_parser("list", help="列出会话")
+    p_list = sub.add_parser("list", help=_("列出会话"))
     add_filters(p_list)
-    p_list.add_argument("-n", "--limit", type=int, default=30, help="最多列几条（默认 30）")
-    p_list.add_argument("--json", action="store_true", help="输出 JSON")
+    p_list.add_argument("-n", "--limit", type=int, default=30, help=_("最多列几条（默认 30）"))
+    p_list.add_argument("--json", action="store_true", help=_("输出 JSON"))
     p_list.set_defaults(handler=_cmd_list)
 
-    p_pick = sub.add_parser("pick", help="交互选一条会话并投递（主命令）")
+    p_pick = sub.add_parser("pick", help=_("交互选一条会话并投递（主命令）"))
     add_filters(p_pick)
-    p_pick.add_argument("-q", "--query", default="", help="预填搜索词")
+    p_pick.add_argument("-q", "--query", default="", help=_("预填搜索词"))
     p_pick.add_argument(
         "--group",
         choices=[m.name.lower() for m in _tui().GroupMode],
         default="cwd",
-        help="列表怎么聚合：cwd(目录，默认) / agent / none(平铺)。TUI 里 Ctrl-G 可循环切换",
+        help=_("列表怎么聚合：cwd(目录，默认) / agent / none(平铺)。TUI 里 Ctrl-G 可循环切换"),
     )
-    p_pick.add_argument("--pane", help="直接投到这个 pane（跳过选目标那一步）")
-    p_pick.add_argument("--split", action="store_true", help="投到新分出来的 pane")
-    p_pick.add_argument("--window", action="store_true", help="投到新 window")
-    p_pick.add_argument("--vertical", action="store_true", help="--split 时上下分而不是左右分")
-    p_pick.add_argument("--print", action="store_true", help="只打印命令，不投递")
-    p_pick.add_argument("--force", action="store_true", help="目标 pane 正忙也照投")
+    p_pick.add_argument("--pane", help=_("直接投到这个 pane（跳过选目标那一步）"))
+    p_pick.add_argument("--split", action="store_true", help=_("投到新分出来的 pane"))
+    p_pick.add_argument("--window", action="store_true", help=_("投到新 window"))
+    p_pick.add_argument("--vertical", action="store_true", help=_("--split 时上下分而不是左右分"))
+    p_pick.add_argument("--print", action="store_true", help=_("只打印命令，不投递"))
+    p_pick.add_argument("--force", action="store_true", help=_("目标 pane 正忙也照投"))
     p_pick.add_argument(
         "--no-mem-limit",
         action="store_true",
-        help="不给会话套 cgroup 内存闸门（默认套）",
+        help=_("不给会话套 cgroup 内存闸门（默认套）"),
     )
-    p_pick.add_argument("--mem-high", help="软上限，超了节流+回收不杀（默认取 atm config）")
-    p_pick.add_argument("--mem-max", help="硬上限，回收压不住才杀（默认取 atm config）")
+    p_pick.add_argument("--mem-high", help=_("软上限，超了节流+回收不杀（默认取 atm config）"))
+    p_pick.add_argument("--mem-max", help=_("硬上限，回收压不住才杀（默认取 atm config）"))
     p_pick.set_defaults(handler=_cmd_pick)
 
-    p_resume = sub.add_parser("resume", help="按 id 直接投递（不进 TUI）")
-    p_resume.add_argument("session_id", help="会话 id（可以只写前缀）")
+    p_resume = sub.add_parser("resume", help=_("按 id 直接投递（不进 TUI）"))
+    p_resume.add_argument("session_id", help=_("会话 id（可以只写前缀）"))
     target = p_resume.add_mutually_exclusive_group()
-    target.add_argument("--pane", help="投到这个 pane")
-    target.add_argument("--split", action="store_true", help="从当前 pane 分一格出来投")
-    target.add_argument("--window", action="store_true", help="新开 window 投")
-    target.add_argument("--print", action="store_true", help="只打印命令，不投")
+    target.add_argument("--pane", help=_("投到这个 pane"))
+    target.add_argument("--split", action="store_true", help=_("从当前 pane 分一格出来投"))
+    target.add_argument("--window", action="store_true", help=_("新开 window 投"))
+    target.add_argument("--print", action="store_true", help=_("只打印命令，不投"))
     p_resume.add_argument(
-        "--vertical", action="store_true", help="配合 --split：上下分而不是左右分"
+        "--vertical", action="store_true", help=_("配合 --split：上下分而不是左右分")
     )
     p_resume.add_argument("--force", action="store_true")
     p_resume.add_argument("--no-cache", action="store_true")
     p_resume.add_argument(
         "--no-mem-limit",
         action="store_true",
-        help="不给会话套 cgroup 内存闸门（默认套）",
+        help=_("不给会话套 cgroup 内存闸门（默认套）"),
     )
-    p_resume.add_argument("--mem-high", help="软上限，超了节流+回收不杀（默认取 atm config）")
-    p_resume.add_argument("--mem-max", help="硬上限，回收压不住才杀（默认取 atm config）")
+    p_resume.add_argument("--mem-high", help=_("软上限，超了节流+回收不杀（默认取 atm config）"))
+    p_resume.add_argument("--mem-max", help=_("硬上限，回收压不住才杀（默认取 atm config）"))
     p_resume.set_defaults(handler=_cmd_resume, source=None, cwd=None, here=False)
 
-    p_index = sub.add_parser("index", help="构建/查看索引")
-    p_index.add_argument("--rebuild", action="store_true", help="清缓存后全量重建")
+    p_index = sub.add_parser("index", help=_("构建/查看索引"))
+    p_index.add_argument("--rebuild", action="store_true", help=_("清缓存后全量重建"))
     p_index.add_argument("--json", action="store_true")
     p_index.set_defaults(handler=_cmd_index)
 
-    p_panes = sub.add_parser("panes", help="列出 tmux pane")
+    p_panes = sub.add_parser("panes", help=_("列出 tmux pane"))
     p_panes.add_argument("--json", action="store_true")
     p_panes.set_defaults(handler=_cmd_panes)
 
     # ---- 常驻侧栏（2026-09-02）：运行中的格子 + 历史，选中就换进主格
-    p_sidebar = sub.add_parser("sidebar", help="常驻侧栏：列出运行中的格子和历史，选中换进主格")
+    p_sidebar = sub.add_parser("sidebar", help=_("常驻侧栏：列出运行中的格子和历史，选中换进主格"))
     p_sidebar.add_argument(
         "--toggle",
         action="store_true",
-        help="开/切/收侧栏：没开就在当前 window 最左边开一个；开了就切过去；焦点在侧栏上就收起",
+        help=_("开/切/收侧栏：没开就在当前 window 最左边开一个；开了就切过去；焦点在侧栏上就收起"),
     )
     p_sidebar.add_argument(
-        "--pane", help="--toggle 时「当前 pane」是哪个（键位绑定里传 #{pane_id}）"
+        "--pane", help=_("--toggle 时「当前 pane」是哪个（键位绑定里传 #{pane_id}）")
     )
     p_sidebar.add_argument(
-        "--width", type=int, default=_sidebar_mod().SIDEBAR_WIDTH, help="侧栏宽度（列）"
+        "--width", type=int, default=_sidebar_mod().SIDEBAR_WIDTH, help=_("侧栏宽度（列）")
     )
     p_sidebar.add_argument(
-        "--no-mem-limit", action="store_true", help="从侧栏恢复历史时不套内存闸门"
+        "--no-mem-limit", action="store_true", help=_("从侧栏恢复历史时不套内存闸门")
     )
-    p_sidebar.add_argument("--mem-high", help="默认取 atm config")
-    p_sidebar.add_argument("--mem-max", help="默认取 atm config")
+    p_sidebar.add_argument("--mem-high", help=_("默认取 atm config"))
+    p_sidebar.add_argument("--mem-max", help=_("默认取 atm config"))
     p_sidebar.set_defaults(handler=_cmd_sidebar)
 
-    p_swap = sub.add_parser("swap", help="把某个 pane 换进当前 window 的主格（不进 TUI）")
-    p_swap.add_argument("pane_id", help="要换进来的 pane，形如 %%7")
-    p_swap.add_argument("--pane", help="「当前 pane」是哪个（默认 $TMUX_PANE）")
+    p_swap = sub.add_parser("swap", help=_("把某个 pane 换进当前 window 的主格（不进 TUI）"))
+    p_swap.add_argument("pane_id", help=_("要换进来的 pane，形如 %%7"))
+    p_swap.add_argument("--pane", help=_("「当前 pane」是哪个（默认 $TMUX_PANE）"))
     p_swap.add_argument(
         "--into",
-        help="换进哪一格。默认：从普通格子里跑就是那格自己；从侧栏里跑就是主格（pane_last）",
+        help=_("换进哪一格。默认：从普通格子里跑就是那格自己；从侧栏里跑就是主格（pane_last）"),
     )
     keep = p_swap.add_mutually_exclusive_group()
     keep.add_argument(
         "--discard",
         action="store_true",
-        help="换完把旧格子关掉（默认只有空闲 shell 才自动关；这个会连跑着的进程一起杀）",
+        help=_("换完把旧格子关掉（默认只有空闲 shell 才自动关；这个会连跑着的进程一起杀）"),
     )
-    keep.add_argument("--keep", action="store_true", help="旧格子一律留在后台，空闲 shell 也不关")
+    keep.add_argument(
+        "--keep", action="store_true", help=_("旧格子一律留在后台，空闲 shell 也不关")
+    )
     p_swap.set_defaults(handler=_cmd_swap)
 
-    p_park = sub.add_parser("park", help="把 pane 收进后台窗口 bg（进程继续跑）")
-    p_park.add_argument("pane_id", nargs="?", help="默认收当前 pane（$TMUX_PANE）")
+    p_park = sub.add_parser("park", help=_("把 pane 收进后台窗口 bg（进程继续跑）"))
+    p_park.add_argument("pane_id", nargs="?", help=_("默认收当前 pane（$TMUX_PANE）"))
     p_park.set_defaults(handler=_cmd_park)
 
-    p_prune = sub.add_parser("prune", help="关掉后台窗口 bg 里空闲的 shell 格子（跑着东西的不动）")
-    p_prune.add_argument("-n", "--dry-run", action="store_true", help="只列出来，不关")
+    p_prune = sub.add_parser(
+        "prune", help=_("关掉后台窗口 bg 里空闲的 shell 格子（跑着东西的不动）")
+    )
+    p_prune.add_argument("-n", "--dry-run", action="store_true", help=_("只列出来，不关"))
     p_prune.set_defaults(handler=_cmd_prune)
 
-    p_doctor = sub.add_parser("doctor", help="体检：数据源在不在、tmux 通不通")
-    p_doctor.add_argument("--json", action="store_true", help="机器可读输出")
+    p_doctor = sub.add_parser("doctor", help=_("体检：数据源在不在、tmux 通不通"))
+    p_doctor.add_argument("--json", action="store_true", help=_("机器可读输出"))
     p_doctor.set_defaults(handler=_cmd_doctor)
 
-    p_install = sub.add_parser("install", help="装 tmux 键位绑定（会改 ~/.tmux.conf）")
-    p_install.add_argument("-y", "--yes", action="store_true", help="不问直接装")
-    p_install.add_argument("--key", default=_install_mod().DEFAULT_KEY, help="绑哪个键（默认 a）")
+    p_install = sub.add_parser("install", help=_("装 tmux 键位绑定（会改 ~/.tmux.conf）"))
+    p_install.add_argument("-y", "--yes", action="store_true", help=_("不问直接装"))
+    p_install.add_argument(
+        "--key", default=_install_mod().DEFAULT_KEY, help=_("绑哪个键（默认 a）")
+    )
     p_install.add_argument(
         "--sidebar-key",
         default=_install_mod().DEFAULT_SIDEBAR_KEY,
-        help="侧栏开关键（默认 b；大写 = 把当前格子收进后台）",
+        help=_("侧栏开关键（默认 b；大写 = 把当前格子收进后台）"),
     )
-    p_install.add_argument("--width", default=_install_mod().DEFAULT_WIDTH, help="浮层宽度")
-    p_install.add_argument("--height", default=_install_mod().DEFAULT_HEIGHT, help="浮层高度")
-    p_install.add_argument("--print", action="store_true", help="只看会写什么，不动文件")
-    p_install.add_argument("--conf", type=Path, help="tmux 配置文件路径（默认 ~/.tmux.conf）")
+    p_install.add_argument("--width", default=_install_mod().DEFAULT_WIDTH, help=_("浮层宽度"))
+    p_install.add_argument("--height", default=_install_mod().DEFAULT_HEIGHT, help=_("浮层高度"))
+    p_install.add_argument("--print", action="store_true", help=_("只看会写什么，不动文件"))
+    p_install.add_argument("--conf", type=Path, help=_("tmux 配置文件路径（默认 ~/.tmux.conf）"))
     p_install.add_argument(
         "--no-persist",
         action="store_true",
-        help="不装 tmux-resurrect / tmux-continuum（默认一起装，重启后能恢复窗口布局）",
+        help=_("不装 tmux-resurrect / tmux-continuum（默认一起装，重启后能恢复窗口布局）"),
     )
     p_install.add_argument(
         "--no-slice",
         action="store_true",
-        help="不写总量闸门的 systemd slice（默认写 ~/.config/systemd/user/atm-ai.slice）",
+        help=_("不写总量闸门的 systemd slice（默认写 ~/.config/systemd/user/atm-ai.slice）"),
     )
     p_install.set_defaults(handler=_cmd_install)
 
-    p_update = sub.add_parser("update", help="升级 atm 自己（按安装方式选 uv tool / pipx / pip）")
-    p_update.add_argument("--check", action="store_true", help="只看有没有新版本，不升级")
-    p_update.add_argument("--json", action="store_true", help="配合 --check：机器可读输出")
-    p_update.add_argument("-y", "--yes", action="store_true", help="不问直接升")
+    p_update = sub.add_parser(
+        "update", help=_("升级 atm 自己（按安装方式选 uv tool / pipx / pip）")
+    )
+    p_update.add_argument("--check", action="store_true", help=_("只看有没有新版本，不升级"))
+    p_update.add_argument("--json", action="store_true", help=_("配合 --check：机器可读输出"))
+    p_update.add_argument("-y", "--yes", action="store_true", help=_("不问直接升"))
     p_update.set_defaults(handler=_cmd_update)
 
     p_completion = sub.add_parser(
         "completion",
-        help='打印 shell 补全脚本：eval "$(atm completion bash)"',
+        help=_('打印 shell 补全脚本：eval "$(atm completion bash)"'),
     )
     p_completion.add_argument("shell", choices=("bash", "zsh", "fish"))
     p_completion.set_defaults(handler=_cmd_completion)
 
     p_config = sub.add_parser(
         "config",
-        help="查看 / 修改用户配置（内存闸门参数）。不带参数就是查看",
+        help=_("查看 / 修改用户配置（内存闸门参数）。不带参数就是查看"),
         description=(
-            "atm config                       查看\n"
-            "atm config memory.high 4G        设置\n"
-            "atm config --unset memory.high   恢复默认\n"
-            "atm config --reset               全部恢复默认"
+            _(
+                "atm config                       查看\n"
+                "atm config memory.high 4G        设置\n"
+                "atm config --unset memory.high   恢复默认\n"
+                "atm config --reset               全部恢复默认"
+            )
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_config.add_argument("key", nargs="?", help="配置项，如 memory.high")
-    p_config.add_argument("value", nargs="?", help="新值")
-    p_config.add_argument("--unset", metavar="KEY", help="把某项恢复默认")
-    p_config.add_argument("--reset", action="store_true", help="全部恢复默认（删掉配置文件）")
-    p_config.add_argument("--path", action="store_true", help="只打印配置文件路径")
-    p_config.add_argument("--json", action="store_true", help="机器可读：每项的值和来源")
+    p_config.add_argument("key", nargs="?", help=_("配置项，如 memory.high"))
+    p_config.add_argument("value", nargs="?", help=_("新值"))
+    p_config.add_argument("--unset", metavar="KEY", help=_("把某项恢复默认"))
+    p_config.add_argument("--reset", action="store_true", help=_("全部恢复默认（删掉配置文件）"))
+    p_config.add_argument("--path", action="store_true", help=_("只打印配置文件路径"))
+    p_config.add_argument("--json", action="store_true", help=_("机器可读：每项的值和来源"))
     p_config.set_defaults(handler=_cmd_config)
 
     # `atm claude …` / `atm codex …` / `atm pi …`：带闸门启动。参数原样透传，
@@ -340,15 +351,18 @@ def _build_parser() -> argparse.ArgumentParser:
             program,
             add_help=False,
             help=(
-                f"按 atm config 的内存闸门启动 {program}（参数原样透传；直接敲 {program} 则不受限）"
+                _(
+                    "按 atm config 的内存闸门启动 "
+                    "{program}（参数原样透传；直接敲 {program} 则不受限）"
+                ).format(program=program)
             ),
         )
         p_launch.add_argument("args", nargs=argparse.REMAINDER)
         p_launch.set_defaults(handler=_cmd_launch, program=program)
 
-    p_uninstall = sub.add_parser("uninstall", help="从 ~/.tmux.conf 里移除 atm 的绑定")
+    p_uninstall = sub.add_parser("uninstall", help=_("从 ~/.tmux.conf 里移除 atm 的绑定"))
     p_uninstall.add_argument("-y", "--yes", action="store_true")
-    p_uninstall.add_argument("--conf", type=Path, help="tmux 配置文件路径（默认 ~/.tmux.conf）")
+    p_uninstall.add_argument("--conf", type=Path, help=_("tmux 配置文件路径（默认 ~/.tmux.conf）"))
     p_uninstall.set_defaults(handler=_cmd_uninstall)
 
     return parser
@@ -365,7 +379,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
         print(json.dumps([e.to_json() for e in limited], ensure_ascii=False, indent=2))
         return EXIT_OK
     if not entries:
-        print("没有找到会话。跑 `atm doctor` 看看数据源在不在。", file=sys.stderr)
+        print(_("没有找到会话。跑 `atm doctor` 看看数据源在不在。"), file=sys.stderr)
         return EXIT_OK
 
     now = datetime.now(tz=UTC)
@@ -381,18 +395,20 @@ def _cmd_list(args: argparse.Namespace) -> int:
         )
         print(f"     {entry.id}")
     if len(limited) < len(entries):
-        print(f"... 还有 {len(entries) - len(limited)} 条（-n 调整）", file=sys.stderr)
+        print(
+            _("... 还有 {v0} 条（-n 调整）").format(v0=len(entries) - len(limited)), file=sys.stderr
+        )
     return EXIT_OK
 
 
 def _cmd_pick(args: argparse.Namespace) -> int:
     entries = _load_entries(args)
     if not entries:
-        print("没有找到会话。跑 `atm doctor` 看看数据源在不在。", file=sys.stderr)
+        print(_("没有找到会话。跑 `atm doctor` 看看数据源在不在。"), file=sys.stderr)
         return EXIT_ERROR
 
     if not sys.stdin.isatty():
-        print("atm pick 需要一个交互终端；非交互场景用 `atm list --json`。", file=sys.stderr)
+        print(_("atm pick 需要一个交互终端；非交互场景用 `atm list --json`。"), file=sys.stderr)
         return EXIT_ERROR
 
     def choose():
@@ -420,10 +436,18 @@ def _cmd_resume(args: argparse.Namespace) -> int:
         matches = [e for e in entries if e.id.startswith(args.session_id)]
 
     if not matches:
-        print(f"atm: 找不到会话 {args.session_id}", file=sys.stderr)
+        print(
+            _("atm: 找不到会话 {args_session_id}").format(args_session_id=args.session_id),
+            file=sys.stderr,
+        )
         return EXIT_ERROR
     if len(matches) > 1:
-        print(f"atm: {args.session_id} 匹配到 {len(matches)} 条，请给更长的前缀：", file=sys.stderr)
+        print(
+            _("atm: {args_session_id} 匹配到 {v0} 条，请给更长的前缀：").format(
+                args_session_id=args.session_id, v0=len(matches)
+            ),
+            file=sys.stderr,
+        )
         for entry in matches[:10]:
             print(f"  {entry.id}  {truncate_display(entry.title, 60)}", file=sys.stderr)
         return EXIT_ERROR
@@ -475,7 +499,10 @@ def _on_tty(fn):
         tty_fd = os.open("/dev/tty", os.O_RDWR)
     except OSError as exc:
         raise RuntimeError(
-            "atm pick 需要一个终端来画选择器（/dev/tty 打不开）；非交互场景用 `atm list --json`。"
+            _(
+                "atm pick 需要一个终端来画选择器（/dev/tty "
+                "打不开）；非交互场景用 `atm list --json`。"
+            )
         ) from exc
     saved = os.dup(1)
     sys.stdout.flush()
@@ -491,7 +518,7 @@ def _on_tty(fn):
 
 def _cmd_panes(args: argparse.Namespace) -> int:
     if not tmux.has_server():
-        print("没有正在运行的 tmux server。", file=sys.stderr)
+        print(_("没有正在运行的 tmux server。"), file=sys.stderr)
         return EXIT_ERROR
     panes = tmux.list_panes()
     if args.json:
@@ -530,12 +557,12 @@ def _cmd_sidebar(args: argparse.Namespace) -> int:
         current = args.pane or tmux.current_pane_id()
         if not current:
             print(
-                "atm sidebar --toggle 需要知道当前 pane：在 tmux 里跑，或加 --pane",
+                _("atm sidebar --toggle 需要知道当前 pane：在 tmux 里跑，或加 --pane"),
                 file=sys.stderr,
             )
             return EXIT_ERROR
         if not tmux.has_server():
-            print("没有正在运行的 tmux server。", file=sys.stderr)
+            print(_("没有正在运行的 tmux server。"), file=sys.stderr)
             return EXIT_ERROR
         try:
             plan = sb.plan_toggle(tmux.list_panes(), current_pane=current)
@@ -548,7 +575,7 @@ def _cmd_sidebar(args: argparse.Namespace) -> int:
         return EXIT_OK
 
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        print("atm sidebar 是常驻 TUI，需要交互终端；要开侧栏用 --toggle。", file=sys.stderr)
+        print(_("atm sidebar 是常驻 TUI，需要交互终端；要开侧栏用 --toggle。"), file=sys.stderr)
         return EXIT_ERROR
     from . import sidebar_tui
 
@@ -563,13 +590,13 @@ def _cmd_swap(args: argparse.Namespace) -> int:
     sb = _sidebar_mod()
     current = args.pane or tmux.current_pane_id()
     if not current:
-        print("atm swap 需要知道当前 pane：在 tmux 里跑，或加 --pane", file=sys.stderr)
+        print(_("atm swap 需要知道当前 pane：在 tmux 里跑，或加 --pane"), file=sys.stderr)
         return EXIT_ERROR
     try:
         panes = tmux.list_panes()
         me = sb.pane_by_id(panes, current)
         if me is None:
-            raise sb.SidebarError(f"找不到当前 pane {current}")
+            raise sb.SidebarError(_("找不到当前 pane {current}").format(current=current))
         # 从普通格子里跑：换进这格自己。只有从侧栏里跑才需要去猜主格。
         slot = args.into or (None if me.is_sidebar else me.id)
         discard = True if args.discard else (False if args.keep else None)
@@ -588,13 +615,13 @@ def _cmd_park(args: argparse.Namespace) -> int:
     sb = _sidebar_mod()
     target = args.pane_id or tmux.current_pane_id()
     if not target:
-        print("atm park 需要一个 pane id：在 tmux 里跑，或显式传", file=sys.stderr)
+        print(_("atm park 需要一个 pane id：在 tmux 里跑，或显式传"), file=sys.stderr)
         return EXIT_ERROR
     try:
         panes = tmux.list_panes()
         pane = sb.pane_by_id(panes, target)
         if pane is None:
-            raise sb.SidebarError(f"找不到 pane {target}")
+            raise sb.SidebarError(_("找不到 pane {target}").format(target=target))
         bg = tmux.find_window(pane.session, sb.PARK_WINDOW)
         plan = sb.plan_park(panes, pane_id=target, bg_window=bg)
         sb.execute_park(plan)
@@ -608,7 +635,7 @@ def _cmd_park(args: argparse.Namespace) -> int:
 def _cmd_prune(args: argparse.Namespace) -> int:
     sb = _sidebar_mod()
     if not tmux.has_server():
-        print("没有正在运行的 tmux server。", file=sys.stderr)
+        print(_("没有正在运行的 tmux server。"), file=sys.stderr)
         return EXIT_ERROR
     try:
         targets = sb.prunable(tmux.list_panes())
@@ -616,7 +643,10 @@ def _cmd_prune(args: argparse.Namespace) -> int:
         print(f"atm: {exc}", file=sys.stderr)
         return EXIT_ERROR
     if not targets:
-        print(f"{sb.PARK_WINDOW} 里没有空闲的 shell 格子。", file=sys.stderr)
+        print(
+            _("{sb_PARK_WINDOW} 里没有空闲的 shell 格子。").format(sb_PARK_WINDOW=sb.PARK_WINDOW),
+            file=sys.stderr,
+        )
         return EXIT_OK
     for pane in targets:
         print(
@@ -626,7 +656,12 @@ def _cmd_prune(args: argparse.Namespace) -> int:
     if args.dry_run:
         return EXIT_OK
     killed = sb.execute_prune(targets)
-    print(f"已关掉 {len(killed)} 个（{sb.PARK_WINDOW} 空了的话窗口也一起消失）", file=sys.stderr)
+    print(
+        _("已关掉 {v0} 个（{sb_PARK_WINDOW} 空了的话窗口也一起消失）").format(
+            v0=len(killed), sb_PARK_WINDOW=sb.PARK_WINDOW
+        ),
+        file=sys.stderr,
+    )
     return EXIT_OK
 
 
@@ -730,14 +765,19 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return EXIT_OK if report["ok"] else EXIT_ERROR
 
-    print("== 数据源 ==")
+    print(_("== 数据源 =="))
     for name, info in report["sources"].items():
         status = "存在" if info["exists"] else "不存在"
-        print(f"  {name.capitalize()} {info['root']}: {status}，{info['files']} 个会话文件")
+        print(
+            _("  {v0} {v1}: {status}，{v2} 个会话文件").format(
+                v0=name.capitalize(), v1=info["root"], status=status, v2=info["files"]
+            )
+        )
     legacy = report["sources"]["codex"]["legacyIndex"]
     print(
-        f"  Codex 老索引 {legacy['path']}: {'有' if legacy['exists'] else '无'}"
-        f"（{legacy['titles']} 条标题）"
+        _("  Codex 老索引 {v0}: {v1}（{v2} 条标题）").format(
+            v0=legacy["path"], v1="有" if legacy["exists"] else "无", v2=legacy["titles"]
+        )
     )
 
     print("\n== CLI ==")
@@ -747,18 +787,18 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print("\n== tmux ==")
     t = report["tmux"]
     if not t["installed"]:
-        print("  tmux: 没装 —— 只能用 --print 模式")
+        print(_("  tmux: 没装 —— 只能用 --print 模式"))
     else:
-        print(f"  tmux: 已装，server {'在跑' if t['serverRunning'] else '没起来'}")
-        print(f"  当前在 tmux 里: {'是' if t['insideTmux'] else '否'}")
+        print(_("  tmux: 已装，server {v0}").format(v0="在跑" if t["serverRunning"] else "没起来"))
+        print(_("  当前在 tmux 里: {v0}").format(v0="是" if t["insideTmux"] else "否"))
 
-    print("\n== 持久化（resurrect + continuum）==")
+    print(_("\n== 持久化（resurrect + continuum）=="))
     _report_persist(_persist_mod().status())
 
-    print("\n== 内存闸门 ==")
+    print(_("\n== 内存闸门 =="))
     guard_ok = _report_guard()
 
-    print("\n== 索引 ==")
+    print(_("\n== 索引 =="))
     idx = report["index"]
     print(f"  {report['indexDescribe']}")
     for source, n in idx["perSource"].items():
@@ -770,8 +810,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 def _cmd_install(args: argparse.Namespace) -> int:
     persist = _persist_mod()
     if not tmux.is_installed():
-        print(f"tmux 没装。先装：{persist.tmux_install_hint()}")
-        print("（配置照样可以先写好，装完 tmux 直接生效。）\n")
+        print(_("tmux 没装。先装：{v0}").format(v0=persist.tmux_install_hint()))
+        print(_("（配置照样可以先写好，装完 tmux 直接生效。）\n"))
 
     plan = _install_mod().build_plan(
         conf_path=args.conf,
@@ -787,8 +827,10 @@ def _cmd_install(args: argparse.Namespace) -> int:
     # 那样 PATH 里明明有 atm 也会误报。只有退回到 `python -m atm` 才值得提醒。
     if "-m atm" in plan.atm_command:
         print(
-            f"\n注意：PATH 里没找到 `atm`，绑定会用 `{plan.atm_command}`。\n"
-            "     装成 PATH 命令会更快（仓库根目录 `uv tool install --editable .`）。"
+            _(
+                "\n注意：PATH 里没找到 `atm`，绑定会用 `{plan_atm_command}`。\n    "
+                " 装成 PATH 命令会更快（仓库根目录 `uv tool install --editable .`）。"
+            ).format(plan_atm_command=plan.atm_command)
         )
     if persist_plan is not None:
         print()
@@ -801,23 +843,31 @@ def _cmd_install(args: argparse.Namespace) -> int:
         return EXIT_OK
 
     if not args.yes:
-        print("\n这会修改你的全局 tmux 配置（改前会自动备份）。")
+        print(_("\n这会修改你的全局 tmux 配置（改前会自动备份）。"))
         if not _confirm("继续吗？"):
-            print("已取消，没有改动任何文件。")
+            print(_("已取消，没有改动任何文件。"))
             return EXIT_CANCELLED
 
     result = _install_mod().apply(plan)
 
-    print(f"\n已写入 {result.conf_path}")
+    print(_("\n已写入 {result_conf_path}").format(result_conf_path=result.conf_path))
     if result.backup_path:
-        print(f"备份    {result.backup_path}")
+        print(_("备份    {result_backup_path}").format(result_backup_path=result.backup_path))
     if result.applied_live:
-        print(f"已对正在运行的 tmux server 立即生效 —— 不用 reload，直接按 prefix + {args.key} 试")
+        print(
+            _(
+                "已对正在运行的 tmux server 立即生效 —— 不用 reload，直接按 prefix + {args_key} 试"
+            ).format(args_key=args.key)
+        )
     elif result.live_error:
-        print(f"对运行中的 server 生效失败：{result.live_error}")
-        print("（配置已写好，下次起 tmux 或 `prefix + :source-file ~/.tmux.conf` 后生效）")
+        print(
+            _("对运行中的 server 生效失败：{result_live_error}").format(
+                result_live_error=result.live_error
+            )
+        )
+        print(_("（配置已写好，下次起 tmux 或 `prefix + :source-file ~/.tmux.conf` 后生效）"))
     else:
-        print("当前没有运行中的 tmux server；下次 `tmux new` 时自动生效。")
+        print(_("当前没有运行中的 tmux server；下次 `tmux new` 时自动生效。"))
 
     if persist_plan is not None:
         _apply_persist(persist_plan)
@@ -830,39 +880,45 @@ def _apply_slice() -> None:
     guard = _guard_mod()
     cfg = _config_mod().load()
     if not dispatch_mod.memory_limits_available():
-        print("\n这台机器拿不到 cgroup，跳过总量闸门 slice。")
+        print(_("\n这台机器拿不到 cgroup，跳过总量闸门 slice。"))
         return
     path, written = guard.install(cfg.memory_slice)
     st = guard.status(cfg.memory_slice)
     if written:
         print(
-            f"\n已写总量闸门 {path}"
-            f"（MemoryHigh={st.high} / MemoryMax={st.max}，按物理内存 50% / 65%）"
+            _(
+                "\n已写总量闸门 {path}（MemoryHigh={st_high} "
+                "/ MemoryMax={st_max}，按物理内存 50% / 65%）"
+            ).format(path=path, st_high=st.high, st_max=st.max)
         )
-        print("所有 atm 启动 / 投递的会话共同受这个总量约束；单个会话的上限看 `atm config`。")
+        print(_("所有 atm 启动 / 投递的会话共同受这个总量约束；单个会话的上限看 `atm config`。"))
     else:
-        print(f"\n总量闸门 {path} 已存在（MemoryHigh={st.high} / MemoryMax={st.max}），不动。")
+        print(
+            _(
+                "\n总量闸门 {path} 已存在（MemoryHigh={st_high} / MemoryMax={st_max}），不动。"
+            ).format(path=path, st_high=st.high, st_max=st.max)
+        )
 
 
 def _apply_persist(plan) -> None:
     result = _persist_mod().apply(plan)
     print()
     if result.cloned:
-        print(f"已克隆插件：{', '.join(result.cloned)}")
+        print(_("已克隆插件：{v0}").format(v0=", ".join(result.cloned)))
     for name, err in result.clone_errors.items():
-        print(f"克隆 {name} 失败：{err}")
+        print(_("克隆 {name} 失败：{err}").format(name=name, err=err))
     if result.clone_errors:
-        print("（配置已写好；网络好了在 tmux 里按 prefix + I 让 tpm 补装）")
+        print(_("（配置已写好；网络好了在 tmux 里按 prefix + I 让 tpm 补装）"))
     if not result.block_written:
         return
-    print(f"已写入持久化块 → {result.conf_path}")
+    print(_("已写入持久化块 → {result_conf_path}").format(result_conf_path=result.conf_path))
     if result.backup_path:
-        print(f"备份    {result.backup_path}")
+        print(_("备份    {result_backup_path}").format(result_backup_path=result.backup_path))
     if tmux.has_server():
-        print("持久化在下次起 tmux server 时生效；想现在就要：`tmux source-file ~/.tmux.conf`")
-        print("（刻意不自动 source —— 那会重跑你整份配置里带副作用的行）")
-    print("手动存/恢复：prefix + Ctrl-s / prefix + Ctrl-r；")
-    print("自动存档每 10 分钟，只在有客户端 attach 时触发")
+        print(_("持久化在下次起 tmux server 时生效；想现在就要：`tmux source-file ~/.tmux.conf`"))
+        print(_("（刻意不自动 source —— 那会重跑你整份配置里带副作用的行）"))
+    print(_("手动存/恢复：prefix + Ctrl-s / prefix + Ctrl-r；"))
+    print(_("自动存档每 10 分钟，只在有客户端 attach 时触发"))
 
 
 def _cmd_update(args: argparse.Namespace) -> int:
@@ -895,39 +951,44 @@ def _cmd_update(args: argparse.Namespace) -> int:
         )
         return EXIT_OK
 
-    print(f"当前 {current}（{info.describe()}）")
+    print(_("当前 {current}（{v0}）").format(current=current, v0=info.describe()))
     if latest is None:
-        print("PyPI 最新：查不到（离线或镜像滞后），不影响升级")
+        print(_("PyPI 最新：查不到（离线或镜像滞后），不影响升级"))
     elif update.version_tuple(latest) > update.version_tuple(current):
-        print(f"PyPI 最新：{latest}  ← 有新版本")
+        print(_("PyPI 最新：{latest}  ← 有新版本").format(latest=latest))
     else:
-        print(f"PyPI 最新：{latest}  已是最新")
+        print(_("PyPI 最新：{latest}  已是最新").format(latest=latest))
         if info.origin is update.Origin.GIT:
-            print("（git 装的会跟 main 最新 commit，可能比 PyPI 发行版还新）")
+            print(_("（git 装的会跟 main 最新 commit，可能比 PyPI 发行版还新）"))
 
     if command is None:
         print()
         print(update.manual_hint(info))
         return EXIT_OK if info.origin is update.Origin.EDITABLE else EXIT_ERROR
     if args.check:
-        print(f"\n升级命令：{' '.join(command)}")
+        print(_("\n升级命令：{v0}").format(v0=" ".join(command)))
         return EXIT_OK
 
-    print(f"\n将执行：{' '.join(command)}")
+    print(_("\n将执行：{v0}").format(v0=" ".join(command)))
     if not args.yes and not _confirm("继续吗？"):
-        print("已取消。")
+        print(_("已取消。"))
         return EXIT_CANCELLED
     try:
         result = subprocess.run(command, check=False)
     except FileNotFoundError:
-        print(f"atm: 找不到 {command[0]}，请手动升级", file=sys.stderr)
+        print(_("atm: 找不到 {v0}，请手动升级").format(v0=command[0]), file=sys.stderr)
         return EXIT_ERROR
     if result.returncode != 0:
-        print(f"atm: 升级命令退出码 {result.returncode}", file=sys.stderr)
+        print(
+            _("atm: 升级命令退出码 {result_returncode}").format(
+                result_returncode=result.returncode
+            ),
+            file=sys.stderr,
+        )
         return EXIT_ERROR
     # 新版本在新进程里才看得到；这里的 __version__ 还是老的
     shown = subprocess.run(["atm", "--version"], capture_output=True, text=True, check=False)
-    print(f"完成：{shown.stdout.strip() or '（跑 atm --version 看版本）'}")
+    print(_("完成：{v0}").format(v0=shown.stdout.strip() or "（跑 atm --version 看版本）"))
     return EXIT_OK
 
 
@@ -956,9 +1017,9 @@ def _cmd_config(args: argparse.Namespace) -> int:
         path = config.config_path()
         if path.exists():
             path.unlink()
-            print(f"已删 {path}，全部恢复默认")
+            print(_("已删 {path}，全部恢复默认").format(path=path))
         else:
-            print("本来就是默认，没有配置文件")
+            print(_("本来就是默认，没有配置文件"))
         return EXIT_OK
     try:
         cfg, sources = config.load_with_sources()
@@ -968,10 +1029,14 @@ def _cmd_config(args: argparse.Namespace) -> int:
         if args.unset:
             cfg = config.unset_value(cfg, args.unset)
             path = config.save(cfg)
-            print(f"{args.unset} 已恢复默认 → {path}")
+            print(_("{args_unset} 已恢复默认 → {path}").format(args_unset=args.unset, path=path))
             return EXIT_OK
         if args.key and args.value is None:
-            raise config.ConfigError(f"要给 {args.key} 一个值，比如 `atm config {args.key} 4G`")
+            raise config.ConfigError(
+                _("要给 {args_key} 一个值，比如 `atm config {args_key} 4G`").format(
+                    args_key=args.key
+                )
+            )
         if args.key:
             cfg = config.set_value(cfg, args.key, args.value)
             path = config.save(cfg)
@@ -990,7 +1055,7 @@ def _cmd_launch(args: argparse.Namespace) -> int:
     program = args.program
     found = config.resolve_program(program)
     if found is None:
-        print(f"atm: PATH 里没有 {program}", file=sys.stderr)
+        print(_("atm: PATH 里没有 {program}").format(program=program), file=sys.stderr)
         return EXIT_ERROR
     try:
         cfg = config.load()
@@ -1000,7 +1065,7 @@ def _cmd_launch(args: argparse.Namespace) -> int:
     argv = config.launch_argv(found, list(args.args), cfg)
     if argv[0] != found and config.resolve_program(argv[0]) is None:
         # systemd-run 不在 PATH 上（非 systemd 环境）：退回裸跑，但要说一声，别让人以为限了。
-        print(f"atm: 找不到 {argv[0]}，本次不套内存闸门", file=sys.stderr)
+        print(_("atm: 找不到 {v0}，本次不套内存闸门").format(v0=argv[0]), file=sys.stderr)
         argv = [found, *args.args]
     os.execvp(argv[0], argv)
     return EXIT_ERROR  # execvp 成功不会回来
@@ -1009,9 +1074,13 @@ def _cmd_launch(args: argparse.Namespace) -> int:
 def _cmd_uninstall(args: argparse.Namespace) -> int:
     conf_path = args.conf or Path.home() / ".tmux.conf"
     if not args.yes:
-        print(f"将从 {conf_path} 移除 atm 的绑定块（marker 之外的内容一律不动）。")
+        print(
+            _("将从 {conf_path} 移除 atm 的绑定块（marker 之外的内容一律不动）。").format(
+                conf_path=conf_path
+            )
+        )
         if not _confirm("继续吗？"):
-            print("已取消。")
+            print(_("已取消。"))
             return EXIT_CANCELLED
 
     removed, backup = _install_mod().remove(conf_path)
@@ -1019,26 +1088,30 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
     slice_name = _config_mod().load().memory_slice
     removed_slice = _guard_mod().remove(slice_name)
     if not (removed or removed_persist or removed_slice):
-        print("没找到 atm 写的任何东西（键位块 / 持久化块 / slice），无需移除。")
+        print(_("没找到 atm 写的任何东西（键位块 / 持久化块 / slice），无需移除。"))
         return EXIT_OK
     if removed:
-        print(f"已从 {conf_path} 移除键位块")
+        print(_("已从 {conf_path} 移除键位块").format(conf_path=conf_path))
         if backup:
-            print(f"备份 {backup}")
-        print("已解绑的键位在下次启动 tmux 时消失（当前 server 可手动 `unbind-key`）。")
+            print(_("备份 {backup}").format(backup=backup))
+        print(_("已解绑的键位在下次启动 tmux 时消失（当前 server 可手动 `unbind-key`）。"))
     if removed_persist:
-        print(f"已从 {conf_path} 移除持久化块（~/.tmux/plugins 里已克隆的插件没动，不要了自己 rm）")
+        print(
+            _(
+                "已从 {conf_path} 移除持久化块（~/.tmux/plugins 里已克隆的插件没动，不要了自己 rm）"
+            ).format(conf_path=conf_path)
+        )
         if backup_persist:
-            print(f"备份 {backup_persist}")
+            print(_("备份 {backup_persist}").format(backup_persist=backup_persist))
     if removed_slice:
-        print(f"已删总量闸门 {slice_name}（只删 atm 自己写的那份）")
+        print(_("已删总量闸门 {slice_name}（只删 atm 自己写的那份）").format(slice_name=slice_name))
     return EXIT_OK
 
 
 def _confirm(prompt: str) -> bool:
     """非交互环境（管道 / CI）一律当「否」—— 不能默默改用户的全局配置。"""
     if not sys.stdin.isatty():
-        print(f"{prompt} 非交互环境，默认取消。要无人值守请加 --yes。")
+        print(_("{prompt} 非交互环境，默认取消。要无人值守请加 --yes。").format(prompt=prompt))
         return False
     try:
         answer = input(f"{prompt} [y/N] ").strip().lower()
@@ -1061,59 +1134,83 @@ def _report_guard() -> bool:
         return False
     if not dispatch_mod.memory_limits_available():
         print(
-            "  cgroup: 不可用（无 systemd user manager 或 memory 控制器未 delegate）"
-            "—— 一切限制被忽略"
+            _(
+                "  cgroup: 不可用（无 systemd user manager 或 memory 控制器未 delegate）"
+                "—— 一切限制被忽略"
+            )
         )
         return True
     if not cfg.memory_enabled:
-        print("  已关闭（memory.enabled=false）")
+        print(_("  已关闭（memory.enabled=false）"))
         return True
     print(
-        f"  单会话: MemoryHigh={cfg.memory_high} MemoryMax={cfg.memory_max}"
-        "（atm claude / 投递时套）"
+        _(
+            "  单会话: MemoryHigh={cfg_memory_high} "
+            "MemoryMax={cfg_memory_max}（atm claude / 投递时套）"
+        ).format(cfg_memory_high=cfg.memory_high, cfg_memory_max=cfg.memory_max)
     )
     st = guard.status(cfg.memory_slice)
     if st.exists:
         who = "atm 写的" if st.ours else "用户自己的"
-        print(f"  总量 {st.name}: MemoryHigh={st.high} MemoryMax={st.max}（{who}）")
+        print(
+            _("  总量 {st_name}: MemoryHigh={st_high} MemoryMax={st_max}（{who}）").format(
+                st_name=st.name, st_high=st.high, st_max=st.max, who=who
+            )
+        )
     else:
         print(
-            f"  总量 {st.name}: ❌ 单元不存在 —— systemd 会建一个无限制的同名 slice，"
-            "总量闸门形同虚设。跑 atm install 补上"
+            _(
+                "  总量 {st_name}: ❌ 单元不存在 —— systemd "
+                "会建一个无限制的同名 slice，总量闸门形同虚设。跑 atm install 补上"
+            ).format(st_name=st.name)
         )
-    print("  直接敲 claude / codex 不受以上任何限制；要限就用 atm claude / atm codex")
+    print(_("  直接敲 claude / codex 不受以上任何限制；要限就用 atm claude / atm codex"))
     return True
 
 
 def _report_persist(st) -> None:
-    print(f"  配置块: {'已装' if st.block_installed else '未装（atm install 会一起装）'}")
+    print(
+        _("  配置块: {v0}").format(
+            v0="已装" if st.block_installed else "未装（atm install 会一起装）"
+        )
+    )
     if st.plugins_missing:
         missing = ", ".join(st.plugins_missing)
-        print(f"  插件缺: {missing}（在 tmux 里按 prefix + I，或重跑 atm install）")
+        print(
+            _("  插件缺: {missing}（在 tmux 里按 prefix + I，或重跑 atm install）").format(
+                missing=missing
+            )
+        )
     else:
-        print(f"  插件: {', '.join(st.plugins_present)} 都在")
+        print(_("  插件: {v0} 都在").format(v0=", ".join(st.plugins_present)))
     if st.autosave_hooked is None:
-        print("  自动存档钩子: server 没起来，查不了")
+        print(_("  自动存档钩子: server 没起来，查不了"))
     elif st.autosave_hooked:
-        print("  自动存档钩子: 在 status-right 里，正常")
+        print(_("  自动存档钩子: 在 status-right 里，正常"))
     else:
         print(
-            "  自动存档钩子: ❌ 不在 status-right 里 —— "
-            "continuum 加载时机器上还有别的 tmux server 就会静默跳过。"
-            " 关掉多余的 server（含 -L 隔离 socket）后重起主 server"
+            _(
+                "  自动存档钩子: ❌ 不在 status-right 里 —— "
+                "continuum 加载时机器上还有别的 tmux server 就会静默跳过。"
+                " 关掉多余的 server（含 -L 隔离 socket）后重起主 server"
+            )
         )
     if st.last_save:
         import datetime as _dt
 
         when = _dt.datetime.fromtimestamp(st.last_save.resolve().stat().st_mtime)
-        print(f"  最近存档: {when:%Y-%m-%d %H:%M}")
+        print(_("  最近存档: {when:%Y-%m-%d %H:%M}").format(when=when))
     else:
-        print("  最近存档: 还没有")
+        print(_("  最近存档: 还没有"))
 
 
 def _report_root(name: str, root: Path, count: int) -> None:
     status = "存在" if root.is_dir() else "不存在"
-    print(f"  {name} {root}: {status}，{count} 个会话文件")
+    print(
+        _("  {name} {root}: {status}，{count} 个会话文件").format(
+            name=name, root=root, status=status, count=count
+        )
+    )
 
 
 def _print_source_breakdown(result: SessionIndex) -> None:
@@ -1140,7 +1237,9 @@ def _load_entries(args: argparse.Namespace) -> tuple[SessionEntry, ...]:
     )
     if filtered.hidden_noise:
         print(
-            f"（已隐藏 {filtered.hidden_noise} 条机器生成的一次性调用，--all 可显示）",
+            _("（已隐藏 {filtered_hidden_noise} 条机器生成的一次性调用，--all 可显示）").format(
+                filtered_hidden_noise=filtered.hidden_noise
+            ),
             file=sys.stderr,
         )
     return filtered.entries
@@ -1196,15 +1295,19 @@ def _pick_target(entry: SessionEntry, direction: SplitDirection) -> DispatchTarg
         )
 
     options.append(
-        _tui().PickerOption(key="__split_h__", label="新分一格：左右分 ┃", detail="split-window -h")
+        _tui().PickerOption(
+            key="__split_h__", label=_("新分一格：左右分 ┃"), detail="split-window -h"
+        )
     )
     options.append(
-        _tui().PickerOption(key="__split_v__", label="新分一格：上下分 ━", detail="split-window -v")
+        _tui().PickerOption(
+            key="__split_v__", label=_("新分一格：上下分 ━"), detail="split-window -v"
+        )
     )
     options.append(
-        _tui().PickerOption(key="__window__", label="新开一个 window", detail="new-window")
+        _tui().PickerOption(key="__window__", label=_("新开一个 window"), detail="new-window")
     )
-    options.append(_tui().PickerOption(key="__print__", label="只打印命令", detail="不投递"))
+    options.append(_tui().PickerOption(key="__print__", label=_("只打印命令"), detail=_("不投递")))
 
     size_note = dispatch_mod.size_label(entry)
     suffix = f"  [{size_note} ⚠]" if size_note else ""

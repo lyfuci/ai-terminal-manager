@@ -35,7 +35,7 @@ def codex_root(tmp_path: Path) -> Path:
 def claude_session(claude_root: Path) -> Path:
     """一个典型的 Claude 会话：首条 user 是 isMeta 的 caveat，真标题在第二条。"""
     return write_jsonl(
-        claude_root / "-home-sean-IdeaProjects-demo" / "aaaaaaaa-1111-2222-3333-444444444444.jsonl",
+        claude_root / "-home-user-IdeaProjects-demo" / "aaaaaaaa-1111-2222-3333-444444444444.jsonl",
         [
             {
                 "type": "last-prompt",
@@ -54,7 +54,7 @@ def claude_session(claude_root: Path) -> Path:
             {
                 "type": "user",
                 "sessionId": "aaaaaaaa-1111-2222-3333-444444444444",
-                "cwd": "/home/sean/IdeaProjects/demo",
+                "cwd": "/home/user/IdeaProjects/demo",
                 "gitBranch": "feature/atm",
                 "message": {"role": "user", "content": "帮我把索引层的缓存加上\n第二行会被折叠"},
             },
@@ -66,3 +66,15 @@ def claude_session(claude_root: Path) -> Path:
 @pytest.fixture
 def pi_root(tmp_path: Path) -> Path:
     return tmp_path / "pi" / "agent" / "sessions"
+
+
+@pytest.fixture(autouse=True)
+def _pin_cli_language(monkeypatch):
+    """测试里的断言写的是中文原文；把界面语言钉死在 zh，不受开发者机器 LANG 影响。
+    test_i18n.py 自己会覆盖这个设置。"""
+    from atm import i18n
+
+    monkeypatch.setenv("ATM_LANG", "zh")
+    i18n.reset_lang()
+    yield
+    i18n.reset_lang()

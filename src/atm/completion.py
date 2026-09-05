@@ -15,6 +15,8 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 
+from .i18n import _
+
 
 @dataclass(frozen=True, slots=True)
 class CommandSpec:
@@ -58,7 +60,7 @@ def render(
         return _zsh(top, specs, config_keys, sources)
     if shell == "fish":
         return _fish(top, specs, config_keys, sources)
-    raise ValueError(f"不支持的 shell {shell!r}，可选 bash / zsh / fish")
+    raise ValueError(_("不支持的 shell {shell!r}，可选 bash / zsh / fish").format(shell=shell))
 
 
 def _bash(top, specs, config_keys, sources) -> str:

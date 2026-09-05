@@ -18,6 +18,8 @@ import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
 
+from .i18n import _
+
 # 侧栏 pane 给自己打的标记（tmux 的 pane 级用户选项）。
 # 用选项而不是靠 pane_title / 命令名识别：标题会被里面跑的程序改掉，
 # 命令名在 `uv run atm` 和 `python -m atm` 两种起法下不一样。
@@ -181,7 +183,7 @@ def has_server() -> bool:
 def run(args: list[str], *, timeout: float = 10.0) -> str:
     """跑一条 tmux 命令，返回 stdout。失败抛 TmuxError。"""
     if not is_installed():
-        raise TmuxError("tmux 没装或不在 PATH 里")
+        raise TmuxError(_("tmux 没装或不在 PATH 里"))
     log.debug("tmux %s", " ".join(args))
     try:
         result = subprocess.run(
@@ -192,13 +194,13 @@ def run(args: list[str], *, timeout: float = 10.0) -> str:
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise TmuxError(f"tmux {' '.join(args)} 超时") from exc
+        raise TmuxError(_("tmux {v0} 超时").format(v0=" ".join(args))) from exc
     except OSError as exc:
-        raise TmuxError(f"无法执行 tmux: {exc}") from exc
+        raise TmuxError(_("无法执行 tmux: {exc}").format(exc=exc)) from exc
 
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
-        raise TmuxError(f"tmux {' '.join(args)} 失败: {detail}")
+        raise TmuxError(_("tmux {v0} 失败: {detail}").format(v0=" ".join(args), detail=detail))
     return result.stdout
 
 

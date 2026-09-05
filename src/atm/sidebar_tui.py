@@ -22,6 +22,7 @@ from . import index as index_mod
 from . import sidebar, tmux
 from .dispatch import DispatchError, DispatchTarget, MemoryLimit
 from .fuzzy import ScoredEntry, rank, score
+from .i18n import _
 from .model import SOURCE_TAG, SessionEntry, Source
 from .sidebar import SidebarError
 from .text import display_width, humanize_age, pad_display, tail_display, truncate_display
@@ -81,7 +82,7 @@ def run_sidebar(*, memory: MemoryLimit | None = None) -> int:
     """入口。必须在 tmux 的某个 pane 里跑（靠 $TMUX_PANE 认自己）。"""
     self_id = tmux.current_pane_id()
     if self_id is None:
-        raise SidebarError("atm sidebar 必须在 tmux pane 里跑（用 `atm sidebar --toggle` 打开）")
+        raise SidebarError(_("atm sidebar 必须在 tmux pane 里跑（用 `atm sidebar --toggle` 打开）"))
     sidebar.mark_sidebar(self_id)
     locale.setlocale(locale.LC_ALL, "")
     with contextlib.suppress(KeyboardInterrupt):
@@ -395,7 +396,7 @@ class _Sidebar(_Screen):
             return
         step = 1 if delta > 0 else -1
         index = self._cursor
-        for _ in range(abs(delta)):
+        for _step in range(abs(delta)):
             nxt = index + step
             while 0 <= nxt < len(self._rows) and not self._is_selectable(nxt):
                 nxt += step

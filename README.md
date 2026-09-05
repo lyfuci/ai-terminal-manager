@@ -100,6 +100,8 @@ atm install     # write key bindings to ~/.tmux.conf + install resurrect/continu
   right pane. Don't want it: `--no-persist`. If you already manage tpm yourself it is skipped, nothing is written
   twice.
 
+The CLI speaks English, Chinese and Japanese, following your locale (`ATM_LANG=en|zh|ja` overrides).
+
 Optional but recommended on a shared or memory-tight box: `atm config memory.high 4G` then launch with
 `atm claude` / `atm codex` / `atm pi` to run inside a cgroup memory gate. Plain `claude` stays unlimited —
 the prefix is the choice. See [docs/usage.md](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md).

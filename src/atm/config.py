@@ -23,6 +23,7 @@ from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
 from . import dispatch
+from .i18n import _
 
 log = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ def load_with_sources(path: Path | None = None) -> tuple[Config, dict[str, str]]
     except FileNotFoundError:
         raw = {}
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise ConfigError(f"{p} 读不了：{exc}") from exc
+        raise ConfigError(_("{p} 读不了：{exc}").format(p=p, exc=exc)) from exc
     cfg = _from_raw(raw, p)
     for key, field in KEYS.items():
         if getattr(cfg, field) != getattr(Config(), field):
@@ -140,7 +141,9 @@ def _from_raw(raw: dict, p: Path) -> Config:
     for section in raw:
         if section not in known_sections:
             raise ConfigError(
-                f"{p}：不认识的段 [{section}]，只有 {', '.join(sorted(known_sections))}"
+                _("{p}：不认识的段 [{section}]，只有 {v0}").format(
+                    p=p, section=section, v0=", ".join(sorted(known_sections))
+                )
             )
     cfg = Config()
     for section in known_sections:
@@ -148,7 +151,11 @@ def _from_raw(raw: dict, p: Path) -> Config:
         if table is None:
             continue
         if not isinstance(table, dict):
-            raise ConfigError(f"{p}：[{section}] 应该是一个表，收到 {type(table).__name__}")
+            raise ConfigError(
+                _("{p}：[{section}] 应该是一个表，收到 {v0}").format(
+                    p=p, section=section, v0=type(table).__name__
+                )
+            )
         valid = {
             k.split(".", 1)[1].replace("-", "_"): k for k in KEYS if k.startswith(section + ".")
         }
@@ -156,7 +163,9 @@ def _from_raw(raw: dict, p: Path) -> Config:
             key = valid.get(name)
             if key is None:
                 raise ConfigError(
-                    f"{p}：[{section}] 里不认识 {name!r}，可用：{', '.join(sorted(valid))}"
+                    _("{p}：[{section}] 里不认识 {name!r}，可用：{v0}").format(
+                        p=p, section=section, name=name, v0=", ".join(sorted(valid))
+                    )
                 )
             cfg = replace(cfg, **{KEYS[key]: _coerce(key, value)})
     return cfg
@@ -176,7 +185,11 @@ def validate_size(label: str, value: str) -> str:
     """给命令行参数用的同一套校验：`--mem-high lots` 在这里就报，不等 systemd-run。"""
     s = str(value).strip()
     if not _SIZE_RE.match(s):
-        raise ConfigError(f"{label} 要形如 4G / 512M / infinity，收到 {value!r}")
+        raise ConfigError(
+            _("{label} 要形如 4G / 512M / infinity，收到 {value!r}").format(
+                label=label, value=value
+            )
+        )
     return s.upper() if s.lower() != "infinity" else "infinity"
 
 
@@ -184,14 +197,18 @@ def set_value(cfg: Config, key: str, value: str) -> Config:
     """校验并返回新配置。key 不认识 / 值不合法都抛 ConfigError，带可读原因。"""
     field = KEYS.get(key)
     if field is None:
-        raise ConfigError(f"不认识的配置项 {key!r}，可用：{', '.join(KEYS)}")
+        raise ConfigError(
+            _("不认识的配置项 {key!r}，可用：{v0}").format(key=key, v0=", ".join(KEYS))
+        )
     return replace(cfg, **{field: _coerce(key, value)})
 
 
 def unset_value(cfg: Config, key: str) -> Config:
     field = KEYS.get(key)
     if field is None:
-        raise ConfigError(f"不认识的配置项 {key!r}，可用：{', '.join(KEYS)}")
+        raise ConfigError(
+            _("不认识的配置项 {key!r}，可用：{v0}").format(key=key, v0=", ".join(KEYS))
+        )
     return replace(cfg, **{field: getattr(Config(), field)})
 
 
@@ -209,13 +226,13 @@ def describe(cfg: Config, sources: dict[str, str] | None = None) -> str:
         src = sources.get(key, "default")
         tag = "" if src == "default" else f"  ← {src}"
         lines.append(f"  {key:<16} {shown:<12}{tag}")
-        lines.append(f"  {'':<16} {_HELP[key]}")
+        lines.append(f"  {'':<16} {_(_HELP[key])}")
     lines.append("")
     if not dispatch.memory_limits_available():
         lines.append(
-            "⚠ 这台机器拿不到 cgroup（无 systemd user manager 或 memory 控制器未 delegate），"
+            _("⚠ 这台机器拿不到 cgroup（无 systemd user manager 或 memory 控制器未 delegate），")
         )
-        lines.append("  以上设置会被静默忽略，atm claude 等价于直接跑 claude。")
+        lines.append(_("  以上设置会被静默忽略，atm claude 等价于直接跑 claude。"))
     return "\n".join(lines)
 
 
@@ -260,11 +277,13 @@ def _coerce(key: str, value: object):
             return True
         if s in _FALSE:
             return False
-        raise ConfigError(f"{key} 要 true/false，收到 {value!r}")
+        raise ConfigError(_("{key} 要 true/false，收到 {value!r}").format(key=key, value=value))
     s = str(value).strip()
     if key == "memory.slice":
         if not re.match(r"^[\w.-]+\.slice$", s):
-            raise ConfigError(f"{key} 要形如 name.slice，收到 {value!r}")
+            raise ConfigError(
+                _("{key} 要形如 name.slice，收到 {value!r}").format(key=key, value=value)
+            )
         return s
     return validate_size(key, s)
 

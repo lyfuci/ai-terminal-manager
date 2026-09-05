@@ -85,6 +85,8 @@ atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/contin
   （`research/notes/2026-08-12-incident.md` 付録三）。セッションは対応する pane で必要なときに resume する。不要なら `--no-persist`。
   自分で tpm を管理している場合は自動でスキップし、二重に書かない。
 
+表示言語はシステムの locale に従う（日 / 英 / 中）、`ATM_LANG=ja|en|zh` で強制可。
+
 任意：`atm config memory.high 4G` を一度設定すれば、以後 `atm claude` / `atm codex` / `atm pi` は cgroup のメモリゲート内で起動する；
 素の `claude` は制限なしのまま——プレフィックスが選択。詳細は [docs/usage-ja.md](docs/usage-ja.md)。
 

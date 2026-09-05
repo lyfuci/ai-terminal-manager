@@ -42,7 +42,7 @@ _LEADING_TAG = re.compile(r"^\s*<([A-Za-z][\w:.-]*)(?:\s[^>]*)?>")
 
 # 注入包装前面**带一行 Markdown 标题**的形状。实测 Codex 注入 AGENTS.md 时是：
 #
-#     # AGENTS.md instructions for /home/sean/IdeaProjects/sample-backend
+#     # AGENTS.md instructions for /home/user/IdeaProjects/sample-backend
 #
 #     <INSTRUCTIONS>… 8645 字 …</INSTRUCTIONS>
 #

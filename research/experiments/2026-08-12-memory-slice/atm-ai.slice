@@ -1,6 +1,6 @@
 [Unit]
 Description=AI CLI aggregate memory guard (atm)
-Documentation=file:///home/sean/IdeaProjects/research/ai-terminal-manager/notes/2026-08-12-incident.md
+Documentation=https://github.com/lyfuci/ai-terminal-manager/blob/main/research/notes/2026-08-12-incident.md
 
 # 为什么存在：claude 会话活跃工作时能涨到 4.7GB（内存跟 CPU 时间走，不跟会话数走）。
 # 本机 WSL 总内存 7.8GB，实测 app-tmux.slice 历史峰值 6.75GB —— 87% 的内存都在 tmux 里，

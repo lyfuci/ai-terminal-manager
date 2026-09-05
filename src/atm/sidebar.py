@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from . import tmux
+from .i18n import _
 from .tmux import Pane, TmuxError
 
 SIDEBAR_WIDTH = 32
@@ -120,15 +121,15 @@ def plan_swap(
     """
     target = pane_by_id(panes, target_id)
     if target is None:
-        raise SidebarError(f"找不到 pane {target_id}（可能刚被关掉）")
+        raise SidebarError(_("找不到 pane {target_id}（可能刚被关掉）").format(target_id=target_id))
     if target.is_sidebar:
-        raise SidebarError("那是侧栏自己")
+        raise SidebarError(_("那是侧栏自己"))
     if slot_id is not None:
         slot = pane_by_id(panes, slot_id)
         if slot is None:
-            raise SidebarError(f"找不到目标格子 {slot_id}")
+            raise SidebarError(_("找不到目标格子 {slot_id}").format(slot_id=slot_id))
         if slot.is_sidebar:
-            raise SidebarError("不能换进侧栏的位置")
+            raise SidebarError(_("不能换进侧栏的位置"))
         if slot.id == target.id:
             return SwapPlan(kind=SwapKind.FOCUS, target=target_id)
         return SwapPlan(
@@ -138,7 +139,7 @@ def plan_swap(
         return SwapPlan(kind=SwapKind.FOCUS, target=target_id)
     slot = main_slot(panes, window_id)
     if slot is None:
-        raise SidebarError("本窗口除了侧栏没有别的格子，没法换位 —— 先分一格出来")
+        raise SidebarError(_("本窗口除了侧栏没有别的格子，没法换位 —— 先分一格出来"))
     return SwapPlan(
         kind=SwapKind.SWAP, target=target_id, slot=slot.id, discard=_discard(slot, discard)
     )
@@ -183,17 +184,23 @@ def plan_park(panes: tuple[Pane, ...], *, pane_id: str, bg_window: str | None) -
     """纯函数：把 pane 收进 bg 窗口该怎么做。`bg_window` 由调用方查好传进来。"""
     pane = pane_by_id(panes, pane_id)
     if pane is None:
-        raise SidebarError(f"找不到 pane {pane_id}")
+        raise SidebarError(_("找不到 pane {pane_id}").format(pane_id=pane_id))
     if pane.is_sidebar:
-        raise SidebarError("侧栏自己不能收进后台 —— 要收起侧栏用 `atm sidebar --toggle`")
+        raise SidebarError(_("侧栏自己不能收进后台 —— 要收起侧栏用 `atm sidebar --toggle`"))
     if bg_window == pane.window_id:
-        raise SidebarError(f"pane {pane_id} 已经在 {PARK_WINDOW} 里了")
+        raise SidebarError(
+            _("pane {pane_id} 已经在 {PARK_WINDOW} 里了").format(
+                pane_id=pane_id, PARK_WINDOW=PARK_WINDOW
+            )
+        )
     window_panes = [p for p in panes if p.window_id == pane.window_id]
     if len(window_panes) == 1:
         # 实测 break-pane 对单 pane 窗口不报错，只是把那个窗口**改名成 bg** ——
         # 用户的窗口就这么没了。这种情况下它本来就已经在后台，不用动。
         # （旁边还有侧栏的话不算：收走它之后侧栏还在，窗口不会消失。）
-        raise SidebarError(f"pane {pane_id} 已经独占一个窗口，本来就在后台，不用收")
+        raise SidebarError(
+            _("pane {pane_id} 已经独占一个窗口，本来就在后台，不用收").format(pane_id=pane_id)
+        )
     return ParkPlan(pane=pane_id, session=pane.session, existing_window=bg_window)
 
 
@@ -263,7 +270,7 @@ def plan_toggle(panes: tuple[Pane, ...], *, current_pane: str) -> TogglePlan:
     """
     current = pane_by_id(panes, current_pane)
     if current is None:
-        raise SidebarError(f"找不到当前 pane {current_pane}")
+        raise SidebarError(_("找不到当前 pane {current_pane}").format(current_pane=current_pane))
     sidebar = find_sidebar(panes, current.window_id)
     if sidebar is None:
         return TogglePlan(kind=ToggleKind.OPEN, window_id=current.window_id)

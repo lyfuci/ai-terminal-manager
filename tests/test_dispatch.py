@@ -40,7 +40,7 @@ def make_pane(pane_id: str = "%1", command: str = "bash", in_mode: bool = False)
         window_name="win",
         pane_index=0,
         current_command=command,
-        current_path="/home/sean",
+        current_path="/home/user",
         active=False,
         in_mode=in_mode,
         window_active=True,
@@ -88,9 +88,9 @@ def test_every_source_has_a_resume_command() -> None:
 def test_shell_line_quotes_dangerous_cwd() -> None:
     """cwd 里有空格/引号/分号时必须转义 —— 否则会执行到别的命令。"""
     entry = make_entry(cwd="/tmp")
-    entry = __import__("dataclasses").replace(entry, cwd="/home/sean/my project; rm -rf /tmp/x")
+    entry = __import__("dataclasses").replace(entry, cwd="/home/user/my project; rm -rf /tmp/x")
     line = resume_command(entry).shell_line()
-    assert "'/home/sean/my project; rm -rf /tmp/x'" in line
+    assert "'/home/user/my project; rm -rf /tmp/x'" in line
     assert line.count("&&") == 1
 
 

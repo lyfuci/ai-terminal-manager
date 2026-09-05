@@ -59,6 +59,7 @@ atm config --json              # every setting with its source: default / file /
 atm update --check --json
 eval "$(atm completion bash)"  # shell completions generated from the real parser (also zsh, fish)
 NO_COLOR=1 atm pick            # honours https://no-color.org
+ATM_LANG=en atm --help         # CLI language: follows LC_ALL / LC_MESSAGES / LANG (zh / ja / else en); ATM_LANG overrides
 ```
 
 Configuration precedence: **flag > environment variable > file > default**. Every key has an env var:

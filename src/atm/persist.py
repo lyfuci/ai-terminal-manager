@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import tmux
+from .i18n import _
 from .install import _backup, _has_marker, _read, _strip_block
 
 MARKER_BEGIN = "# >>> atm persist (tmux-resurrect + tmux-continuum) >>>"
@@ -69,26 +70,38 @@ class PersistPlan:
         lines: list[str] = []
         if self.user_manages_tpm:
             lines.append(
-                f"{self.conf_path} 里已经有你自己的 tpm 配置，不重复写插件块；"
-                f"要恢复功能请自行加上 tmux-resurrect / tmux-continuum。"
+                _(
+                    "{self_conf_path} 里已经有你自己的 tpm 配置，不重复写插件块；"
+                    "要恢复功能请自行加上 tmux-resurrect / tmux-continuum。"
+                ).format(self_conf_path=self.conf_path)
             )
             return "\n".join(lines)
 
-        lines.append(f"将写入 {self.conf_path}（持久化块）：")
+        lines.append(
+            _("将写入 {self_conf_path}（持久化块）：").format(self_conf_path=self.conf_path)
+        )
         lines.append("")
         lines += [f"  {line}" for line in self.block.splitlines()]
         lines.append("")
         if self.missing_plugins:
             names = ", ".join(self.missing_plugins)
-            lines.append(f"将 git clone 到 {self.plugins_dir}/：{names}")
+            lines.append(
+                _("将 git clone 到 {self_plugins_dir}/：{names}").format(
+                    self_plugins_dir=self.plugins_dir, names=names
+                )
+            )
             if not self.git_available:
                 lines.append(
-                    "  ⚠ 没找到 git，克隆会跳过；装好 git 后重跑，或在 tmux 里按 prefix + I"
+                    _("  ⚠ 没找到 git，克隆会跳过；装好 git 后重跑，或在 tmux 里按 prefix + I")
                 )
         else:
-            lines.append(f"插件已在 {self.plugins_dir}/，不重复克隆")
+            lines.append(
+                _("插件已在 {self_plugins_dir}/，不重复克隆").format(
+                    self_plugins_dir=self.plugins_dir
+                )
+            )
         if self.already_installed:
-            lines.append("（已存在持久化块，会被整块替换掉，不会重复追加）")
+            lines.append(_("（已存在持久化块，会被整块替换掉，不会重复追加）"))
         return "\n".join(lines)
 
 
@@ -251,7 +264,7 @@ def _mentions_tpm(text: str) -> bool:
 
 def _git_clone(name: str, dest: Path) -> None:
     if not shutil.which("git"):
-        raise RuntimeError("没找到 git")
+        raise RuntimeError(_("没找到 git"))
     result = subprocess.run(
         ["git", "clone", "--depth", "1", "--quiet", REPO_URL.format(name=name), str(dest)],
         capture_output=True,

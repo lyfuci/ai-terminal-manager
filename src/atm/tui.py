@@ -20,6 +20,7 @@ from pathlib import Path
 
 from . import dispatch
 from .fuzzy import ScoredEntry, rank
+from .i18n import _
 from .model import SOURCE_TAG, SessionEntry, Source
 from .text import (
     display_width,
@@ -507,7 +508,7 @@ class _SessionPicker(_Screen):
         # 工作目录已删除的会话直接标出来 —— 投递它只会得到一句 cd 失败。
         # 实测本机 210 条里有 33 条（16%）是这种，选之前就该看见。
         if entry.cwd in self._missing_cwds:
-            x = self._put(stdscr, y, x, "⚠目录已删 ", base | _color(6))
+            x = self._put(stdscr, y, x, _("⚠目录已删 "), base | _color(6))
 
         if entry.name:
             tag_text = f"⟨{entry.name}⟩ "
@@ -576,7 +577,7 @@ class _OptionPicker(_Screen):
         if count == 0:
             return
         index = self._cursor
-        for _ in range(count):
+        for _step in range(count):
             index = max(0, min(count - 1, index + delta))
             if self._options[index].enabled:
                 self._cursor = index

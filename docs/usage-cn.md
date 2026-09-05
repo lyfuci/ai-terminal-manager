@@ -56,6 +56,7 @@ atm config --json              # 每一项的值和来源：default / file / env
 atm update --check --json
 eval "$(atm completion bash)"  # 从真实的参数定义生成补全（zsh、fish 同理）
 NO_COLOR=1 atm pick            # 遵守 https://no-color.org
+ATM_LANG=en atm --help         # 界面语言：跟系统 LC_ALL / LC_MESSAGES / LANG（zh / ja，其余英文）；ATM_LANG 可强制
 ```
 
 配置优先级：**命令行参数 > 环境变量 > 文件 > 默认**。每个键都有环境变量：

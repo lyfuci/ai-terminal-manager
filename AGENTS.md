@@ -61,6 +61,7 @@ uv build                               # wheel + sdist; sdist excludes research/
   layer: L1 visual / L2 process / L3 conversation (defined in `research/README.md`).
 - TDD: a failing test first for new features; a reproducing test first for bug fixes.
 - Adding a new CLI session source touches 9 places — follow `.claude/skills/add-session-source/SKILL.md`.
+- **User-facing strings are Chinese in source and translated via `_()`** (`src/atm/i18n.py`). Wrap every new `print` / `help=` / error message in `_()`, add EN and JA rows to `src/atm/i18n_catalog.py` — `tests/test_i18n.py` fails on a missing translation or a placeholder mismatch. Log messages and `--json` field names are not translated.
 - Anything that modifies the user's global environment (`~/.tmux.conf`, systemd units, `~/.config/atm`) must be:
   marker-delimited / backed up before writing / idempotent / uninstallable / hands off the user's own content.
 

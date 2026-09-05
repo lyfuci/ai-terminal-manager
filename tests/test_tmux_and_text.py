@@ -30,7 +30,7 @@ def _pane_line(**overrides: object) -> str:
         "window_name": "zsh",
         "pane_index": "0",
         "command": "bash",
-        "path": "/home/sean",
+        "path": "/home/user",
         "active": "1",
         "in_mode": "0",
         "window_active": "1",
@@ -56,8 +56,8 @@ def test_parse_panes_basic() -> None:
 
 def test_parse_panes_handles_paths_with_pipes_and_spaces() -> None:
     """用 \\x1f 当分隔符就是为了这个 —— 路径里有 | 和空格也不能串列。"""
-    panes = tmux.parse_panes(_pane_line(path="/home/sean/a b|c", title="a|b"))
-    assert panes[0].current_path == "/home/sean/a b|c"
+    panes = tmux.parse_panes(_pane_line(path="/home/user/a b|c", title="a|b"))
+    assert panes[0].current_path == "/home/user/a b|c"
     assert panes[0].title == "a|b"
 
 
@@ -180,7 +180,7 @@ def _entry(title: str, days_ago: int = 0) -> SessionEntry:
         id=title,
         title=title,
         source=Source.CLAUDE,
-        cwd="/home/sean/demo",
+        cwd="/home/user/demo",
         git_branch=None,
         updated_at=datetime.now(tz=UTC) - timedelta(days=days_ago),
         path=f"/tmp/{title}.jsonl",
@@ -342,7 +342,7 @@ def test_heading_before_injected_block_is_stripped() -> None:
     from atm.text import strip_wrapper_blocks
 
     injected = (
-        "# AGENTS.md instructions for /home/sean/IdeaProjects/sample-backend\n\n"
+        "# AGENTS.md instructions for /home/user/IdeaProjects/sample-backend\n\n"
         "<INSTRUCTIONS>\n一大堆项目约定……\n</INSTRUCTIONS>"
     )
     assert strip_wrapper_blocks(injected).strip() == ""
@@ -376,7 +376,7 @@ def test_parse_panes_accepts_tmux34_escaped_separator() -> None:
 
     assert len(panes) == 1
     assert panes[0].id == "%1"
-    assert panes[0].current_path == "/home/sean"
+    assert panes[0].current_path == "/home/user"
     assert panes[0].title == "sean@host"
 
 

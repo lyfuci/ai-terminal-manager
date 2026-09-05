@@ -20,6 +20,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from . import tmux
+from .i18n import _
 from .model import SessionEntry, Source
 from .tmux import Pane, SplitDirection, TmuxError
 
@@ -247,7 +248,7 @@ def resume_command(entry: SessionEntry, memory: MemoryLimit | None = None) -> Re
     """构造 resume 命令。纯函数，好测。"""
     spec = RESUME_PROGRAMS.get(entry.source)
     if spec is None:
-        raise DispatchError(f"不认识的会话来源: {entry.source}")
+        raise DispatchError(_("不认识的会话来源: {entry_source}").format(entry_source=entry.source))
     program, *flags = spec
     label = entry.name or entry.title
     return ResumeCommand(
@@ -319,22 +320,24 @@ def dispatch(
     # cwd 没了就别投 —— `cd` 失败会让整条命令静默中止，用户看不出原因。
     if cwd_missing(entry):
         raise DispatchError(
-            f"这条会话的工作目录已经不存在了：{entry.cwd}\n"
-            f"        投递会执行 `cd` 到该目录，失败后整条命令会中止、claude 不会启动。\n"
-            f"        （常见原因：/tmp 下的 scratchpad 被清理、git worktree 被删、项目目录移动过）"
+            _(
+                "这条会话的工作目录已经不存在了：{entry_cwd}\n        投递会执行 `cd` 到该目录，"
+                "失败后整条命令会中止、claude 不会启动。\n        "
+                "（常见原因：/tmp 下的 scratchpad 被清理、git worktree 被删、项目目录移动过）"
+            ).format(entry_cwd=entry.cwd)
         )
 
     if target.kind is TargetKind.PRINT:
         return DispatchResult(entry=entry, command=command, pane_id=None, created_pane=False)
 
     if not tmux.has_server():
-        raise DispatchError("没有正在运行的 tmux server —— 先 `tmux new -s main`，或用 --print")
+        raise DispatchError(_("没有正在运行的 tmux server —— 先 `tmux new -s main`，或用 --print"))
 
     created = False
     try:
         if target.kind is TargetKind.EXISTING:
             if not target.pane_id:
-                raise DispatchError("投递到已有 pane 需要 pane_id")
+                raise DispatchError(_("投递到已有 pane 需要 pane_id"))
             pane_id = target.pane_id
             if not force:
                 pane = _lookup_pane(pane_id)
@@ -356,7 +359,9 @@ def dispatch(
             created = True
 
         else:  # pragma: no cover - StrEnum 已穷举
-            raise DispatchError(f"不认识的投递目标: {target.kind}")
+            raise DispatchError(
+                _("不认识的投递目标: {target_kind}").format(target_kind=target.kind)
+            )
 
         tmux.send_line(pane_id, command.shell_line())
         if focus:
@@ -371,7 +376,7 @@ def _lookup_pane(pane_id: str) -> Pane:
     for pane in tmux.list_panes():
         if pane.id == pane_id:
             return pane
-    raise DispatchError(f"找不到 pane {pane_id}")
+    raise DispatchError(_("找不到 pane {pane_id}").format(pane_id=pane_id))
 
 
 def _try_focus(pane_id: str) -> None:
