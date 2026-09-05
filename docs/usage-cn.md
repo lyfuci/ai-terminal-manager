@@ -35,6 +35,7 @@ atm swap %7 --into %3     # 把 %7 换进 %3
 atm park                  # 当前格子收进 bg
 atm prune -n              # 看看 bg 里有哪些空闲 shell 可以关（去掉 -n 才真关）
 atm index --rebuild       # 清缓存全量重建
+atm update                # 升级 atm 自己（识别 uv tool / pipx / pip）；--check 只看不升
 ```
 
 > 投递默认套一层 cgroup 内存闸门（`MemoryHigh=2G` / `MemoryMax=4G`）。

@@ -67,7 +67,7 @@ git clone https://github.com/lyfuci/ai-terminal-manager
 uv tool install ./ai-terminal-manager
 ```
 
-没有 uv 用 `pipx install ai-terminal-manager` 也一样。升级：`uv tool upgrade ai-terminal-manager`（git 装法则重跑加 `--reinstall`）。
+没有 uv 用 `pipx install ai-terminal-manager` 也一样。升级：**`atm update`**——它会识别 atm 是怎么装的（uv tool / pipx / pip，PyPI 还是 git）并跑对应的升级命令；`atm update --check` 只看不升。
 
 ### 体检、键位、持久化
 

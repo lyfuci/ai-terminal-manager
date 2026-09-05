@@ -182,6 +182,19 @@ eval "$(atm pick --print)"
 ```
 
 
+## 升级
+
+```bash
+atm update            # 识别安装方式后跑对应命令：uv tool upgrade / pipx upgrade / pip install -U
+atm update --check    # 只比对版本，不动
+atm --version
+```
+
+识别依据是 `sys.executable` 的路径（`…/uv/tools/…`、`…/pipx/venvs/…`）和 PEP 610 的 `direct_url.json`
+（git 装的跟 main 最新 commit，PyPI 装的跟最新发行版；editable 装的只提示 `git pull`，不代劳）。
+**不要**对 uv tool 装的 atm 用 `pip install -U`：那会装进另一个解释器，PATH 上的 `atm` 还是旧的；
+而且 PyPI 上的 `atm` 是别人的包，本项目叫 `ai-terminal-manager`。
+
 ## 内存闸门（默认开）
 
 两层，都是 cgroup：

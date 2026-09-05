@@ -26,6 +26,7 @@ uv run --frozen pytest                 # full suite (--frozen is mandatory: bare
 uv run --frozen ruff check .           # lint (research/ is excluded)
 uv run --frozen ruff format --check .
 uv run --frozen atm doctor             # data sources / tmux / persistence / memory gate in one pass
+atm update --check                     # how the installed atm was installed + whether PyPI has a newer release
 uv build                               # wheel + sdist; sdist excludes research/ (only-include)
 ```
 

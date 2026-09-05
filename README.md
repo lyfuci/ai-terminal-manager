@@ -79,8 +79,8 @@ git clone https://github.com/lyfuci/ai-terminal-manager
 uv tool install ./ai-terminal-manager
 ```
 
-Without uv, `pipx install ai-terminal-manager` works the same. To upgrade: `uv tool upgrade ai-terminal-manager`
-(or re-run the git form with `--reinstall`).
+Without uv, `pipx install ai-terminal-manager` works the same. To upgrade: **`atm update`** — it detects how atm was
+installed (uv tool / pipx / pip, PyPI or git) and runs the matching upgrade; `atm update --check` only looks.
 
 ### Check-up, key bindings, persistence
 
