@@ -49,8 +49,12 @@ class Row:
 
 
 class ConfigEditor(_Screen):
-    def __init__(self, cfg: config.Config, sources: dict[str, str]) -> None:
-        self._original = cfg
+    def __init__(
+        self, cfg: config.Config, sources: dict[str, str], *, file_cfg: config.Config | None = None
+    ) -> None:
+        # 展示有效值，但只把用户编辑过的字段写回文件层。
+        self._original = file_cfg if file_cfg is not None else cfg
+        self._file_cfg = self._original
         self._cfg = cfg
         self._sources = dict(sources)
         self._rows = tuple(
@@ -93,7 +97,7 @@ class ConfigEditor(_Screen):
 
     @property
     def dirty(self) -> bool:
-        return self._cfg != self._original
+        return self._file_cfg != self._original
 
     def value_of(self, row: Row) -> str:
         value = getattr(self._cfg, row.field)
@@ -198,7 +202,7 @@ class ConfigEditor(_Screen):
         if row.is_bool:
             current = getattr(self._cfg, row.field)
             self._cfg = replace(self._cfg, **{row.field: not current})
-            self._sources[row.key] = "file"
+            self._record_edit(row)
             return
         self._editing = True
         self._buffer = self.value_of(row)
@@ -211,19 +215,24 @@ class ConfigEditor(_Screen):
         except config.ConfigError as exc:
             self._error = str(exc)
             return  # 停在编辑态让人改
-        self._sources[row.key] = "file"
+        self._record_edit(row)
         self._editing = False
         self._error = None
 
     def _reset_selected(self) -> None:
         row = self._rows[self._cursor]
         self._cfg = config.unset_value(self._cfg, row.key)
-        self._sources[row.key] = "default"
+        self._record_edit(row, "default")
         self._status = _("{key} 已恢复默认（未保存）").format(key=row.key)
+
+    def _record_edit(self, row: Row, source: str = "file") -> None:
+        self._file_cfg = replace(self._file_cfg, **{row.field: getattr(self._cfg, row.field)})
+        if not self.env_override(row):
+            self._sources[row.key] = source
 
     def _save(self) -> Action:
         try:
-            path = config.save(self._cfg)
+            path = config.save(self._file_cfg)
         except config.ConfigError as exc:
             self._error = str(exc)  # 跨字段校验（如 keys.pick == keys.sidebar）
             return Action.NONE
@@ -232,8 +241,8 @@ class ConfigEditor(_Screen):
             return Action.NONE
         from . import sync
 
-        notes = sync.apply_changes(self._original, self._cfg)
-        self._original = self._cfg
+        notes = sync.apply_changes(self._original, self._file_cfg)
+        self._original = self._file_cfg
         self._status = "；".join([_("已保存 → {path}").format(path=path), *notes])
         return Action.SAVED_AND_QUIT
 
@@ -264,6 +273,8 @@ class ConfigEditor(_Screen):
             return _("true / false")
         if kind == "int":
             return _("0 或 1") if key == "tmux.base-index" else _("非负整数")
+        if key == "keys.conf-path":
+            return _("文件路径；空串 = ~/.tmux.conf")
         if key == "memory.slice":
             return _("形如 name.slice")
         if key in ("memory.slice-high", "memory.slice-max"):
@@ -418,7 +429,7 @@ class ConfigEditor(_Screen):
 def run_config_editor() -> int:
     """入口：返回 0 表示正常退出（含保存），非 0 表示配置文件读不了。"""
     cfg, sources = config.load_with_sources()
-    editor = ConfigEditor(cfg, sources)
+    editor = ConfigEditor(cfg, sources, file_cfg=config.load_file())
     curses.wrapper(editor.run)
     if editor.status:
         print(editor.status)

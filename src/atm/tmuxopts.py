@@ -30,14 +30,13 @@ class OptionSpec:
     """一个 tmux.* 键怎么变成 tmux 命令。
 
     `active(value)` 为真才写；`on(value)` 是要下的命令（argv 列表，`set-option` 开头）；
-    `off` 是把它恢复到 tmux 默认的命令 —— 用户在配置里关掉后对活着的 server 用。
+    关闭时只撤文件里的设置；运行中可能已有用户值，不能猜一个默认值去覆盖。
     """
 
     field: str
     tmux_names: tuple[str, ...]  # 块里出现这些选项名就算「之前开着」
     active: Callable[[object], bool]
     on: Callable[[object], list[list[str]]]
-    off: list[list[str]]
 
 
 SPECS: dict[str, OptionSpec] = {
@@ -46,21 +45,18 @@ SPECS: dict[str, OptionSpec] = {
         tmux_names=("mouse",),
         active=bool,
         on=lambda v: [["set-option", "-g", "mouse", "on"]],
-        off=[["set-option", "-g", "mouse", "off"]],
     ),
     "focus-events": OptionSpec(
         field="tmux_focus_events",
         tmux_names=("focus-events",),
         active=bool,
         on=lambda v: [["set-option", "-g", "focus-events", "on"]],
-        off=[["set-option", "-g", "focus-events", "off"]],
     ),
     "history-limit": OptionSpec(
         field="tmux_history_limit",
         tmux_names=("history-limit",),
         active=lambda v: int(v) > 0,
         on=lambda v: [["set-option", "-g", "history-limit", str(v)]],
-        off=[["set-option", "-g", "history-limit", "2000"]],
     ),
     "base-index": OptionSpec(
         field="tmux_base_index",
@@ -70,17 +66,12 @@ SPECS: dict[str, OptionSpec] = {
             ["set-option", "-g", "base-index", str(v)],
             ["set-option", "-gw", "pane-base-index", str(v)],
         ],
-        off=[
-            ["set-option", "-g", "base-index", "0"],
-            ["set-option", "-gw", "pane-base-index", "0"],
-        ],
     ),
     "renumber-windows": OptionSpec(
         field="tmux_renumber_windows",
         tmux_names=("renumber-windows",),
         active=bool,
         on=lambda v: [["set-option", "-g", "renumber-windows", "on"]],
-        off=[["set-option", "-g", "renumber-windows", "off"]],
     ),
 }
 
@@ -113,6 +104,8 @@ class TmuxOptsPlan:
     def is_noop(self) -> bool:
         """文件里已经是这样了，什么都不用写。"""
         existing = _read(self.conf_path) if self.already_installed else ""
+        # 块内容相同也不能掩盖后面缺 END 的第二个块。
+        _strip_block(existing, MARKER_BEGIN, MARKER_END)
         if not self.enabled:
             return not self.already_installed
         return self.block in existing
@@ -121,14 +114,17 @@ class TmuxOptsPlan:
         if not self.enabled and not self.already_installed:
             return _("tmux 常用选项（atm config tmux.*）都没开，不写。")
         if not self.enabled:
-            return _("将从 {path} 移除 tmux 选项块（全部关了）").format(path=self.conf_path)
+            return "\n".join(
+                [
+                    _("将从 {path} 移除 tmux 选项块（全部关了）").format(path=self.conf_path),
+                    disabled_note(self.to_turn_off),
+                ]
+            )
         lines = [_("将写入 {path} 最前面（tmux 选项块）：").format(path=self.conf_path), ""]
         lines += [f"  {line}" for line in self.block.splitlines()]
         if self.to_turn_off:
             lines.append("")
-            lines.append(
-                _("并对运行中的 server 恢复默认：{names}").format(names=", ".join(self.to_turn_off))
-            )
+            lines.append(disabled_note(self.to_turn_off))
         if self.already_installed and not self.is_noop:
             lines.append(_("（已存在 tmux 选项块，会被整块替换掉，不会重复追加）"))
         return "\n".join(lines)
@@ -141,6 +137,7 @@ class TmuxOptsResult:
     written: bool  # 文件有没有动
     applied_live: bool
     live_error: str | None
+    disabled: tuple[str, ...] = ()
 
 
 def build_plan(cfg: config_mod.Config, *, conf_path: Path | None = None) -> TmuxOptsPlan:
@@ -179,17 +176,22 @@ def apply(plan: TmuxOptsPlan, *, live: bool = True) -> TmuxOptsResult:
 
     applied_live = False
     live_error: str | None = None
-    if live and (plan.commands or plan.to_turn_off) and tmux.has_server():
+    if live and plan.commands and tmux.has_server():
         try:
             for argv in plan.commands:
                 tmux.run(list(argv))
-            for name in plan.to_turn_off:
-                for argv in SPECS[name].off:
-                    tmux.run(argv)
             applied_live = True
         except tmux.TmuxError as exc:
             live_error = str(exc)
-    return TmuxOptsResult(plan.conf_path, backup, written, applied_live, live_error)
+    return TmuxOptsResult(
+        plan.conf_path, backup, written, applied_live, live_error, plan.to_turn_off
+    )
+
+
+def disabled_note(names: tuple[str, ...]) -> str:
+    return _("关闭选项 {names}：运行中的值保持不变，变更对新 tmux server 生效。").format(
+        names=", ".join(names)
+    )
 
 
 def sync(cfg: config_mod.Config, *, conf_path: Path | None = None) -> TmuxOptsResult:

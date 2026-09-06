@@ -68,6 +68,16 @@ ATM_LANG=en atm --help         # 界面语言：跟系统 LC_ALL / LC_MESSAGES /
 `atm install --conf PATH` / `atm uninstall --conf PATH` 可以指向 `~/.tmux.conf` 以外的配置。
 `eval "$(atm pick --print)"` 在 stdout 被接走时也能用：选择器画在 `/dev/tty` 上。
 
+## 配置变更
+
+配置编辑只保存文件值和你明确修改的项；环境变量覆盖保持临时生效，编辑器修改后仍保留 `← env` 标记。`atm config --reset` 删除 TOML，并按默认值同步 tmux 块和总量限制；这次重置仍使用原安装路径。环境变量在运行时仍有优先权。
+
+`atm install --conf PATH` 把绝对路径记到 `keys.conf-path`（TOML 的 `[keys]` 下写作 `conf_path`；空串表示 `~/.tmux.conf`）。后续配置编辑、安装和卸载沿用它，显式 `--conf` 可覆盖。重置也会清掉路径记录，之后安装或卸载需再次传 `--conf PATH`。直接改路径设置只选择后续编辑的目标，不搬迁现有块。
+
+`atm install --key s` 和 `atm config keys.pick s` 都先写入并绑定新键，成功后才解绑原安装块里的废弃键；写入或重绑失败时保留旧绑定。标记不完整或嵌套时拒绝修改文件。
+
+开启 tmux 选项仍立即生效。关闭选项只撤掉文件中 atm 的设置，运行中的值保持不变；变更对新 tmux server 生效，届时按你自己的配置加载。总量 slice 只支持 `memory.user=true`：系统模式（`memory.user=false`）会明确拒绝安装，请自行配置系统单元。`daemon-reload` 失败会报告「文件已写入，重载失败」及具体原因，不会报成成功。
+
 ## 内存闸门：`atm claude` 和 `claude` 的区别
 
 ```bash

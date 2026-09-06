@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -62,6 +63,8 @@ class Config:
     memory_slice_max: str = "auto"
     # tmux 键位：prefix + pick 唤出选择器（大写 = 只看当前目录），prefix + sidebar 开关侧栏
     # （大写 = 把当前格子收进后台）。浮层尺寸给 display-popup 的 -w / -h。
+    # 安装位置随配置保存，让后续同步仍能找到同一份 tmux 文件。
+    keys_conf_path: str = ""
     keys_pick: str = "a"
     keys_sidebar: str = "b"
     keys_popup_width: str = "80%"
@@ -102,6 +105,7 @@ KEYS: dict[str, str] = {
     "memory.user": "memory_user",
     "memory.slice-high": "memory_slice_high",
     "memory.slice-max": "memory_slice_max",
+    "keys.conf-path": "keys_conf_path",
     "keys.pick": "keys_pick",
     "keys.sidebar": "keys_sidebar",
     "keys.popup-width": "keys_popup_width",
@@ -122,6 +126,7 @@ _HELP: dict[str, str] = {
     "memory.user": "systemd-run 是否走 --user（一般 true）",
     "memory.slice-high": "总量软限（所有 atm 会话合计）：auto = 物理内存 50%，或写死如 24G",
     "memory.slice-max": "总量硬限：auto = 物理内存 65%，或写死如 31G",
+    "keys.conf-path": "安装的 tmux 配置路径；空串 = ~/.tmux.conf",
     "keys.pick": "prefix + 这个键唤出选择器（大写 = 只看当前目录）。单个小写字母",
     "keys.sidebar": "prefix + 这个键开关侧栏（大写 = 把当前格子收进后台）。单个小写字母",
     "keys.popup-width": "选择器浮层宽度，给 display-popup -w（如 80% 或 120）",
@@ -155,7 +160,14 @@ def load(path: Path | None = None) -> Config:
     return load_with_sources(path)[0]
 
 
-def load_with_sources(path: Path | None = None) -> tuple[Config, dict[str, str]]:
+def load_file(path: Path | None = None) -> Config:
+    """只读文件和默认值；保存时不能把临时环境变量固化进去。"""
+    return load_with_sources(path, include_env=False)[0]
+
+
+def load_with_sources(
+    path: Path | None = None, *, include_env: bool = True
+) -> tuple[Config, dict[str, str]]:
     """同 load()，外加每个 key 的值来自哪里：default / file / env。`atm config` 用它标来源。"""
     p = path or config_path()
     sources = dict.fromkeys(KEYS, "default")
@@ -169,6 +181,8 @@ def load_with_sources(path: Path | None = None) -> tuple[Config, dict[str, str]]
     for key, field in KEYS.items():
         if getattr(cfg, field) != getattr(Config(), field):
             sources[key] = "file"
+    if not include_env:
+        return cfg, sources
     for key, field in KEYS.items():
         env_value = os.environ.get(env_var_for(key))
         if env_value is not None and env_value != "":
@@ -299,7 +313,7 @@ def to_json(cfg: Config, sources: dict[str, str]) -> dict:
 def dumps(cfg: Config) -> str:
     """扁平 TOML：每个段一个表（[memory] / [tmux]），字符串和布尔。不支持别的类型，也不需要。"""
     lines = [
-        _("# atm 的用户配置。改完立即生效，不用重启。"),
+        _("# atm 的用户配置。保存后同步；关闭 tmux 选项对新 server 生效。"),
         _("# `atm config` 查看，`atm config <key> <value>` 修改。"),
     ]
     sections = dict.fromkeys(k.split(".", 1)[0] for k in KEYS)  # 保持 KEYS 里的出现顺序
@@ -315,7 +329,7 @@ def dumps(cfg: Config) -> str:
             elif isinstance(value, int):
                 lines.append(f"{name} = {value}")
             else:
-                lines.append(f'{name} = "{value}"')
+                lines.append(f"{name} = {json.dumps(value, ensure_ascii=False)}")
     return "\n".join(lines) + "\n"
 
 
@@ -341,6 +355,8 @@ def _coerce(key: str, value: object):
             )
         return n
     s = str(value).strip()
+    if key == "keys.conf-path":
+        return str(Path(s).expanduser().resolve()) if s else ""
     if key == "memory.slice":
         if not re.match(r"^[\w.-]+\.slice$", s):
             raise ConfigError(

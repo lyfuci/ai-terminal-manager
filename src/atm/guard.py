@@ -134,8 +134,22 @@ def install(
         high, max_ = high or auto_high, max_ or auto_max
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(unit_text(high=high, max_=max_), encoding="utf-8")
-    _daemon_reload()
+    _reload_after_write()
     return path, True
+
+
+class UnsupportedManager(RuntimeError):
+    """用户目录里的单元无法约束系统 scope，不能把写错位置报成安装成功。"""
+
+
+def require_user_manager(cfg: config_mod.Config) -> None:
+    if not cfg.memory_user:
+        raise UnsupportedManager(
+            _(
+                "memory.user=false：不支持安装系统级总量 slice；"
+                "请自行配置系统单元，或设 memory.user=true。"
+            )
+        )
 
 
 def sync(
@@ -148,6 +162,7 @@ def sync(
     unchanged —— 是 atm 写的、数没变
     kept-user —— 用户自己写的，不动
     """
+    require_user_manager(cfg)
     high, max_ = resolve_totals(cfg, total_bytes=total_bytes)
     st = status(cfg.memory_slice, directory)
     if not st.exists:
@@ -158,12 +173,16 @@ def sync(
     if (st.high, st.max) == (high, max_):
         return st.path, "unchanged"
     st.path.write_text(unit_text(high=high, max_=max_), encoding="utf-8")
-    _daemon_reload()
+    _reload_after_write()
     return st.path, "updated"
 
 
 def describe_plan(cfg: config_mod.Config, directory: Path | None = None) -> str:
     """`atm install --print` 用：会不会写、写多少。"""
+    try:
+        require_user_manager(cfg)
+    except UnsupportedManager as exc:
+        return str(exc)
     high, max_ = resolve_totals(cfg)
     st = status(cfg.memory_slice, directory)
     if st.exists and not st.ours:
@@ -192,17 +211,44 @@ def remove(slice_name: str, directory: Path | None = None) -> bool:
     if not (st.exists and st.ours):
         return False
     st.path.unlink()
-    _daemon_reload()
+    error = _daemon_reload()
+    if error:
+        raise ReloadFailed(_("文件已删除，重载失败：{err}").format(err=error))
     return True
 
 
-def _daemon_reload() -> None:
+class ReloadFailed(RuntimeError):
+    """单元文件已改动，只有 manager 重载失败，不能报成写文件失败。"""
+
+
+def _reload_after_write() -> None:
+    error = _daemon_reload()
+    if error:
+        raise ReloadFailed(_("文件已写入，重载失败：{err}").format(err=error))
+
+
+def _daemon_reload() -> str | None:
+    """重载失败的原因，None = 成功。
+
+    机器上**没有** systemctl 时返回 None 而不是报错：那种环境本来就没有 manager 要重载，
+    单元文件写了也只是躺着。把它当失败会让 `atm uninstall` 在非 systemd 机器上整条命令失败。
+    """
     if shutil.which("systemctl") is None:
-        return
-    subprocess.run(
-        ["systemctl", "--user", "daemon-reload"],
-        capture_output=True,
-        text=True,
-        timeout=15,
-        check=False,
-    )
+        return None
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "daemon-reload"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return str(exc)
+    if result.returncode:
+        return (
+            result.stderr.strip()
+            or result.stdout.strip()
+            or _("systemctl 退出码 {code}").format(code=result.returncode)
+        )
+    return None

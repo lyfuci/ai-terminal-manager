@@ -235,6 +235,10 @@ def apply(plan: InstallPlan, *, live: bool = True) -> InstallResult:
     live_error: str | None = None
     if live:
         applied_live, live_error = _apply_live(plan)
+        if applied_live:
+            # 安装和配置同步共用此顺序；旧键取自实际块，避免配置已改后漏解绑。
+            current = {binding.key.lower() for binding in plan.bindings}
+            unbind_live(tuple(k for k in _installed_keys(existing) if k not in current))
 
     return InstallResult(
         conf_path=plan.conf_path,
@@ -242,6 +246,25 @@ def apply(plan: InstallPlan, *, live: bool = True) -> InstallResult:
         applied_live=applied_live,
         live_error=live_error,
     )
+
+
+def _installed_keys(text: str) -> tuple[str, ...]:
+    inside = False
+    keys: dict[str, None] = {}
+    for line in text.splitlines():
+        if line.strip() == MARKER_BEGIN:
+            inside = True
+        elif line.strip() == MARKER_END:
+            inside = False
+        elif inside:
+            parts = line.split()
+            if (
+                len(parts) >= 3
+                and parts[0] == "bind-key"
+                and _VALID_KEY.fullmatch(parts[1].lower())
+            ):
+                keys[parts[1].lower()] = None
+    return tuple(keys)
 
 
 def remove(conf_path: Path | None = None) -> tuple[bool, Path | None]:
@@ -324,16 +347,22 @@ def _strip_block(text: str, begin: str = MARKER_BEGIN, end: str = MARKER_END) ->
 
     lines = text.splitlines()
 
-    # 先确认 BEGIN/END 成对。缺 END 时**一行都不删** ——
-    # 之前的单遍状态机会让 inside 一直为真到 EOF，把标记之后用户自己的配置全部吃掉。
-    begins = [i for i, ln in enumerate(lines) if ln.strip() == begin]
-    ends = [i for i, ln in enumerate(lines) if ln.strip() == end]
-    if not ends or ends[-1] < begins[0]:
+    # 每一对都必须完整且不能嵌套；只检查最后一个 END 会漏掉尾部的第二个 BEGIN。
+    inside = False
+    invalid = False
+    for line in lines:
+        marker = line.strip()
+        if marker == begin:
+            invalid |= inside
+            inside = True
+        elif marker == end:
+            invalid |= not inside
+            inside = False
+    if inside or invalid:
         raise ConfUnreadable(
-            _(
-                "{begin} 有开始标记但找不到对应的 {end}。"
-                "为避免误删标记之后的配置，这里不做任何改动 —— 请手动检查 ~/.tmux.conf。"
-            ).format(begin=begin, end=end)
+            _("{begin} / {end} 标记没有正确配对；为避免误删用户配置，没有改动文件。").format(
+                begin=begin, end=end
+            )
         )
 
     out: list[str] = []
