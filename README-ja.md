@@ -87,7 +87,7 @@ atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/contin
 
 表示言語はシステムの locale に従う（日 / 英 / 中）、`ATM_LANG=ja|en|zh` で強制可。
 
-設定編集で環境変数の上書きを保存せず、リセット時もインストール済み設定を同期する。`atm install --conf PATH` は `keys.conf-path` を保存し、以後の編集とアンインストールに使う。キー変更は新キーの割り当て後に旧キーを解除する。tmux オプションの無効化は実行中の値を維持し、新 server に反映する。合計 slice はユーザー manager のみ対応し、再読み込みの失敗は明示する。詳しくは[設定の変更](docs/usage-ja.md#設定の変更)。
+設定編集で環境変数の上書きを保存せず、リセット時もインストール済み設定を同期する。`atm install --conf PATH` は `keys.conf-path` を保存し、以後の編集とアンインストールに使う。キー変更は新キーの割り当て後に旧キーを解除する。tmux オプションの無効化は実行中の値を維持し、新 server に反映する。合計 slice はユーザー manager のみ対応し、再読み込みの失敗は明示する。詳しくは[設定の変更](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage-ja.md#設定の変更)。
 
 任意：`atm config memory.high 4G` を一度設定すれば、以後 `atm claude` / `atm codex` / `atm pi` は cgroup のメモリゲート内で起動する；
 素の `claude` は制限なしのまま——プレフィックスが選択。詳細は [docs/usage-ja.md](docs/usage-ja.md)。
