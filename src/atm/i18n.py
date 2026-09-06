@@ -34,17 +34,29 @@ def reset_lang() -> None:
 
 
 def _detect() -> str:
+    return _detect_with_source()[0]
+
+
+def lang_source() -> str:
+    """当前语言是谁决定的：`ATM_LANG` / `LC_ALL` / `LC_MESSAGES` / `LANG` / `locale` / `default`。
+
+    给 `atm config` 的说明面板用 —— 用户看到界面是英文时，一眼知道该改哪个变量。
+    """
+    return _detect_with_source()[1]
+
+
+def _detect_with_source() -> tuple[str, str]:
     forced = os.environ.get("ATM_LANG", "").strip().lower()
     if forced:
-        return forced if forced in SUPPORTED else "en"
+        return (forced if forced in SUPPORTED else "en"), "ATM_LANG"
     for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
         value = os.environ.get(var, "").strip()
         if not value:
             continue
         if value in ("C", "POSIX") or value.startswith(("C.", "POSIX.")):
-            return "en"
+            return "en", var
         code = value[:2].lower()
-        return code if code in SUPPORTED else "en"
+        return (code if code in SUPPORTED else "en"), var
     # 环境变量全空（某些 Windows 终端 / 服务里起的进程）：问一下 Python 的 locale 兜底
     try:
         import locale
@@ -52,7 +64,9 @@ def _detect() -> str:
         sys_locale = (locale.getlocale()[0] or "")[:2].lower()
     except (ValueError, TypeError):
         sys_locale = ""
-    return sys_locale if sys_locale in SUPPORTED else "en"
+    if sys_locale in SUPPORTED:
+        return sys_locale, "locale"
+    return "en", "default"
 
 
 def tr(message: str) -> str:

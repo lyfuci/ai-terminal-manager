@@ -15,12 +15,17 @@ from __future__ import annotations
 
 import curses
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from enum import StrEnum
 
-from . import config
+from . import config, i18n
 from .i18n import _
+from .text import display_width, truncate_display, wrap_display
 from .tui import _color, _Screen
+
+# 终端够宽才在右边放说明面板；窄了退回底部一行。列表本身要 ~50 列（键名 + 值 + 来源）。
+_PANEL_MIN_WIDTH = 90
+_LIST_MIN_WIDTH = 52
 
 _KEY_ESC = 27
 _KEY_ENTER = (curses.KEY_ENTER, 10, 13)
@@ -241,6 +246,58 @@ class ConfigEditor(_Screen):
         self._status = _("有未保存的改动：s 保存并退出，再按一次 q 放弃")
         return Action.NONE
 
+    # ------------------------------------------------------------ 说明面板（纯逻辑，可测）
+
+    @staticmethod
+    def panel_x(width: int) -> int | None:
+        """面板从第几列开始；None = 太窄，不画面板。"""
+        if width < _PANEL_MIN_WIDTH:
+            return None
+        return max(_LIST_MIN_WIDTH, width * 11 // 20)
+
+    @staticmethod
+    def format_hint(key: str) -> str:
+        """这个键接受什么样的值。和 config._coerce 的规则一一对应。"""
+        field = config.KEYS[key]
+        kind = next(f.type for f in fields(config.Config) if f.name == field)
+        if kind == "bool":
+            return _("true / false")
+        if kind == "int":
+            return _("0 或 1") if key == "tmux.base-index" else _("非负整数")
+        if key == "memory.slice":
+            return _("形如 name.slice")
+        if key in ("memory.slice-high", "memory.slice-max"):
+            return _("auto，或 24G / 512M 这样的大小")
+        if key in ("keys.pick", "keys.sidebar"):
+            return _("单个小写字母")
+        if key in ("keys.popup-width", "keys.popup-height"):
+            return _("80% 或 120")
+        return _("4G / 512M / infinity 这样的大小")
+
+    def panel_lines(self, row: Row, width: int) -> list[str]:
+        """面板正文，已按 width 折行。第一行是键名（调用方加粗）。"""
+        default = getattr(config.Config(), row.field)
+        default_shown = str(default).lower() if isinstance(default, bool) else str(default)
+        src = self._sources.get(row.key, "default")
+        lines: list[str] = [row.key, ""]
+        lines += wrap_display(_(config._HELP[row.key]), width)
+        lines.append("")
+        lines += wrap_display(_("格式：{v}").format(v=self.format_hint(row.key)), width)
+        lines.append(_("默认：{v}").format(v=default_shown))
+        lines.append(_("环境变量：{v}").format(v=config.env_var_for(row.key)))
+        lines.append(_("来源：{v}").format(v=src))
+        if self.env_override(row):
+            lines.append("")
+            lines += wrap_display(_("⚠ 环境变量覆盖中，改文件不生效；先 unset 它"), width)
+        lines.append("")
+        lines += wrap_display(
+            _("界面语言：{lang}（来自 {source}；ATM_LANG=zh|en|ja 可强制）").format(
+                lang=i18n.lang(), source=i18n.lang_source()
+            ),
+            width,
+        )
+        return lines
+
     # ------------------------------------------------------------ 画屏
 
     def run(self, stdscr: curses.window) -> Action:
@@ -259,7 +316,9 @@ class ConfigEditor(_Screen):
 
     def _draw(self, stdscr: curses.window) -> None:
         stdscr.erase()
-        height, _width = stdscr.getmaxyx()
+        height, width = stdscr.getmaxyx()
+        panel_x = self.panel_x(width)
+        list_limit = (panel_x - 1) if panel_x is not None else width - 1
         path = config.config_path()
         title = _("atm 配置  {path}{note}").format(
             path=path, note="" if path.exists() else _("（尚不存在，保存时创建）")
@@ -290,25 +349,33 @@ class ConfigEditor(_Screen):
             marker = "▸ " if selected else "  "
             x = self._put(stdscr, y, 0, marker + row.key.ljust(key_w), attr | _color(3))
             if selected and self._editing:
-                x = self._put(stdscr, y, x, self._buffer + "▏", attr | _color(2))
+                text = self._buffer + "▏"
+                x = self._put(
+                    stdscr, y, x, truncate_display(text, list_limit - x), attr | _color(2)
+                )
             else:
-                x = self._put(stdscr, y, x, self.value_of(row).ljust(val_w), attr)
+                text = self.value_of(row).ljust(val_w)
+                x = self._put(stdscr, y, x, truncate_display(text, list_limit - x), attr)
             src = self._sources.get(row.key, "default")
             if src != "default":
-                self._put(stdscr, y, x + 1, f"← {src}", attr | _color(4))
-            env = self.env_override(row)
-            if env:
+                tag = truncate_display(f"← {src}", max(0, list_limit - x - 1))
+                x = self._put(stdscr, y, x + 1, tag, attr | _color(4))
+            if self.env_override(row) and panel_x is None:
+                note = _("（环境变量覆盖中，改文件不生效）")
                 self._put(
                     stdscr,
                     y,
-                    x + 1 + len(src) + 3,
-                    _("（环境变量覆盖中，改文件不生效）"),
+                    x + 1,
+                    truncate_display(note, max(0, list_limit - x - 1)),
                     attr | _color(6),
                 )
 
         row = self._rows[self._cursor]
-        help_y = height - 3
-        self._put(stdscr, help_y, 0, _(config._HELP[row.key]), _color(5))
+        if panel_x is not None:
+            self._draw_panel(stdscr, row, panel_x, 3, height - 5, width)
+        else:
+            # 窄终端：说明退回底部一行
+            self._put(stdscr, height - 3, 0, _(config._HELP[row.key]), _color(5))
         if self._error:
             self._put(stdscr, height - 2, 0, "❌ " + self._error, _color(6))
         elif self._status:
@@ -323,6 +390,29 @@ class ConfigEditor(_Screen):
         self._put(stdscr, height - 1, 0, footer, _color(5))
         self._draw_help(stdscr)
         stdscr.refresh()
+
+    def _draw_panel(
+        self, stdscr: curses.window, row: Row, x0: int, y0: int, y1: int, width: int
+    ) -> None:
+        """右侧带边框的说明面板：占 x0 .. width-2，y0 .. y1。放不下的行直接不画。"""
+        box_w = width - 1 - x0
+        inner = box_w - 2
+        if inner < 8 or y1 - y0 < 2:
+            return
+        lines = self.panel_lines(row, inner - 2)
+        self._put(stdscr, y0, x0, "┌" + "─" * inner + "┐", _color(1))
+        body = y1 - y0 - 1
+        for i in range(body):
+            y = y0 + 1 + i
+            text = lines[i] if i < len(lines) else ""
+            self._put(stdscr, y, x0, "│", _color(1))
+            attr = curses.A_BOLD | _color(3) if i == 0 else 0
+            if text.startswith("⚠"):
+                attr = _color(6)
+            pad = " " * max(0, inner - 1 - display_width(text))
+            self._put(stdscr, y, x0 + 1, " " + text + pad, attr)
+            self._put(stdscr, y, x0 + box_w - 1, "│", _color(1))
+        self._put(stdscr, y1, x0, "└" + "─" * inner + "┘", _color(1))
 
 
 def run_config_editor() -> int:

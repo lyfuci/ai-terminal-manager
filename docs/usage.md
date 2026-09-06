@@ -75,7 +75,7 @@ the config first.
 ## Memory gate: `atm claude` vs `claude`
 
 ```bash
-atm config                     # interactive editor: ↑↓ pick a key, Enter edit/toggle, s save, ? help (atm config --show for plain text)
+atm config                     # interactive editor: ↑↓ pick a key, Enter edit/toggle, s save, ? help; a right-hand panel explains the selected key (format, default, env var, source) in the UI language (atm config --show for plain text)
 atm config memory.high 4G      # soft cap: throttle + reclaim, never kills
 atm config keys.pick s         # picker key (uppercase = current dir only); keys.sidebar, keys.popup-width/-height too. Saving rebinds the running server
 atm config tmux.mouse true     # common tmux options: mouse / focus-events / history-limit / base-index / renumber-windows → own block at the TOP of ~/.tmux.conf (your lines below win), applied live

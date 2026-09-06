@@ -71,7 +71,7 @@ ATM_LANG=ja atm --help         # 表示言語：LC_ALL / LC_MESSAGES / LANG に�
 ## メモリゲート：`atm claude` と `claude` の違い
 
 ```bash
-atm config                     # 対話エディタ：↑↓ でキー選択、Enter で編集/切替、s で保存、? でヘルプ（atm config --show は表示のみ）
+atm config                     # 対話エディタ：↑↓ でキー選択、Enter で編集/切替、s で保存、? でヘルプ；右パネルが選択中の項目を表示言語で説明（形式 / デフォルト / 環境変数 / 由来）（atm config --show は表示のみ）
 atm config memory.high 4G      # ソフト上限：スロットリング + 回収、殺さない
 atm config keys.pick s         # ピッカーキー（大文字 = 現在のディレクトリのみ）；keys.sidebar、keys.popup-width/-height も。保存で実行中の server に再割り当て
 atm config tmux.mouse true     # tmux 共通オプション：mouse / focus-events / history-limit / base-index / renumber-windows → ~/.tmux.conf の**先頭**に独立ブロック（下のあなたの行が勝つ）、即時適用

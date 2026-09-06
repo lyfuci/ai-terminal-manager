@@ -205,6 +205,7 @@ git 装的不经过索引，没有这个问题。
 ## 界面语言
 
 CLI 的输出、`--help`、TUI 提示、报错都有中 / 英 / 日三语。选择顺序：`ATM_LANG`（`zh` / `en` / `ja`）> `LC_ALL` > `LC_MESSAGES` > `LANG` > `locale.getlocale()`；`C` / `POSIX` 或认不出的语言 → 英文。
+`atm config` 编辑器右侧面板最后一行会告诉你当前界面语言和它来自哪个变量（`ATM_LANG` / `LC_ALL` / `LC_MESSAGES` / `LANG` / `locale` / `default`）。
 `--json` 的字段名与语言无关；`-v` 日志不翻译。源码里的消息是中文原文，翻译表在 `src/atm/i18n_catalog.py`，测试保证每条消息都有两种翻译且占位符一致——漏翻的会原样显示中文，不会崩。
 
 ## 日志与诊断
@@ -253,7 +254,7 @@ claude                       # 不带 atm 前缀 = 原生，不套任何限制
 ### 配置
 
 ```bash
-atm config                        # 终端里：交互式编辑器（↑↓ 选、Enter 改/切换、r 恢复默认、s 保存、? 帮助）；管道里 / --show：打印当前值和来源
+atm config                        # 终端里：交互式编辑器（↑↓ 选、Enter 改/切换、r 恢复默认、s 保存、? 帮助；≥90 列时右侧面板说明选中项：格式 / 默认 / 环境变量 / 来源 / 界面语言，窄了退回底部一行）；管道里 / --show：打印当前值和来源
 atm config memory.high 4G         # 软上限：超了节流 + 回收，不杀
 atm config memory.max 8G          # 硬上限：回收压不住才杀 —— 杀的是整个 scope，会话和它的子命令一起没
 atm config memory.enabled false   # 全关（atm claude 就等于 claude）
