@@ -80,6 +80,14 @@ path (measured). Sessions whose cwd resolves through neither the registry nor th
 scopes resume per project, so a wrong cwd cannot resume at all. Resume: `gemini --resume <full UUID>` (exact match, no
 prefixes).
 
+**opencode** — `~/.local/share/opencode/opencode.db` (SQLite; opencode 1.18.29, verified against a real database).
+The only source that is **not** one file per session. Its `session` table already carries `id`, `directory` (the cwd),
+`title` and millisecond timestamps, so it is the one adapter that never has to guess a title from message content —
+only a `New session - <ISO>` placeholder sends it back to the first user text part. Rows with a `parent_id` are
+sub-agent sessions and are excluded, like Codex's. To keep atm's one-FileRef-per-session pipeline (and its per-session
+cache invalidation) a synthetic path `<db>#<session_id>` is used with the row's own `time_updated` as the fingerprint.
+Connections are `mode=ro`: another tool's data is read-only. Resume: `opencode --session <id>`.
+
 **All three need injection-wrapper filtering**: Codex measurably inserts a 10,865-character
 `<recommended_plugins>…</environment_context>` before the real question; Claude has its
 `<local-command-caveat>` / `<command-name>` family; Pi's role enum is wider (`toolResult` / `bashExecution` /

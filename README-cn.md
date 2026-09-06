@@ -26,7 +26,7 @@ atm 就补这一层，别的都不碰。
 
 ## 它是什么、不是什么
 
-**是**：面向 AI CLI（Claude Code / Codex / Pi / Gemini CLI）的 tmux 会话管理器。三件事：
+**是**：面向 AI CLI（Claude Code / Codex / Pi / Gemini CLI / opencode）的 tmux 会话管理器。三件事：
 
 1. 把三家 CLI 各自的历史会话**合成一份列表**，模糊搜索，选一条**投进你指定的 tmux 格子**去 `--resume`；
 2. 一个可收纳的**常驻左侧栏**，列出正在跑的格子，选中就 `swap-pane` 换进主格，进程不断；
@@ -49,7 +49,7 @@ atm 就补这一层，别的都不碰。
 
 - Linux 或 WSL2 + **tmux ≥ 3.2**（`display-popup` 是 3.2 才有的；开发基准 3.6，3.4 实测兼容）
 - **Python ≥ 3.11**，零运行时依赖
-- 装了 Claude Code / Codex / Pi / Gemini CLI 至少一个（atm 只读它们写在 `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/`、`~/.gemini/tmp/*/chats/` 的会话文件）
+- 装了 Claude Code / Codex / Pi / Gemini CLI / opencode 至少一个（atm 只读它们写在 `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/`、`~/.gemini/tmp/*/chats/`、`~/.local/share/opencode/opencode.db` 的数据）
 
 ### 安装
 

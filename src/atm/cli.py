@@ -31,7 +31,7 @@ EXIT_ERROR = 1
 EXIT_CANCELLED = 130
 
 
-LAUNCH_PROGRAMS = ("claude", "codex", "pi", "gemini")
+LAUNCH_PROGRAMS = ("claude", "codex", "pi", "gemini", "opencode")
 
 
 _VERBOSE_FLAGS = {"-v": 1, "-vv": 2, "--verbose": 1}
@@ -685,6 +685,7 @@ def _doctor_report() -> dict:
     from .sources import claude as claude_src
     from .sources import codex as codex_src
     from .sources import gemini as gemini_src
+    from .sources import opencode as opencode_src
     from .sources import pi as pi_src
 
     config = _config_mod()
@@ -696,6 +697,7 @@ def _doctor_report() -> dict:
         ("codex", codex_src),
         ("pi", pi_src),
         ("gemini", gemini_src),
+        ("opencode", opencode_src),
     ):
         root = mod.DEFAULT_ROOT
         sources[name] = {

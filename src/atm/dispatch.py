@@ -169,6 +169,9 @@ RESUME_PROGRAMS: dict[Source, tuple[str, ...]] = {
     # 只吃**完整 UUID**（或纯数字序号），且只在会话所属项目的 cwd 下才找得到。
     # 细节见 sources/gemini.py。
     Source.GEMINI: ("gemini", "--resume"),
+    # 实测 `opencode --help`：`-s, --session  session id to continue`
+    # （TUI 和 `opencode run` 都认这个参数）
+    Source.OPENCODE: ("opencode", "--session"),
 }
 
 

@@ -70,6 +70,13 @@
 而 `projectHash` 实测是项目绝对路径的 sha256。注册表和上下文两条路都找不到 cwd 的会话直接丢弃 ——
 gemini 的 resume 按项目隔离，cwd 不对根本恢复不了。恢复：`gemini --resume <完整 UUID>`（精确比对，无前缀匹配）。
 
+**opencode** —— `~/.local/share/opencode/opencode.db`（SQLite；1.18.29，本机真实库实测）。
+**唯一一个不是「一个会话一个文件」的源。** `session` 表已经带 `id` / `directory`（cwd）/ `title` 和毫秒时间戳，
+所以它是五个里唯一不用从消息内容猜标题的；只有 `New session - <ISO>` 这种占位符才退回去取第一段用户文本。
+`parent_id` 非空的是子 agent 会话，和 codex 一样排除。为了保住「一个 FileRef 一条会话」的管线和按会话失效的缓存，
+用合成路径 `<db>#<session_id>`、指纹取该行的 `time_updated`。连接一律 `mode=ro`：别人的数据只读。
+恢复：`opencode --session <id>`。
+
 **三边都要防注入包装**：Codex 实测会在真实提问前塞一条 10865 字的
 `<recommended_plugins>…</environment_context>`，Claude 则是 `<local-command-caveat>` / `<command-name>` 那一套，
 Pi 的 role 枚举更宽（`toolResult` / `bashExecution` / `compactionSummary`），不过滤会让 bash 输出冒充标题。

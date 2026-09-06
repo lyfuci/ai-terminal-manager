@@ -16,7 +16,7 @@ from pathlib import Path
 from . import cache as cache_mod
 from .cache import CachedEntry, IndexCache
 from .model import FileRef, IndexStats, SessionEntry, SessionIndex, Source
-from .sources import claude, codex, gemini, pi
+from .sources import claude, codex, gemini, opencode, pi
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ class SourceRoots:
     codex_legacy_index: Path | None = None
     pi_root: Path | None = None
     gemini_root: Path | None = None
+    opencode_root: Path | None = None
 
 
 def build(
@@ -140,6 +141,13 @@ def build(
         # 注册表（目录标识 → 项目路径）只读一次，别每个文件都去 parse 一遍 projects.json
         registry = gemini.load_registry(roots.gemini_root)
         ingest(gemini.discover(roots.gemini_root), lambda ref: gemini.parse(ref, registry))
+    if Source.OPENCODE in wanted:
+        # 一个 SQLite 库装所有会话：查一次，discover 和 parse 共用这份结果
+        sessions = opencode.load_sessions(roots.opencode_root)
+        ingest(
+            opencode.discover(roots.opencode_root, sessions),
+            lambda ref: opencode.parse(ref, sessions),
+        )
 
     # 内容没变就别写盘。热路径下 100% 命中是常态，无脑重写会白白产生
     # 140KB 写入 + 一次 fsync —— 在 WSL 上这些字节最终要落到宿主的虚拟磁盘。
@@ -176,6 +184,8 @@ def _cached_source(path: str, cached: CachedEntry) -> Source | None:
         return Source.PI
     if "/.gemini/" in path:
         return Source.GEMINI
+    if "/opencode/" in path:
+        return Source.OPENCODE
     if "/.claude/" in path:
         return Source.CLAUDE
     return None

@@ -70,6 +70,14 @@
 レジストリでもコンテキストでも cwd が解決できないセッションは捨てる —— gemini の復元はプロジェクト単位のため、cwd が違うと復元できない。
 復元：`gemini --resume <完全な UUID>`（完全一致、前方一致なし）。
 
+**opencode** —— `~/.local/share/opencode/opencode.db`（SQLite；1.18.29、実データベースで検証）。
+**唯一「1 セッション 1 ファイル」でない ソース**。`session` テーブルが `id` / `directory`（cwd）/ `title` と
+ミリ秒タイムスタンプを直接持つため、メッセージ本文からタイトルを推測しなくてよい唯一のアダプタ。
+`New session - <ISO>` というプレースホルダのときだけ最初のユーザーテキストに戻る。`parent_id` があるものは
+サブエージェントのセッションなので Codex と同様に除外。1 ファイル 1 セッションのパイプラインとセッション単位の
+キャッシュ失効を保つため、合成パス `<db>#<session_id>` とその行の `time_updated` を指紋に使う。
+接続は常に `mode=ro`：他ツールのデータは読み取り専用。復元：`opencode --session <id>`。
+
 **三者ともインジェクションのラッパーを除外する必要がある**：Codex は実測で本当の質問の前に 10865 文字の
 `<recommended_plugins>…</environment_context>` を差し込む。Claude は `<local-command-caveat>` / `<command-name>` の一群。
 Pi は role の列挙が広く（`toolResult` / `bashExecution` / `compactionSummary`）、フィルタしないと bash の出力がタイトルに化ける。

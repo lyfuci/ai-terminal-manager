@@ -386,6 +386,19 @@ atm config --reset                # 全部默认
 - 恢复：`gemini --resume <完整 UUID>` —— `findSession` 是精确比对，不做前缀匹配，
   所以元数据里没有 sessionId 时宁可丢弃，也不从文件名拼一个 8 位 id
 
+**opencode** `~/.local/share/opencode/opencode.db`（SQLite，可用 `OPENCODE_DATA_DIR` 改）
+
+实测语料：opencode 1.18.29，本机真实库。**唯一一个不是「一个会话一个文件」的源。**
+
+- `session` 表直接带 `id` / `directory`（就是 cwd）/ `title` / `time_created` / `time_updated`，
+  是五个源里**唯一不用从消息内容里猜标题**的
+- `parent_id` 非空 = 子 agent 会话，和 codex 的子会话一样排除
+- 标题占位符 `New session - <ISO 时间>` 表示上游还没起名（会话报错/中断），这时才退回去取第一段用户文本
+- 时间是**毫秒** epoch；体积由 `part.data` 的长度聚合出来
+- 一个库装所有会话，但缓存仍按会话失效：合成路径 `<db>#<session_id>`，指纹用该行的 `time_updated`
+- 连接一律 `mode=ro`（硬规则第 1 条：别人的数据只读），库被锁/版本对不上就当这个源不存在
+- 恢复：`opencode --session <id>`（TUI）；`opencode run -s <id>` 是非交互那条
+
 **所有会话文件一律只读。** 不原地改、不整理、不删。
 
 ## 安全
