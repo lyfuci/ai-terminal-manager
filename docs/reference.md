@@ -66,7 +66,7 @@ python3 -m zipapp src -m atm.cli:main -o atm.pyz -p "/usr/bin/env python3"
 tmux 绑定 —— 一条命令搞定，**不用自己去编辑 `~/.tmux.conf`**：
 
 ```bash
-atm install            # 会先把要写的内容打出来，问过你才动手
+atm install            # 终端里：四问向导（键位 / 侧栏键 / 持久化 / 总量 slice，回车 = 默认）→ 打出要写的内容 → 确认才动手
 atm install --print    # 只想看会写什么，什么都不改
 atm install -y         # 不问直接装
 atm install --no-persist   # 只装键位，不装 tmux-resurrect / tmux-continuum
@@ -90,7 +90,7 @@ bind-key A display-popup -E -w 80% -h 70% 'atm pick --here'
 # <<< atm <<<
 ```
 
-键位和尺寸可调：`atm install --key s --width 90% --height 80%`。
+键位和尺寸可调：`atm install --key s --width 90% --height 80%`（带了任何选项就不进向导）。
 
 > 刻意写成 `bind-key` 行而不是 `run-shell /abs/path/atm.tmux`：后者把用户的 tmux 配置
 > **钉死在源码目录的绝对路径上**，`src/atm/` 一搬走就悄悄失效。
@@ -174,6 +174,7 @@ atm doctor                   # 体检
 
 选择器里：`↑↓` / `Ctrl-N` `Ctrl-P` 移动，直接打字模糊搜索，
 `Tab` 在 全部 / Claude / Codex / Pi 之间循环，`Enter` 选中，`Esc` 取消。
+`F1` / `?`（搜索框为空时）弹出完整键位表 —— 选会话、选目标、侧栏、`atm config` 四个界面都有，任意键关闭。
 
 **不在 tmux 里也能用** —— 这时 `pick` 自动退化成打印命令：
 
@@ -246,7 +247,7 @@ claude                       # 不带 atm 前缀 = 原生，不套任何限制
 ### 配置
 
 ```bash
-atm config                        # 终端里：交互式编辑器（↑↓ 选、Enter 改/切换、r 恢复默认、s 保存）；管道里 / --show：打印当前值和来源
+atm config                        # 终端里：交互式编辑器（↑↓ 选、Enter 改/切换、r 恢复默认、s 保存、? 帮助）；管道里 / --show：打印当前值和来源
 atm config memory.high 4G         # 软上限：超了节流 + 回收，不杀
 atm config memory.max 8G          # 硬上限：回收压不住才杀 —— 杀的是整个 scope，会话和它的子命令一起没
 atm config memory.enabled false   # 全关（atm claude 就等于 claude）

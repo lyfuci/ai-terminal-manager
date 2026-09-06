@@ -18,13 +18,13 @@ Once installed it's four keys (`prefix` is `Ctrl-b` by default):
 | `prefix + B` | Park the current pane in the background window `bg` — the process keeps running and can be picked back from the sidebar |
 
 **In the popup**: type to fuzzy-search, `↑↓` / `^N` `^P` to move, `Tab` cycles All / Claude / Codex / Pi, `⏎`
-selects, `Esc` cancels. After picking a session comes a second step: every pane (with busy/idle state) + "split a new
+selects, `Esc` cancels, `F1` / `?` (with an empty search box) opens the full key list. After picking a session comes a second step: every pane (with busy/idle state) + "split a new
 pane" + "new window" + "just print".
 
 **In the sidebar**: the upper half is **running panes** (select → `swap-pane` into the main pane, process untouched),
 the lower half is **history** (select → resumed in a background window, then swapped in). `⏎` swaps into the main
 pane, `^T` picks exactly which pane, `^X` parks the selected pane in `bg`, `Tab` switches source, `^R` rebuilds the
-index, `^C` quits.
+index, `^C` quits, `F1` / `?` shows every key.
 
 **From the command line** it works too (outside tmux, `pick` degrades to printing the command:
 `eval "$(atm pick --print)"`):
@@ -66,13 +66,15 @@ Configuration precedence: **flag > environment variable > file > default**. Ever
 `memory.high` → `ATM_MEMORY_HIGH`, `memory.swap-max` → `ATM_MEMORY_SWAP_MAX`, and so on.
 Unknown keys or a malformed file are errors, never silently ignored — otherwise you'd believe a limit is active when it isn't.
 
+A bare `atm install` in a terminal runs a short wizard (picker key, sidebar key, persistence plugins, memory
+slice; Enter keeps the default); any option, e.g. `-y`, skips it.
 `atm install --conf PATH` / `atm uninstall --conf PATH` target a tmux config other than `~/.tmux.conf`.
 `eval "$(atm pick --print)"` works even though stdout is captured: the picker draws on `/dev/tty`.
 
 ## Memory gate: `atm claude` vs `claude`
 
 ```bash
-atm config                     # interactive editor: ↑↓ pick a key, Enter edit/toggle, s save (atm config --show for plain text)
+atm config                     # interactive editor: ↑↓ pick a key, Enter edit/toggle, s save, ? help (atm config --show for plain text)
 atm config memory.high 4G      # soft cap: throttle + reclaim, never kills
 atm config memory.max 8G       # hard cap: kills the whole session scope (children included)
 atm claude --resume <id>       # launches claude inside that cgroup; args pass through untouched

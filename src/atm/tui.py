@@ -29,6 +29,7 @@ from .text import (
     strip_control,
     tail_display,
     truncate_display,
+    wrap_display,
 )
 
 # 各列的固定宽度（显示宽度，不是字符数）
@@ -135,7 +136,117 @@ def pick_option(options: Sequence[PickerOption], *, title: str = "") -> PickerOp
 
 
 class _Screen:
-    """curses 的公共部分：初始化配色、安全写字符串。"""
+    """curses 的公共部分：初始化配色、安全写字符串、`F1` / `?` 帮助浮层。
+
+    帮助浮层（借 lazygit / k9s 的 `?`）：子类给出 `_help_entries()`，这里负责开关和画。
+    底部一行键位提示塞不下全部快捷键（侧栏只有 32 列），所以提示只留最常用的几个，
+    完整清单放浮层里 —— 浮层开着时任何键都关它，不会吞掉后面的操作。
+    """
+
+    _help_open: bool = False
+    _help_scroll: int = 0
+    _help_max_scroll: int = 0  # 上一次画时算出的最大滚动量（>0 才让 ↑↓ 滚）
+
+    def _help_title(self) -> str:
+        return _("键位")
+
+    def _help_entries(self) -> Sequence[tuple[str, str]]:
+        """(按键, 说明) 列表；子类覆盖。("", "") 是空行。"""
+        return ()
+
+    def _help_key(self, key: object, *, typing: bool = False) -> bool:
+        """帮助浮层的按键处理。返回 True = 这个键被浮层吃掉了，调用方不用再管。
+
+        `F1` 永远打开；`?` 只在没在打字时打开（typing=True 表示搜索框里有内容 /
+        正在编辑值 —— 那时 `?` 是用户要输入的字符）。开着时 ↑↓ / j k / PgUp PgDn
+        只在内容放不下（侧栏 20 行高）时滚动，其余任何键都关。KEY_RESIZE 不算按键。
+        """
+        if key == curses.KEY_RESIZE:
+            return False
+        if self._help_open:
+            if self._help_max_scroll > 0:
+                step = self._help_scroll_step(key)
+                if step:
+                    self._help_scroll = max(0, min(self._help_max_scroll, self._help_scroll + step))
+                    return True
+            self._help_open = False
+            return True
+        if key == curses.KEY_F1 or (key == "?" and not typing):
+            self._help_open = True
+            self._help_scroll = 0
+            self._help_max_scroll = 0
+            return True
+        return False
+
+    @staticmethod
+    def _help_scroll_step(key: object) -> int:
+        if key in (curses.KEY_DOWN, "j", 14):  # ^N
+            return 1
+        if key in (curses.KEY_UP, "k", 16):  # ^P
+            return -1
+        if key in (curses.KEY_NPAGE, " "):
+            return 5
+        if key == curses.KEY_PPAGE:
+            return -5
+        return 0
+
+    def _help_lines(self, width: int) -> list[str]:
+        """把 (键, 说明) 排成行。宽屏两列对齐；窄屏（侧栏 32 列）键和说明各占一行。"""
+        entries = self._help_entries()
+        key_w = max((display_width(k) for k, _t in entries), default=0)
+        two_col = [f"{pad_display(k, key_w)}  {t}" if (k or t) else "" for k, t in entries]
+        if max((display_width(s) for s in two_col), default=0) <= width:
+            return two_col
+        stacked: list[str] = []
+        for k, t in entries:
+            if not (k or t):
+                stacked.append("")
+                continue
+            stacked.append(k)
+            stacked.extend("  " + seg for seg in wrap_display(t, max(1, width - 2)))
+        return stacked
+
+    def _draw_help(self, stdscr: curses.window) -> None:
+        """在当前画面正中叠一个带边框的键位表；放不下的部分靠 ↑↓ 滚。"""
+        if not self._help_open:
+            return
+        height, width = stdscr.getmaxyx()
+        title = self._help_title()
+        # 边框两列 + 左右各一格留白；最右一列 curses 写不了，再让一格
+        avail = width - 5
+        if avail < 6 or height < 4:
+            return
+        lines = self._help_lines(avail)
+        body_rows = min(len(lines), height - 3)  # 上下边框 + 底部提示行
+        self._help_max_scroll = len(lines) - body_rows
+        self._help_scroll = max(0, min(self._help_scroll, self._help_max_scroll))
+        shown = lines[self._help_scroll : self._help_scroll + body_rows]
+
+        footer = _("任意键关闭")
+        if self._help_max_scroll > 0:
+            footer = _("↑↓ 滚动  其它键关闭")
+            below = self._help_max_scroll - self._help_scroll
+            more = _("  ↓ 还有 {n} 行").format(n=below)
+            if below > 0 and display_width(footer + more) <= avail:
+                footer += more  # 窄屏放不下就只留滚动提示
+        inner_w = max(display_width(s) for s in (title + "  ", footer, *shown))
+        box_w = min(width - 1, inner_w + 4)
+        box_h = body_rows + 3
+        y0 = (height - box_h) // 2
+        x0 = (width - 1 - box_w) // 2
+        inner = box_w - 2
+
+        self._put(stdscr, y0, x0, "┌" + "─" * inner + "┐", _color(1))
+        self._put(stdscr, y0, x0 + 2, f" {title} ", curses.A_BOLD | _color(1))
+        for i, text in enumerate(shown):
+            self._put(stdscr, y0 + 1 + i, x0, "│", _color(1))
+            self._put(stdscr, y0 + 1 + i, x0 + 1, pad_display(" " + text, inner))
+            self._put(stdscr, y0 + 1 + i, x0 + box_w - 1, "│", _color(1))
+        y = y0 + 1 + body_rows
+        self._put(stdscr, y, x0, "│", _color(1))
+        self._put(stdscr, y, x0 + 1, pad_display(" " + footer, inner), _color(5))
+        self._put(stdscr, y, x0 + box_w - 1, "│", _color(1))
+        self._put(stdscr, y + 1, x0, "└" + "─" * inner + "┘", _color(1))
 
     def _setup(self, stdscr: curses.window) -> None:
         stdscr.keypad(True)
@@ -221,7 +332,26 @@ class _SessionPicker(_Screen):
             if action is not None:
                 return action
 
+    def _help_title(self) -> str:
+        return _("选会话")
+
+    def _help_entries(self) -> Sequence[tuple[str, str]]:
+        return (
+            (_("打字"), _("模糊搜索（子序列匹配；有大写字母时区分大小写）")),
+            ("↑↓ / ^N ^P", _("移动")),
+            ("PgUp / PgDn", _("翻页")),
+            ("Home / End", _("到头 / 到尾")),
+            ("Tab", _("切来源：全部 → Claude → Codex → Pi")),
+            ("^G", _("切聚合：目录 → agent → 平铺")),
+            ("^U / ^W", _("清空搜索 / 删掉最后一个词")),
+            ("Enter", _("选中，进入下一步：投到哪个 pane")),
+            ("Esc", _("取消")),
+            (_("F1 / ?（搜索框为空时）"), _("这份帮助")),
+        )
+
     def _handle_key(self, key: object, stdscr: curses.window) -> SessionEntry | object | None:
+        if self._help_key(key, typing=bool(self._query)):
+            return None
         height = stdscr.getmaxyx()[0]
         page = max(1, height - 3)
 
@@ -427,6 +557,7 @@ class _SessionPicker(_Screen):
                 self._draw_row(stdscr, row + 1, width, item, index == self._cursor, now)
 
         self._draw_footer(stdscr, height, width)
+        self._draw_help(stdscr)
         stdscr.refresh()
 
     def _draw_footer(self, stdscr: curses.window, height: int, width: int) -> None:
@@ -447,7 +578,7 @@ class _SessionPicker(_Screen):
             attr = _color(6) if risk is dispatch.SizeRisk.BLOCK else _color(5)
             self._put(stdscr, height - 2, 0, truncate_display(detail, width - 1), attr)
 
-        hint = _("↑↓/^N^P 移动  Tab 切来源  ^G 切聚合(目录/agent/平铺)  Enter 选中  Esc 取消")
+        hint = _("↑↓ 移动  Tab 切来源  ^G 切聚合  Enter 选中  Esc 取消  F1/? 帮助")
         self._put(stdscr, height - 1, 0, truncate_display(hint, width - 1), _color(5))
 
     def _sync_offset(self, rows: int) -> None:
@@ -525,6 +656,18 @@ class _OptionPicker(_Screen):
         self._cursor = next((i for i, o in enumerate(self._options) if o.enabled), 0)
         self._offset = 0
 
+    def _help_title(self) -> str:
+        return _("选目标")
+
+    def _help_entries(self) -> Sequence[tuple[str, str]]:
+        return (
+            ("↑↓ / ^N ^P", _("移动")),
+            ("1-9", _("直选屏幕上编号对应的那项")),
+            ("Enter", _("确认")),
+            ("Esc", _("取消")),
+            ("F1 / ?", _("这份帮助")),
+        )
+
     def run(self, stdscr: curses.window) -> PickerOption | None:
         self._setup(stdscr)
         while True:
@@ -535,27 +678,34 @@ class _OptionPicker(_Screen):
                 continue
             except KeyboardInterrupt:
                 return None
+            action = self._handle_key(key)
+            if action is _QUIT:
+                return None
+            if action is not None:
+                return action
 
-            if isinstance(key, str):
-                code = ord(key) if len(key) == 1 else -1
-                if code == _KEY_ESC:
-                    return None
-                if code in _KEY_ENTER:
-                    return self._selected()
-                if code == _KEY_CTRL_N:
-                    self._move(1)
-                elif code == _KEY_CTRL_P:
-                    self._move(-1)
-                else:
-                    hit = self._by_shortcut(key)
-                    if hit is not None:
-                        return hit
-            elif key == curses.KEY_UP:
-                self._move(-1)
-            elif key == curses.KEY_DOWN:
-                self._move(1)
-            elif key in _KEY_ENTER:
+    def _handle_key(self, key: object) -> PickerOption | object | None:
+        if self._help_key(key):
+            return None
+        if isinstance(key, str):
+            code = ord(key) if len(key) == 1 else -1
+            if code == _KEY_ESC:
+                return _QUIT
+            if code in _KEY_ENTER:
                 return self._selected()
+            if code == _KEY_CTRL_N:
+                self._move(1)
+            elif code == _KEY_CTRL_P:
+                self._move(-1)
+            else:
+                return self._by_shortcut(key)
+        elif key == curses.KEY_UP:
+            self._move(-1)
+        elif key == curses.KEY_DOWN:
+            self._move(1)
+        elif key in _KEY_ENTER:
+            return self._selected()
+        return None
 
     def _by_shortcut(self, char: str) -> PickerOption | None:
         """数字键直选前 9 项 —— 「投到 2 号格」这种手势不该还要按方向键。"""
@@ -620,14 +770,17 @@ class _OptionPicker(_Screen):
                 self._put(stdscr, y, x + 1, option.detail, attr | _color(5))
 
         more = len(self._options) - (self._offset + rows)
-        hint = _("↑↓ 移动  数字键直选  Enter 确认  Esc 取消")
+        hint = _("↑↓ 移动  数字键直选  Enter 确认  Esc 取消  ? 帮助")
         if more > 0 or self._offset > 0:
-            hint = _("↑↓ 移动({first}-{last}/{total})  数字键直选  Enter 确认  Esc 取消").format(
+            hint = _(
+                "↑↓ 移动({first}-{last}/{total})  数字键直选  Enter 确认  Esc 取消  ? 帮助"
+            ).format(
                 first=self._offset + 1,
                 last=min(self._offset + rows, len(self._options)),
                 total=len(self._options),
             )
         self._put(stdscr, height - 1, 0, truncate_display(hint, width - 1), _color(5))
+        self._draw_help(stdscr)
         stdscr.refresh()
 
 

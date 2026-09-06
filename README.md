@@ -86,7 +86,7 @@ installed (uv tool / pipx / pip, PyPI or git) and runs the matching upgrade; `at
 
 ```bash
 atm doctor      # are the data sources there, does tmux respond, how many sessions are found, is the autosave hook really installed
-atm install     # write key bindings to ~/.tmux.conf + install resurrect/continuum. Prints what it will write and asks first; -y skips the prompt
+atm install     # write key bindings to ~/.tmux.conf + install resurrect/continuum. In a terminal it runs a 4-question wizard first, then prints what it will write and asks; -y skips both
 ```
 
 `atm install` does two things, each written as its own marker-delimited block, with a backup taken first:

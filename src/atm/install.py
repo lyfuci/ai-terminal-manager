@@ -132,6 +132,18 @@ def resolve_atm_command() -> str:
     return f"{shlex.quote(sys.executable)} -m atm"
 
 
+def validate_key(name: str, value: str) -> None:
+    """绑定键必须是单个小写字母；命令行和 install 向导共用这一条规则。"""
+    if not _VALID_KEY.match(value):
+        raise ValueError(
+            _(
+                "{name} 只能是单个小写字母，收到 {value!r}。（配套的第二条绑定靠 "
+                ".upper() 区分，非字母的 upper() 是恒等变换，"
+                "两条绑定会撞成同一个键、第一条静默失效。）"
+            ).format(name=name, value=value)
+        )
+
+
 def build_plan(
     *,
     conf_path: Path | None = None,
@@ -140,15 +152,8 @@ def build_plan(
     width: str = DEFAULT_WIDTH,
     height: str = DEFAULT_HEIGHT,
 ) -> InstallPlan:
-    for name, value in (("--key", key), ("--sidebar-key", sidebar_key)):
-        if not _VALID_KEY.match(value):
-            raise ValueError(
-                _(
-                    "{name} 只能是单个小写字母，收到 {value!r}。（配套的第二条绑定靠 "
-                    ".upper() 区分，非字母的 upper() 是恒等变换，"
-                    "两条绑定会撞成同一个键、第一条静默失效。）"
-                ).format(name=name, value=value)
-            )
+    validate_key("--key", key)
+    validate_key("--sidebar-key", sidebar_key)
     if key == sidebar_key:
         raise ValueError(_("--key 和 --sidebar-key 不能相同（都是 {key!r}）").format(key=key))
     path = conf_path or Path.home() / ".tmux.conf"

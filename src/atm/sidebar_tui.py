@@ -168,7 +168,29 @@ class _Sidebar(_Screen):
 
     # ------------------------------------------------------------ 按键
 
+    def _help_title(self) -> str:
+        return _("侧栏")
+
+    def _help_entries(self) -> Sequence[tuple[str, str]]:
+        return (
+            (_("打字"), _("同时搜运行中的格子和历史会话")),
+            ("↑↓ / ^N ^P", _("移动（PgUp / PgDn 翻页）")),
+            ("Enter", _("运行中：换进主格；历史：后台恢复再换进主格")),
+            ("^T", _("先挑换进哪格（数字 = prefix+q 显示的编号）")),
+            ("^X", _("把选中的格子收进后台窗口 bg，进程继续跑")),
+            ("Tab", _("切来源：全部 → Claude → Codex → Pi")),
+            ("^R", _("重建索引并刷新格子")),
+            ("^U / Esc", _("清空搜索；选格中的 Esc = 取消选格")),
+            ("^C", _("退出侧栏（prefix+b 再开）")),
+            (_("F1 / ?（搜索框为空时）"), _("这份帮助")),
+            ("", ""),
+            ("←", _("主格；右侧标窗口名的格子在别的 window（多半是 bg）")),
+            (_("粗体"), _("AI 进程（claude / codex / pi）")),
+        )
+
     def _handle_key(self, key: object, stdscr: curses.window) -> None:
+        if self._help_key(key, typing=bool(self._query)):
+            return
         if isinstance(key, str):
             code = ord(key) if len(key) == 1 else -1
             if code == _KEY_ESC:
@@ -423,6 +445,7 @@ class _Sidebar(_Screen):
             self._draw_row(stdscr, i + 1, width, self._rows[index], index == self._cursor, now)
 
         self._draw_footer(stdscr, height, width)
+        self._draw_help(stdscr)
         stdscr.refresh()
 
     def _sync_offset(self, rows: int) -> None:
@@ -491,7 +514,8 @@ class _Sidebar(_Screen):
                 gone = _("⚠目录已删 ") if e.cwd in self._missing else ""
                 line = f"{gone}{e.project_name}  {dispatch_mod.size_label(e)}".rstrip()
         self._put(stdscr, height - 2, 0, truncate_display(line, width - 1), _color(5))
-        hint = _("⏎换入 ^T选格 ^X收后台 Tab来源 ^R重建 ^C退")
+        # 32 列放不下全部键位；完整清单在 F1/? 浮层里
+        hint = _("⏎换入 ^T选格 ^X收后台 ?帮助")
         if self._placing is not None:
             hint = _("数字/⏎ 选格  Esc 取消")
         self._put(stdscr, height - 1, 0, truncate_display(hint, width - 1), _color(5))
