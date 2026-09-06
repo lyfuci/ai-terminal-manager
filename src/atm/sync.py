@@ -20,7 +20,7 @@ from .i18n import _
 _TMUX_FIELDS = ("tmux_mouse", "tmux_focus_events", "tmux_history_limit", "tmux_base_index")
 _TMUX_FIELDS += ("tmux_renumber_windows",)
 _KEY_FIELDS = ("keys_pick", "keys_sidebar", "keys_popup_width", "keys_popup_height")
-_SLICE_FIELDS = ("memory_slice", "memory_slice_high", "memory_slice_max")
+_SLICE_FIELDS = ("memory_slice", "memory_slice_high", "memory_slice_max", "memory_user")
 
 
 def _changed(old: config_mod.Config, new: config_mod.Config, names: tuple[str, ...]) -> bool:
@@ -30,6 +30,10 @@ def _changed(old: config_mod.Config, new: config_mod.Config, names: tuple[str, .
 def apply_changes(
     old: config_mod.Config, new: config_mod.Config, *, conf_path: Path | None = None
 ) -> list[str]:
+    # reset 会清空路径，但本次仍要对原安装文件撤回旧配置。
+    saved_path = new.keys_conf_path or old.keys_conf_path
+    if conf_path is None and saved_path:
+        conf_path = Path(saved_path).expanduser()
     notes: list[str] = []
     if _changed(old, new, _TMUX_FIELDS):
         notes += _sync_tmux_options(new, conf_path)
@@ -46,10 +50,16 @@ def _sync_tmux_options(cfg: config_mod.Config, conf_path: Path | None) -> list[s
     try:
         result = tmuxopts.sync(cfg, conf_path=conf_path)
     except (OSError, RuntimeError) as exc:  # ConfUnreadable / BackupFailed 都是 RuntimeError
-        return [_("tmux 选项没写进 ~/.tmux.conf：{exc}").format(exc=exc)]
+        return [
+            _("tmux 选项没写进 {path}：{exc}").format(
+                path=conf_path or Path.home() / ".tmux.conf", exc=exc
+            )
+        ]
     notes: list[str] = []
     if result.written:
         notes.append(_("tmux 选项已写进 {path}").format(path=result.conf_path))
+    if result.disabled:
+        notes.append(tmuxopts.disabled_note(result.disabled))
     if result.applied_live:
         notes.append(_("tmux 选项已对运行中的 server 生效"))
     elif result.live_error:
@@ -69,12 +79,6 @@ def _sync_keys(old: config_mod.Config, new: config_mod.Config, conf_path: Path |
                 )
             ]
         plan = install.build_plan(cfg=new, conf_path=path)
-        gone = tuple(
-            k
-            for k in (old.keys_pick, old.keys_sidebar)
-            if k not in (new.keys_pick, new.keys_sidebar)
-        )
-        install.unbind_live(gone)
         result = install.apply(plan)
     except (OSError, RuntimeError, ValueError) as exc:
         return [_("键位块没更新：{exc}").format(exc=exc)]
@@ -93,10 +97,16 @@ def _sync_keys(old: config_mod.Config, new: config_mod.Config, conf_path: Path |
 def _sync_slice(cfg: config_mod.Config) -> list[str]:
     from . import guard
 
+    try:
+        guard.require_user_manager(cfg)
+    except guard.UnsupportedManager as exc:
+        return [str(exc)]
     if not dispatch.memory_limits_available():
         return [_("这台机器拿不到 cgroup，总量 slice 的数只记在配置里")]
     try:
         path, action = guard.sync(cfg)
+    except guard.ReloadFailed as exc:
+        return [str(exc)]
     except OSError as exc:
         return [_("总量闸门单元没写：{exc}").format(exc=exc)]
     high, max_ = guard.resolve_totals(cfg)

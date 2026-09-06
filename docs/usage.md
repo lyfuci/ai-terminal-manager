@@ -72,6 +72,16 @@ the config first.
 `atm install --conf PATH` / `atm uninstall --conf PATH` target a tmux config other than `~/.tmux.conf`.
 `eval "$(atm pick --print)"` works even though stdout is captured: the picker draws on `/dev/tty`.
 
+## Configuration changes
+
+Configuration edits save file values and your intended changes; environment overrides remain temporary, and the editor keeps its `← env` markers. `atm config --reset` deletes the TOML and reconciles tmux blocks and aggregate limits with defaults, using the previous install path for that reset. Environment overrides still apply at runtime.
+
+`atm install --conf PATH` records the absolute path as `keys.conf-path` (`conf_path` under `[keys]` in TOML; empty means `~/.tmux.conf`). Later config edits, installs and uninstall use it unless an explicit `--conf` is supplied. Reset also clears this setting; use `--conf PATH` again for subsequent installs or uninstall. Changing the path setting selects the target for subsequent edits; it does not move existing blocks.
+
+Both `atm install --key s` and `atm config keys.pick s` write and bind the new keys before unbinding obsolete keys from the installed block. Failed writes or rebindings leave the old bindings available. Incomplete or nested marker pairs are rejected without changing the file.
+
+Enabling tmux options still applies them live. Disabling an option removes atm's setting from the file and leaves the running value unchanged; the change applies to new tmux servers, where your own configuration takes effect. Aggregate slice installation supports `memory.user=true` only: system mode (`memory.user=false`) is refused with an explanation; configure that system unit yourself. A failed `daemon-reload` is reported as “File written, reload failed” with the error, rather than success.
+
 ## Memory gate: `atm claude` vs `claude`
 
 ```bash

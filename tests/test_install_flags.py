@@ -33,7 +33,7 @@ def test_bare_install_never_asks_beyond_confirm(env: Path, monkeypatch) -> None:
     text = env.read_text(encoding="utf-8")
     assert f"bind-key {install.DEFAULT_KEY} " in text
     assert tmuxopts.MARKER_BEGIN not in text  # tmux.* 默认全关
-    assert not config.config_path().exists()  # 没给参数就不碰配置文件
+    assert config.load().keys_conf_path == str(env)  # --conf 的安装位置供后续同步使用
 
 
 def test_key_flags_are_saved_to_config_then_applied(env: Path, capsys) -> None:

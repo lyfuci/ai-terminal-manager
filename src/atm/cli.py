@@ -837,6 +837,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
         print(_("（配置照样可以先写好，装完 tmux 直接生效。）\n"))
 
     cfg = config.load()
+    file_cfg = config.load_file()
     overrides = {
         "keys.pick": args.key,
         "keys.sidebar": args.sidebar_key,
@@ -844,12 +845,16 @@ def _cmd_install(args: argparse.Namespace) -> int:
         "keys.popup-height": args.height,
     }
     overrides = {k: v for k, v in overrides.items() if v}
+    if args.conf is not None:
+        overrides["keys.conf-path"] = str(args.conf.expanduser().resolve())
     for key, value in overrides.items():
+        file_cfg = config.set_value(file_cfg, key, value)
         cfg = config.set_value(cfg, key, value)  # 不合法直接 ConfigError → main 给一行人话
     config.validate(cfg)
 
-    plan = _install_mod().build_plan(cfg=cfg, conf_path=args.conf)
-    persist_plan = None if args.no_persist else persist.build_plan(conf_path=args.conf)
+    conf_path = Path(cfg.keys_conf_path) if cfg.keys_conf_path else None
+    plan = _install_mod().build_plan(cfg=cfg, conf_path=conf_path)
+    persist_plan = None if args.no_persist else persist.build_plan(conf_path=conf_path)
 
     print(plan.describe())
     # resolve_atm_command 永远返回绝对路径，所以不能拿 != "atm" 判断「没装成命令」——
@@ -867,7 +872,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
     if not args.no_slice:
         print()
         print(_guard_mod().describe_plan(cfg))
-    opts_plan = _tmuxopts_mod().build_plan(cfg, conf_path=args.conf)
+    opts_plan = _tmuxopts_mod().build_plan(cfg, conf_path=conf_path)
     if opts_plan.enabled or opts_plan.already_installed:
         print()
         print(opts_plan.describe())
@@ -882,7 +887,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
             return EXIT_CANCELLED
 
     if overrides:
-        path = config.save(cfg)
+        path = config.save(file_cfg)
         print(_("\n键位已记到 {path}（keys.*），以后在 `atm config` 里改").format(path=path))
 
     result = _install_mod().apply(plan)
@@ -920,6 +925,8 @@ def _report_tmuxopts(result) -> None:
         print(_("\n已写 tmux 选项块 → {path}").format(path=result.conf_path))
         if result.backup_path:
             print(_("备份    {backup}").format(backup=result.backup_path))
+    if result.disabled:
+        print(_tmuxopts_mod().disabled_note(result.disabled))
     if result.applied_live:
         print(_("tmux 选项已对运行中的 server 立即生效"))
     elif result.live_error:
@@ -928,10 +935,19 @@ def _report_tmuxopts(result) -> None:
 
 def _apply_slice(cfg) -> None:
     guard = _guard_mod()
+    try:
+        guard.require_user_manager(cfg)
+    except guard.UnsupportedManager as exc:
+        print(str(exc))
+        return
     if not dispatch_mod.memory_limits_available():
         print(_("\n这台机器拿不到 cgroup，跳过总量闸门 slice。"))
         return
-    path, action = guard.sync(cfg)
+    try:
+        path, action = guard.sync(cfg)
+    except guard.ReloadFailed as exc:
+        print(str(exc))
+        return
     high, max_ = guard.resolve_totals(cfg)
     if action == "written":
         print(
@@ -1102,12 +1118,15 @@ def _cmd_config(args: argparse.Namespace) -> int:
         print(config.config_path())
         return EXIT_OK
     if args.reset:
+        old_cfg = config.load_file()
         path = config.config_path()
         if path.exists():
             path.unlink()
             print(_("已删 {path}，全部恢复默认").format(path=path))
         else:
             print(_("本来就是默认，没有配置文件"))
+        for note in _sync_mod().apply_changes(old_cfg, config.Config()):
+            print(note)
         return EXIT_OK
     try:
         cfg, sources = config.load_with_sources()
@@ -1115,8 +1134,8 @@ def _cmd_config(args: argparse.Namespace) -> int:
             print(json.dumps(config.to_json(cfg, sources), ensure_ascii=False, indent=2))
             return EXIT_OK
         if args.unset:
-            old_cfg = cfg
-            cfg = config.unset_value(cfg, args.unset)
+            old_cfg = config.load_file()
+            cfg = config.unset_value(old_cfg, args.unset)
             path = config.save(cfg)
             print(_("{args_unset} 已恢复默认 → {path}").format(args_unset=args.unset, path=path))
             for note in _sync_mod().apply_changes(old_cfg, cfg):
@@ -1129,8 +1148,8 @@ def _cmd_config(args: argparse.Namespace) -> int:
                 )
             )
         if args.key:
-            old_cfg = cfg
-            cfg = config.set_value(cfg, args.key, args.value)
+            old_cfg = config.load_file()
+            cfg = config.set_value(old_cfg, args.key, args.value)
             path = config.save(cfg)
             print(f"{args.key} = {args.value} → {path}")
             for note in _sync_mod().apply_changes(old_cfg, cfg):
@@ -1170,7 +1189,10 @@ def _cmd_launch(args: argparse.Namespace) -> int:
 
 
 def _cmd_uninstall(args: argparse.Namespace) -> int:
-    conf_path = args.conf or Path.home() / ".tmux.conf"
+    cfg = _config_mod().load_file()
+    conf_path = args.conf or (
+        Path(cfg.keys_conf_path) if cfg.keys_conf_path else Path.home() / ".tmux.conf"
+    )
     if not args.yes:
         print(
             _("将从 {conf_path} 移除 atm 的绑定块（marker 之外的内容一律不动）。").format(
@@ -1184,8 +1206,15 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
     removed, backup = _install_mod().remove(conf_path)
     removed_persist, backup_persist = _persist_mod().remove(conf_path)
     removed_opts, backup_opts = _tmuxopts_mod().remove(conf_path)
-    slice_name = _config_mod().load().memory_slice
-    removed_slice = _guard_mod().remove(slice_name)
+    slice_name = cfg.memory_slice
+    guard = _guard_mod()
+    reload_note: str | None = None
+    try:
+        removed_slice = guard.remove(slice_name)
+    except guard.ReloadFailed as exc:
+        # 单元文件已经删了，只是 daemon-reload 没成功。这不该让整条 uninstall 失败、
+        # 也不该把上面「删了哪些块」的汇总吞掉 —— 照常汇总，末尾附一句实情。
+        removed_slice, reload_note = True, str(exc)
     if not (removed or removed_persist or removed_opts or removed_slice):
         print(_("没找到 atm 写的任何东西（键位块 / 持久化块 / tmux 选项块 / slice），无需移除。"))
         return EXIT_OK
@@ -1213,6 +1242,8 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
             print(_("备份 {backup_opts}").format(backup_opts=backup_opts))
     if removed_slice:
         print(_("已删总量闸门 {slice_name}（只删 atm 自己写的那份）").format(slice_name=slice_name))
+    if reload_note:
+        print(reload_note)
     return EXIT_OK
 
 

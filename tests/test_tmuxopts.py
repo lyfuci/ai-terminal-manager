@@ -96,7 +96,7 @@ def test_changing_a_value_rewrites_block(conf: Path, live) -> None:
     assert text.count(tmuxopts.MARKER_BEGIN) == 1
 
 
-def test_turning_one_off_resets_it_live(conf: Path, live) -> None:
+def test_turning_one_off_leaves_live_value_alone(conf: Path, live) -> None:
     tmuxopts.apply(
         tmuxopts.build_plan(config.Config(tmux_mouse=True, tmux_base_index=1), conf_path=conf)
     )
@@ -106,8 +106,7 @@ def test_turning_one_off_resets_it_live(conf: Path, live) -> None:
     tmuxopts.apply(plan)
     text = conf.read_text(encoding="utf-8")
     assert "set -g mouse on" in text and "base-index" not in text
-    assert ["set-option", "-g", "base-index", "0"] in live
-    assert ["set-option", "-gw", "pane-base-index", "0"] in live
+    assert live == [["set-option", "-g", "mouse", "on"]]
 
 
 def test_turning_all_off_removes_block(conf: Path, live) -> None:
@@ -116,7 +115,7 @@ def test_turning_all_off_removes_block(conf: Path, live) -> None:
     assert not plan.is_noop and "移除" in plan.describe()
     tmuxopts.apply(plan)
     assert conf.read_text(encoding="utf-8") == USER
-    assert ["set-option", "-g", "mouse", "off"] in live
+    assert ["set-option", "-g", "mouse", "off"] not in live
 
 
 def test_no_server_means_file_only(conf: Path, monkeypatch) -> None:

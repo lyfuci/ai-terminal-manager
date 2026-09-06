@@ -262,18 +262,26 @@ atm config --unset memory.high    # 恢复单项默认
 atm config --reset                # 全部默认
 ```
 
-**边界：值进 config，动作留 install。** 下面三段的任何键改完保存，sync.py 立刻让 tmux / systemd 跟上：
+**边界：值进 config，动作留 install。** 保存后，sync.py 按变更更新 tmux / systemd：
 
 | 段 | 键 | 保存后发生什么 |
 |---|---|---|
 | `[memory]` | `slice-high` / `slice-max`（默认 `auto` = 物理内存 50% / 65%，或写死 `24G`） | atm 写的 `atm-ai.slice` 按新数重写 + `daemon-reload`；你自己写的单元不动 |
-| `[keys]` | `pick`（默认 a）/ `sidebar`（默认 b）/ `popup-width`（80%）/ `popup-height`（70%） | 键位块已装的话重写 + 对运行中的 server 重绑、旧键解绑；没装就提示先 `atm install` |
-| `[tmux]` | `mouse` / `focus-events` / `history-limit`（0 = 不写）/ `base-index`（0 或 1）/ `renumber-windows` | 写进 `~/.tmux.conf` **最前面**的独立 marker 块（你后面写的任何一行都能盖掉它）+ 对运行中的 server `set -g`。全关时整块删掉 |
+| `[keys]` | `conf-path`（空串 = ~/.tmux.conf）/ `pick`（默认 a）/ `sidebar`（默认 b）/ `popup-width`（80%）/ `popup-height`（70%） | 键位块已装的话重写 + 对运行中的 server 重绑，成功后才解绑旧键；没装就提示先 `atm install` |
+| `[tmux]` | `mouse` / `focus-events` / `history-limit`（0 = 不写）/ `base-index`（0 或 1）/ `renumber-windows` | 写进 `~/.tmux.conf` **最前面**的独立 marker 块（你后面写的任何一行都能盖掉它）+ 开启的选项对运行中的 server `set -g`；关闭只撤文件设置，运行中的值不动，变更对新 server 生效。全关时整块删掉 |
 
 `[tmux]` 默认全部「不写」，不动你的 tmux 配置；开了才写 `set -g mouse on`，关了也不写 `off`。
 `atm uninstall` 一起删键位块、持久化块、tmux 选项块和 atm 写的 slice。
 
-配置文件 `~/.config/atm/config.toml`（尊重 `$XDG_CONFIG_HOME`），改完立即生效。
+配置编辑只保存文件值和你明确修改的项；环境变量覆盖保持临时生效，编辑器修改后仍保留 `← env` 标记。`atm config --reset` 删除 TOML，并按默认值同步 tmux 块和总量限制；这次重置仍使用原安装路径。环境变量在运行时仍有优先权。
+
+`atm install --conf PATH` 把绝对路径记到 `keys.conf-path`（TOML 的 `[keys]` 下写作 `conf_path`；空串表示 `~/.tmux.conf`）。后续配置编辑、安装和卸载沿用它，显式 `--conf` 可覆盖。重置也会清掉路径记录，之后安装或卸载需再次传 `--conf PATH`。直接改路径设置只选择后续编辑的目标，不搬迁现有块。
+
+`atm install --key s` 和 `atm config keys.pick s` 都先写入并绑定新键，成功后才解绑原安装块里的废弃键；写入或重绑失败时保留旧绑定。标记不完整或嵌套时拒绝修改文件。
+
+开启 tmux 选项仍立即生效。关闭选项只撤掉文件中 atm 的设置，运行中的值保持不变；变更对新 tmux server 生效，届时按你自己的配置加载。总量 slice 只支持 `memory.user=true`：系统模式（`memory.user=false`）会明确拒绝安装，请自行配置系统单元。`daemon-reload` 失败会报告「文件已写入，重载失败」及具体原因，不会报成成功。
+
+配置文件 `~/.config/atm/config.toml`（尊重 `$XDG_CONFIG_HOME`）。
 **优先级：命令行参数 > 环境变量 > 文件 > 默认**；每个键对应一个环境变量（`memory.high` → `ATM_MEMORY_HIGH`，`memory.swap-max` → `ATM_MEMORY_SWAP_MAX`）。`atm config` 会标出每项的来源，`--json` 给机器读。
 未知的键 / 段、`[memory]` 不是表、值格式不对，都是错误而不是静默忽略。
 其它可设项：`memory.swap-max`（默认 512M，WSL 的 swap 在宿主 SSD 上，别放大）、
