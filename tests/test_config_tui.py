@@ -136,6 +136,49 @@ def test_save_writes_file_and_quits(cfg_path: Path) -> None:
     assert ed.status and str(cfg_path) in ed.status
 
 
+def test_save_runs_sync_and_shows_its_notes(cfg_path: Path, monkeypatch) -> None:
+    from atm import sync
+
+    seen: list[tuple[config.Config, config.Config]] = []
+    monkeypatch.setattr(
+        sync, "apply_changes", lambda old, new, **kw: seen.append((old, new)) or ["tmux 已生效"]
+    )
+    ed = editor()
+    ed._cursor = row_index("tmux.mouse")
+    ed.handle_key("\n")  # 布尔切换
+    assert ed.handle_key("s") is Action.SAVED_AND_QUIT
+    assert len(seen) == 1
+    assert seen[0][0].tmux_mouse is False and seen[0][1].tmux_mouse is True
+    assert ed.status and "已保存" in ed.status and "tmux 已生效" in ed.status
+
+
+def test_save_refuses_same_pick_and_sidebar_key(cfg_path: Path) -> None:
+    ed = editor()
+    ed._cursor = row_index("keys.sidebar")
+    ed.handle_key("\n")
+    ed.handle_key("\x15")
+    type_text(ed, "a")  # 和 keys.pick 默认的 a 撞了
+    ed.handle_key("\n")
+    assert ed.handle_key("s") is Action.NONE
+    assert ed.error and "keys.pick" in ed.error
+    assert not cfg_path.exists()
+
+
+def test_int_key_edits_as_text(cfg_path: Path) -> None:
+    ed = editor()
+    ed._cursor = row_index("tmux.history-limit")
+    ed.handle_key("\n")
+    assert ed.editing and ed.buffer == "0"
+    ed.handle_key("\x15")
+    type_text(ed, "5万")
+    ed.handle_key("\n")
+    assert ed.editing and ed.error and "整数" in ed.error
+    ed.handle_key("\x15")
+    type_text(ed, "50000")
+    ed.handle_key("\n")
+    assert not ed.editing and ed.cfg.tmux_history_limit == 50000
+
+
 def test_env_override_is_visible() -> None:
     sources = {**dict.fromkeys(config.KEYS, "default"), "memory.high": "env ATM_MEMORY_HIGH"}
     ed = editor(config.Config(memory_high="7G"), sources)
@@ -180,3 +223,34 @@ def test_config_non_tty_prints_text(cfg_path: Path, monkeypatch, capsys) -> None
     monkeypatch.setattr(cli.sys.stdout, "isatty", lambda: False)
     assert cli.main(["config"]) == cli.EXIT_OK
     assert "memory.high" in capsys.readouterr().out
+
+
+def test_draw_scrolls_to_keep_cursor_visible() -> None:
+    """17 个键在 14 行高的窗口里画不完：光标在最后一行时要能看见它。"""
+
+    class Win:
+        def __init__(self) -> None:
+            self.lines: dict[int, str] = {}
+
+        def getmaxyx(self) -> tuple[int, int]:
+            return (14, 100)
+
+        def erase(self) -> None:
+            self.lines.clear()
+
+        def refresh(self) -> None:
+            pass
+
+        def addstr(self, y: int, x: int, text: str, attr: int = 0) -> None:
+            self.lines[y] = self.lines.get(y, "") + text
+
+    ed = editor()
+    win = Win()
+    ed._draw(win)
+    assert any("memory.enabled" in t for t in win.lines.values())
+    assert not any("tmux.renumber-windows" in t for t in win.lines.values())
+    for _i in range(len(config.KEYS)):
+        ed.handle_key("j")
+    ed._draw(win)
+    assert any("tmux.renumber-windows" in t for t in win.lines.values())
+    assert not any("memory.enabled" in t for t in win.lines.values())

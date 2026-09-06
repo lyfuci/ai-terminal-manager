@@ -66,7 +66,7 @@ python3 -m zipapp src -m atm.cli:main -o atm.pyz -p "/usr/bin/env python3"
 tmux 绑定 —— 一条命令搞定，**不用自己去编辑 `~/.tmux.conf`**：
 
 ```bash
-atm install            # 终端里：四问向导（键位 / 侧栏键 / 持久化 / 总量 slice，回车 = 默认）→ 打出要写的内容 → 确认才动手
+atm install            # 打出要写的内容，问过你才动手。不问别的：可调的值都在 atm config 里，这里只是按配置应用
 atm install --print    # 只想看会写什么，什么都不改
 atm install -y         # 不问直接装
 atm install --no-persist   # 只装键位，不装 tmux-resurrect / tmux-continuum
@@ -90,7 +90,7 @@ bind-key A display-popup -E -w 80% -h 70% 'atm pick --here'
 # <<< atm <<<
 ```
 
-键位和尺寸可调：`atm install --key s --width 90% --height 80%`（带了任何选项就不进向导）。
+键位和尺寸在 `atm config` 的 `keys.*`；`atm install --key s --width 90%` 是快捷写法，会先记进 config 再装。
 
 > 刻意写成 `bind-key` 行而不是 `run-shell /abs/path/atm.tmux`：后者把用户的 tmux 配置
 > **钉死在源码目录的绝对路径上**，`src/atm/` 一搬走就悄悄失效。
@@ -254,6 +254,17 @@ atm config memory.enabled false   # 全关（atm claude 就等于 claude）
 atm config --unset memory.high    # 恢复单项默认
 atm config --reset                # 全部默认
 ```
+
+**边界：值进 config，动作留 install。** 下面三段的任何键改完保存，sync.py 立刻让 tmux / systemd 跟上：
+
+| 段 | 键 | 保存后发生什么 |
+|---|---|---|
+| `[memory]` | `slice-high` / `slice-max`（默认 `auto` = 物理内存 50% / 65%，或写死 `24G`） | atm 写的 `atm-ai.slice` 按新数重写 + `daemon-reload`；你自己写的单元不动 |
+| `[keys]` | `pick`（默认 a）/ `sidebar`（默认 b）/ `popup-width`（80%）/ `popup-height`（70%） | 键位块已装的话重写 + 对运行中的 server 重绑、旧键解绑；没装就提示先 `atm install` |
+| `[tmux]` | `mouse` / `focus-events` / `history-limit`（0 = 不写）/ `base-index`（0 或 1）/ `renumber-windows` | 写进 `~/.tmux.conf` **最前面**的独立 marker 块（你后面写的任何一行都能盖掉它）+ 对运行中的 server `set -g`。全关时整块删掉 |
+
+`[tmux]` 默认全部「不写」，不动你的 tmux 配置；开了才写 `set -g mouse on`，关了也不写 `off`。
+`atm uninstall` 一起删键位块、持久化块、tmux 选项块和 atm 写的 slice。
 
 配置文件 `~/.config/atm/config.toml`（尊重 `$XDG_CONFIG_HOME`），改完立即生效。
 **优先级：命令行参数 > 环境变量 > 文件 > 默认**；每个键对应一个环境变量（`memory.high` → `ATM_MEMORY_HIGH`，`memory.swap-max` → `ATM_MEMORY_SWAP_MAX`）。`atm config` 会标出每项的来源，`--json` 给机器读。

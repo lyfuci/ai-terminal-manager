@@ -14,6 +14,7 @@ tmux server 的 PATH 是它启动那刻的快照，见 `resolve_atm_command`。
 
 from __future__ import annotations
 
+import contextlib
 import re
 import shlex
 import shutil
@@ -147,11 +148,24 @@ def validate_key(name: str, value: str) -> None:
 def build_plan(
     *,
     conf_path: Path | None = None,
-    key: str = DEFAULT_KEY,
-    sidebar_key: str = DEFAULT_SIDEBAR_KEY,
-    width: str = DEFAULT_WIDTH,
-    height: str = DEFAULT_HEIGHT,
+    cfg: object | None = None,
+    key: str | None = None,
+    sidebar_key: str | None = None,
+    width: str | None = None,
+    height: str | None = None,
 ) -> InstallPlan:
+    """键位和浮层尺寸的来源：显式参数 > cfg（atm config 的 keys.*）> 模块默认。"""
+
+    # 只有 None 算「没给」；空串是用户真给了个空的，要走校验报错
+    def pick(explicit: str | None, field: str, default: str) -> str:
+        if explicit is not None:
+            return explicit
+        return getattr(cfg, field, None) or default if cfg is not None else default
+
+    key = pick(key, "keys_pick", DEFAULT_KEY)
+    sidebar_key = pick(sidebar_key, "keys_sidebar", DEFAULT_SIDEBAR_KEY)
+    width = pick(width, "keys_popup_width", DEFAULT_WIDTH)
+    height = pick(height, "keys_popup_height", DEFAULT_HEIGHT)
     validate_key("--key", key)
     validate_key("--sidebar-key", sidebar_key)
     if key == sidebar_key:
@@ -240,6 +254,16 @@ def remove(conf_path: Path | None = None) -> tuple[bool, Path | None]:
     backup = _backup(path)
     path.write_text(_strip_block(existing), encoding="utf-8")
     return True, backup
+
+
+def unbind_live(keys: tuple[str, ...]) -> None:
+    """换键之后把旧键在活着的 server 上解掉（连同大写那条）。失败无所谓，下次起 server 就没了。"""
+    if not tmux.has_server():
+        return
+    for key in keys:
+        for k in (key, key.upper()):
+            with contextlib.suppress(tmux.TmuxError):
+                tmux.run(["unbind-key", k])
 
 
 def _apply_live(plan: InstallPlan) -> tuple[bool, str | None]:

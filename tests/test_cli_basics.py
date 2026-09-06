@@ -243,6 +243,11 @@ def test_install_and_uninstall_honour_conf(tmp_path: Path, monkeypatch, capsys) 
         == cli.EXIT_OK
     )
     assert "atm (ai-terminal-manager)" in conf.read_text(encoding="utf-8")
+    from atm import tmuxopts
+
+    tmuxopts.apply(tmuxopts.build_plan(config.Config(tmux_focus_events=True), conf_path=conf))
+    assert tmuxopts.MARKER_BEGIN in conf.read_text(encoding="utf-8")
     assert cli.main(["uninstall", "-y", "--conf", str(conf)]) == cli.EXIT_OK
     assert "atm (ai-terminal-manager)" not in conf.read_text(encoding="utf-8")
-    assert "set -g mouse on" in conf.read_text(encoding="utf-8")
+    assert tmuxopts.MARKER_BEGIN not in conf.read_text(encoding="utf-8")
+    assert "set -g mouse on" in conf.read_text(encoding="utf-8")  # 用户自己的行不动

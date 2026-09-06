@@ -53,6 +53,7 @@ class ConfigEditor(_Screen):
             for key, field in config.KEYS.items()
         )
         self._cursor = 0
+        self._offset = 0  # 列表滚动：第一行显示的是第几个键
         self._editing = False
         self._buffer = ""
         self._error: str | None = None
@@ -218,11 +219,17 @@ class ConfigEditor(_Screen):
     def _save(self) -> Action:
         try:
             path = config.save(self._cfg)
+        except config.ConfigError as exc:
+            self._error = str(exc)  # 跨字段校验（如 keys.pick == keys.sidebar）
+            return Action.NONE
         except OSError as exc:
             self._error = _("保存失败：{exc}").format(exc=exc)
             return Action.NONE
+        from . import sync
+
+        notes = sync.apply_changes(self._original, self._cfg)
         self._original = self._cfg
-        self._status = _("已保存 → {path}").format(path=path)
+        self._status = "；".join([_("已保存 → {path}").format(path=path), *notes])
         return Action.SAVED_AND_QUIT
 
     def _quit(self) -> Action:
@@ -268,10 +275,16 @@ class ConfigEditor(_Screen):
 
         key_w = max(len(r.key) for r in self._rows) + 2
         val_w = 14
-        for i, row in enumerate(self._rows):
-            y = 3 + i
-            if y >= height - 4:
-                break
+        # 键多了以后小终端 / tmux 浮层放不下：跟着光标滚，永远能看到选中的那行
+        visible = max(1, height - 7)  # 顶两行 + 空行 + 底部四行
+        if self._cursor < self._offset:
+            self._offset = self._cursor
+        elif self._cursor >= self._offset + visible:
+            self._offset = self._cursor - visible + 1
+        self._offset = max(0, min(self._offset, max(0, len(self._rows) - visible)))
+        for i in range(self._offset, min(len(self._rows), self._offset + visible)):
+            row = self._rows[i]
+            y = 3 + i - self._offset
             selected = i == self._cursor
             attr = curses.A_REVERSE if selected else 0
             marker = "▸ " if selected else "  "

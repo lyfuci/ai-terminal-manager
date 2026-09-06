@@ -139,6 +139,18 @@ def _sidebar_mod():
     return sidebar
 
 
+def _tmuxopts_mod():
+    from . import tmuxopts
+
+    return tmuxopts
+
+
+def _sync_mod():
+    from . import sync
+
+    return sync
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="atm",
@@ -281,16 +293,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_doctor.add_argument("--json", action="store_true", help=_("机器可读输出"))
     p_doctor.set_defaults(handler=_cmd_doctor)
 
-    p_install = sub.add_parser("install", help=_("装 tmux 键位绑定（会改 ~/.tmux.conf）"))
-    p_install.add_argument("-y", "--yes", action="store_true", help=_("不问直接装"))
-    # 这四个的 default 故意是 None：裸 `atm install` 在终端里跑会进问答向导，
-    # 给了任何选项就按选项来、跳过向导。真正的默认值在 _resolve_install_args 里补。
-    p_install.add_argument("--key", help=_("绑哪个键（默认 a；大写 = 只看当前目录的会话）"))
-    p_install.add_argument(
-        "--sidebar-key", help=_("侧栏开关键（默认 b；大写 = 把当前格子收进后台）")
+    p_install = sub.add_parser(
+        "install",
+        help=_("装 tmux 键位绑定，并按 atm config 落地持久化插件 / 总量 slice / tmux 选项"),
     )
-    p_install.add_argument("--width", help=_("浮层宽度（默认 80%%）"))
-    p_install.add_argument("--height", help=_("浮层高度（默认 70%%）"))
+    p_install.add_argument("-y", "--yes", action="store_true", help=_("不问直接装"))
+    # 这四个不给就用 atm config 里的 keys.*；给了会先记进 config 再装（config 是唯一事实）
+    p_install.add_argument("--key", help=_("选择器键（= atm config keys.pick，默认 a）"))
+    p_install.add_argument("--sidebar-key", help=_("侧栏开关键（= keys.sidebar，默认 b）"))
+    p_install.add_argument("--width", help=_("浮层宽度（= keys.popup-width，默认 80%%）"))
+    p_install.add_argument("--height", help=_("浮层高度（= keys.popup-height，默认 70%%）"))
     p_install.add_argument("--print", action="store_true", help=_("只看会写什么，不动文件"))
     p_install.add_argument("--conf", type=Path, help=_("tmux 配置文件路径（默认 ~/.tmux.conf）"))
     p_install.add_argument(
@@ -812,102 +824,31 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return EXIT_OK if guard_ok else EXIT_ERROR
 
 
-def _interactive() -> bool:
-    """两端都是终端才问问题；管道 / CI 里一律走默认值。"""
-    return sys.stdin.isatty() and sys.stdout.isatty()
-
-
-def _wizard_wanted(args: argparse.Namespace) -> bool:
-    """裸 `atm install`（只允许带 --conf）+ 两端都是终端 → 进问答向导。"""
-    if not _interactive():
-        return False
-    if args.yes or args.print or args.no_persist or args.no_slice:
-        return False
-    return all(v is None for v in (args.key, args.sidebar_key, args.width, args.height))
-
-
-def _install_wizard(args: argparse.Namespace) -> bool:
-    """问四个问题填 install 的选项（借 `gh auth login` 的形式）。回车 = 默认。
-
-    返回 False = 用户 Ctrl-C / Ctrl-D 中断。只填 args，不动任何文件 ——
-    后面照旧打印计划、再确认一次才写。
-    """
-    install = _install_mod()
-    print(_("atm install 向导：回车用默认值，Ctrl-C 退出。（带任意选项运行可跳过向导，例如 -y）"))
-    print()
-    try:
-        while True:
-            prompt = _("唤出选择器的键  prefix + ?（大写 = 只看当前目录的会话）")
-            key = _ask(prompt, install.DEFAULT_KEY)
-            try:
-                install.validate_key(_("这个键"), key)
-            except ValueError as exc:
-                print(f"  {exc}")
-                continue
-            break
-        while True:
-            prompt = _("侧栏开关键  prefix + ?（大写 = 把当前格子收进后台）")
-            sidebar_key = _ask(prompt, install.DEFAULT_SIDEBAR_KEY)
-            try:
-                install.validate_key(_("这个键"), sidebar_key)
-            except ValueError as exc:
-                print(f"  {exc}")
-                continue
-            if sidebar_key == key:
-                print(_("  和上一个键相同了，换一个。"))
-                continue
-            break
-        persist = _ask_yes_no(_("装 tmux-resurrect / tmux-continuum，重启后恢复窗口布局？"))
-        use_slice = _ask_yes_no(_("写总量闸门 systemd slice，限制所有 AI 会话合计的内存？"))
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return False
-    args.key = key
-    args.sidebar_key = sidebar_key
-    args.no_persist = not persist
-    args.no_slice = not use_slice
-    print()
-    return True
-
-
-def _resolve_install_args(args: argparse.Namespace) -> None:
-    install = _install_mod()
-    args.key = args.key or install.DEFAULT_KEY
-    args.sidebar_key = args.sidebar_key or install.DEFAULT_SIDEBAR_KEY
-    args.width = args.width or install.DEFAULT_WIDTH
-    args.height = args.height or install.DEFAULT_HEIGHT
-
-
-def _ask(prompt: str, default: str) -> str:
-    answer = input(f"{prompt} [{default}] ").strip()
-    return answer or default
-
-
-def _ask_yes_no(prompt: str, *, default: bool = True) -> bool:
-    answer = input(f"{prompt} [{'Y/n' if default else 'y/N'}] ").strip().lower()
-    if not answer:
-        return default
-    return answer in ("y", "yes")
-
-
 def _cmd_install(args: argparse.Namespace) -> int:
+    """写键位块 + 按 atm config 把持久化插件 / 总量 slice / tmux 选项落地。
+
+    不问问题：所有可调的值都在 `atm config` 里，这里只是「按配置应用」。
+    --key 等参数是快捷写法，会先记进 config 再应用，保证 config 始终是唯一事实。
+    """
     persist = _persist_mod()
+    config = _config_mod()
     if not tmux.is_installed():
         print(_("tmux 没装。先装：{v0}").format(v0=persist.tmux_install_hint()))
         print(_("（配置照样可以先写好，装完 tmux 直接生效。）\n"))
 
-    if _wizard_wanted(args) and not _install_wizard(args):
-        print(_("已取消，没有改动任何文件。"))
-        return EXIT_CANCELLED
-    _resolve_install_args(args)
+    cfg = config.load()
+    overrides = {
+        "keys.pick": args.key,
+        "keys.sidebar": args.sidebar_key,
+        "keys.popup-width": args.width,
+        "keys.popup-height": args.height,
+    }
+    overrides = {k: v for k, v in overrides.items() if v}
+    for key, value in overrides.items():
+        cfg = config.set_value(cfg, key, value)  # 不合法直接 ConfigError → main 给一行人话
+    config.validate(cfg)
 
-    plan = _install_mod().build_plan(
-        conf_path=args.conf,
-        key=args.key,
-        sidebar_key=args.sidebar_key,
-        width=args.width,
-        height=args.height,
-    )
+    plan = _install_mod().build_plan(cfg=cfg, conf_path=args.conf)
     persist_plan = None if args.no_persist else persist.build_plan(conf_path=args.conf)
 
     print(plan.describe())
@@ -925,7 +866,11 @@ def _cmd_install(args: argparse.Namespace) -> int:
         print(persist_plan.describe())
     if not args.no_slice:
         print()
-        print(_guard_mod().describe_plan(_config_mod().load().memory_slice))
+        print(_guard_mod().describe_plan(cfg))
+    opts_plan = _tmuxopts_mod().build_plan(cfg, conf_path=args.conf)
+    if opts_plan.enabled or opts_plan.already_installed:
+        print()
+        print(opts_plan.describe())
 
     if args.print:
         return EXIT_OK
@@ -936,6 +881,10 @@ def _cmd_install(args: argparse.Namespace) -> int:
             print(_("已取消，没有改动任何文件。"))
             return EXIT_CANCELLED
 
+    if overrides:
+        path = config.save(cfg)
+        print(_("\n键位已记到 {path}（keys.*），以后在 `atm config` 里改").format(path=path))
+
     result = _install_mod().apply(plan)
 
     print(_("\n已写入 {result_conf_path}").format(result_conf_path=result.conf_path))
@@ -945,7 +894,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
         print(
             _(
                 "已对正在运行的 tmux server 立即生效 —— 不用 reload，直接按 prefix + {args_key} 试"
-            ).format(args_key=args.key)
+            ).format(args_key=cfg.keys_pick)
         )
     elif result.live_error:
         print(
@@ -960,32 +909,49 @@ def _cmd_install(args: argparse.Namespace) -> int:
     if persist_plan is not None:
         _apply_persist(persist_plan)
     if not args.no_slice:
-        _apply_slice()
+        _apply_slice(cfg)
+    if opts_plan.enabled or opts_plan.already_installed:
+        _report_tmuxopts(_tmuxopts_mod().apply(opts_plan))
     return EXIT_OK
 
 
-def _apply_slice() -> None:
+def _report_tmuxopts(result) -> None:
+    if result.written:
+        print(_("\n已写 tmux 选项块 → {path}").format(path=result.conf_path))
+        if result.backup_path:
+            print(_("备份    {backup}").format(backup=result.backup_path))
+    if result.applied_live:
+        print(_("tmux 选项已对运行中的 server 立即生效"))
+    elif result.live_error:
+        print(_("tmux 选项对运行中的 server 生效失败：{err}").format(err=result.live_error))
+
+
+def _apply_slice(cfg) -> None:
     guard = _guard_mod()
-    cfg = _config_mod().load()
     if not dispatch_mod.memory_limits_available():
         print(_("\n这台机器拿不到 cgroup，跳过总量闸门 slice。"))
         return
-    path, written = guard.install(cfg.memory_slice)
-    st = guard.status(cfg.memory_slice)
-    if written:
+    path, action = guard.sync(cfg)
+    high, max_ = guard.resolve_totals(cfg)
+    if action == "written":
         print(
-            _(
-                "\n已写总量闸门 {path}（MemoryHigh={st_high} "
-                "/ MemoryMax={st_max}，按物理内存 50% / 65%）"
-            ).format(path=path, st_high=st.high, st_max=st.max)
+            _("\n已写总量闸门 {path}（MemoryHigh={high} / MemoryMax={max_}）").format(
+                path=path, high=high, max_=max_
+            )
         )
-        print(_("所有 atm 启动 / 投递的会话共同受这个总量约束；单个会话的上限看 `atm config`。"))
+        print(
+            _("所有 atm 启动 / 投递的会话共同受这个总量约束；数在 `atm config` 的 memory.slice-*。")
+        )
+    elif action == "updated":
+        print(
+            _("\n总量闸门 {path} 已按配置更新（MemoryHigh={high} / MemoryMax={max_}）").format(
+                path=path, high=high, max_=max_
+            )
+        )
+    elif action == "kept-user":
+        print(_("\n总量闸门 {path} 是你自己写的，不动。").format(path=path))
     else:
-        print(
-            _(
-                "\n总量闸门 {path} 已存在（MemoryHigh={st_high} / MemoryMax={st_max}），不动。"
-            ).format(path=path, st_high=st.high, st_max=st.max)
-        )
+        print(_("\n总量闸门 {path} 已是配置里的数，不动。").format(path=path))
 
 
 def _apply_persist(plan) -> None:
@@ -1115,9 +1081,12 @@ def _cmd_config(args: argparse.Namespace) -> int:
             print(json.dumps(config.to_json(cfg, sources), ensure_ascii=False, indent=2))
             return EXIT_OK
         if args.unset:
+            old_cfg = cfg
             cfg = config.unset_value(cfg, args.unset)
             path = config.save(cfg)
             print(_("{args_unset} 已恢复默认 → {path}").format(args_unset=args.unset, path=path))
+            for note in _sync_mod().apply_changes(old_cfg, cfg):
+                print(note)
             return EXIT_OK
         if args.key and args.value is None:
             raise config.ConfigError(
@@ -1126,9 +1095,12 @@ def _cmd_config(args: argparse.Namespace) -> int:
                 )
             )
         if args.key:
+            old_cfg = cfg
             cfg = config.set_value(cfg, args.key, args.value)
             path = config.save(cfg)
             print(f"{args.key} = {args.value} → {path}")
+            for note in _sync_mod().apply_changes(old_cfg, cfg):
+                print(note)
             return EXIT_OK
     except config.ConfigError as exc:
         print(f"atm: {exc}", file=sys.stderr)
@@ -1177,10 +1149,11 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
 
     removed, backup = _install_mod().remove(conf_path)
     removed_persist, backup_persist = _persist_mod().remove(conf_path)
+    removed_opts, backup_opts = _tmuxopts_mod().remove(conf_path)
     slice_name = _config_mod().load().memory_slice
     removed_slice = _guard_mod().remove(slice_name)
-    if not (removed or removed_persist or removed_slice):
-        print(_("没找到 atm 写的任何东西（键位块 / 持久化块 / slice），无需移除。"))
+    if not (removed or removed_persist or removed_opts or removed_slice):
+        print(_("没找到 atm 写的任何东西（键位块 / 持久化块 / tmux 选项块 / slice），无需移除。"))
         return EXIT_OK
     if removed:
         print(_("已从 {conf_path} 移除键位块").format(conf_path=conf_path))
@@ -1195,6 +1168,15 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
         )
         if backup_persist:
             print(_("备份 {backup_persist}").format(backup_persist=backup_persist))
+    if removed_opts:
+        print(
+            _(
+                "已从 {conf_path} 移除 tmux 选项块"
+                "（运行中的 server 上 mouse / focus-events 保持现状）"
+            ).format(conf_path=conf_path)
+        )
+        if backup_opts:
+            print(_("备份 {backup_opts}").format(backup_opts=backup_opts))
     if removed_slice:
         print(_("已删总量闸门 {slice_name}（只删 atm 自己写的那份）").format(slice_name=slice_name))
     return EXIT_OK

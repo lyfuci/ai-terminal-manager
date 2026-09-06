@@ -13,7 +13,9 @@ src/atm/            product code (src layout, zero runtime deps, Python >= 3.11)
   dispatch.py       resume command construction + cgroup memory gate + dispatch into a pane
   tmux.py           every tmux interaction; public CLI only
   install.py / persist.py / guard.py   ~/.tmux.conf key block / resurrect+continuum block / aggregate slice
-  config.py         ~/.config/atm/config.toml; `atm config`, `atm claude|codex|pi` launch wrapper
+  tmuxopts.py       ~/.tmux.conf common-options block (atm config tmux.*), placed FIRST so user lines win
+  config.py         ~/.config/atm/config.toml: every tunable VALUE (memory.*, keys.*, tmux.*); `atm claude|codex|pi`
+  sync.py           after a config save: rewrite the affected block / unit and apply live. install = ACTIONS only
 tests/              pytest; tmp_path fixtures ONLY — never read real session data
 docs/usage*.md      usage (en/cn/ja); docs/reference.md (Chinese) full options, measured numbers, JSONL formats
 research/           research log and experiments, not packaged; README*.md = why it's built this way / pitfalls

@@ -21,6 +21,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import config as config_mod
 from .i18n import _
 
 HEADER = "# 由 atm install 生成；atm uninstall 会删掉它。手改无妨，但请去掉这一行，否则会被卸载。"
@@ -50,6 +51,15 @@ def suggested_totals(total_bytes: int) -> tuple[str, str]:
     high = max(1, round(total_bytes * HIGH_RATIO / gib))
     hard = max(high + 1, round(total_bytes * MAX_RATIO / gib))
     return f"{high}G", f"{hard}G"
+
+
+def resolve_totals(cfg: config_mod.Config, *, total_bytes: int | None = None) -> tuple[str, str]:
+    """配置里的 slice-high / slice-max；"auto" 用物理内存按比例算。"""
+    total = total_bytes if total_bytes is not None else total_memory_bytes()
+    auto_high, auto_max = suggested_totals(total) if total else ("4G", "5G")
+    high = auto_high if cfg.memory_slice_high == "auto" else cfg.memory_slice_high
+    max_ = auto_max if cfg.memory_slice_max == "auto" else cfg.memory_slice_max
+    return high, max_
 
 
 def unit_text(*, high: str, max_: str, swap_max: str = "1G") -> str:
@@ -104,34 +114,76 @@ def status(slice_name: str, directory: Path | None = None) -> SliceStatus:
 
 
 def install(
-    slice_name: str, directory: Path | None = None, *, total_bytes: int | None = None
+    slice_name: str,
+    directory: Path | None = None,
+    *,
+    total_bytes: int | None = None,
+    high: str | None = None,
+    max_: str | None = None,
 ) -> tuple[Path, bool]:
-    """写单元文件。已存在就**不动**（用户可能手调过），返回 (path, written)。"""
+    """写单元文件。已存在就**不动**（用户可能手调过），返回 (path, written)。
+
+    high / max_ 不给就按物理内存比例算。要「按配置更新已有的」用 sync()。
+    """
     path = (directory or unit_dir()) / slice_name
     if path.exists():
         return path, False
-    total = total_bytes if total_bytes is not None else total_memory_bytes()
-    high, max_ = suggested_totals(total) if total else ("4G", "5G")
+    if high is None or max_ is None:
+        total = total_bytes if total_bytes is not None else total_memory_bytes()
+        auto_high, auto_max = suggested_totals(total) if total else ("4G", "5G")
+        high, max_ = high or auto_high, max_ or auto_max
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(unit_text(high=high, max_=max_), encoding="utf-8")
     _daemon_reload()
     return path, True
 
 
-def describe_plan(slice_name: str, directory: Path | None = None) -> str:
+def sync(
+    cfg: config_mod.Config, directory: Path | None = None, *, total_bytes: int | None = None
+) -> tuple[Path, str]:
+    """让单元文件跟上配置。返回 (path, 发生了什么)：
+
+    written   —— 之前没有，写了
+    updated   —— 是 atm 写的、数变了，重写了
+    unchanged —— 是 atm 写的、数没变
+    kept-user —— 用户自己写的，不动
+    """
+    high, max_ = resolve_totals(cfg, total_bytes=total_bytes)
+    st = status(cfg.memory_slice, directory)
+    if not st.exists:
+        path, _written = install(cfg.memory_slice, directory, high=high, max_=max_)
+        return path, "written"
+    if not st.ours:
+        return st.path, "kept-user"
+    if (st.high, st.max) == (high, max_):
+        return st.path, "unchanged"
+    st.path.write_text(unit_text(high=high, max_=max_), encoding="utf-8")
+    _daemon_reload()
+    return st.path, "updated"
+
+
+def describe_plan(cfg: config_mod.Config, directory: Path | None = None) -> str:
     """`atm install --print` 用：会不会写、写多少。"""
-    st = status(slice_name, directory)
-    if st.exists:
-        who = _("atm 写的") if st.ours else _("你自己的")
+    high, max_ = resolve_totals(cfg)
+    st = status(cfg.memory_slice, directory)
+    if st.exists and not st.ours:
         return _(
-            "总量闸门 {st_path} 已存在（MemoryHigh={st_high} / MemoryMax={st_max}，{who}），不动。"
-        ).format(st_path=st.path, st_high=st.high, st_max=st.max, who=who)
-    total = total_memory_bytes()
-    high, max_ = suggested_totals(total) if total else ("4G", "5G")
+            "总量闸门 {st_path} 是你自己写的（MemoryHigh={st_high} / MemoryMax={st_max}），不动。"
+        ).format(st_path=st.path, st_high=st.high, st_max=st.max)
+    if st.exists and (st.high, st.max) == (high, max_):
+        return _("总量闸门 {st_path} 已是 MemoryHigh={high} / MemoryMax={max_}，不动。").format(
+            st_path=st.path, high=high, max_=max_
+        )
+    how = (
+        _("物理内存 {v0}G 的 50% / 65%").format(v0=(total_memory_bytes() or 0) >> 30)
+        if "auto" in (cfg.memory_slice_high, cfg.memory_slice_max)
+        else _("来自 atm config memory.slice-high / slice-max")
+    )
+    verb = _("将更新总量闸门") if st.exists else _("将写入总量闸门")
     return _(
-        "将写入总量闸门 {st_path}：MemoryHigh={high} / MemoryMax={max_}（物理内存 {v0}G "
-        "的 50% / 65%），然后 systemctl --user daemon-reload。"
-    ).format(st_path=st.path, high=high, max_=max_, v0=total >> 30 if total else "?")
+        "{verb} {st_path}：MemoryHigh={high} / MemoryMax={max_}（{how}），"
+        "然后 systemctl --user daemon-reload。"
+    ).format(verb=verb, st_path=st.path, high=high, max_=max_, how=how)
 
 
 def remove(slice_name: str, directory: Path | None = None) -> bool:

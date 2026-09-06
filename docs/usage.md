@@ -66,8 +66,9 @@ Configuration precedence: **flag > environment variable > file > default**. Ever
 `memory.high` → `ATM_MEMORY_HIGH`, `memory.swap-max` → `ATM_MEMORY_SWAP_MAX`, and so on.
 Unknown keys or a malformed file are errors, never silently ignored — otherwise you'd believe a limit is active when it isn't.
 
-A bare `atm install` in a terminal runs a short wizard (picker key, sidebar key, persistence plugins, memory
-slice; Enter keeps the default); any option, e.g. `-y`, skips it.
+`atm install` asks nothing but the final confirmation: every tunable value lives in `atm config` and install
+just applies it (key bindings, aggregate slice, tmux options). `--key s` and friends are shortcuts that save to
+the config first.
 `atm install --conf PATH` / `atm uninstall --conf PATH` target a tmux config other than `~/.tmux.conf`.
 `eval "$(atm pick --print)"` works even though stdout is captured: the picker draws on `/dev/tty`.
 
@@ -76,6 +77,9 @@ slice; Enter keeps the default); any option, e.g. `-y`, skips it.
 ```bash
 atm config                     # interactive editor: ↑↓ pick a key, Enter edit/toggle, s save, ? help (atm config --show for plain text)
 atm config memory.high 4G      # soft cap: throttle + reclaim, never kills
+atm config keys.pick s         # picker key (uppercase = current dir only); keys.sidebar, keys.popup-width/-height too. Saving rebinds the running server
+atm config tmux.mouse true     # common tmux options: mouse / focus-events / history-limit / base-index / renumber-windows → own block at the TOP of ~/.tmux.conf (your lines below win), applied live
+atm config memory.slice-high 20G  # aggregate slice numbers (default auto = 50% / 65% of RAM); the unit atm wrote is rewritten + daemon-reload
 atm config memory.max 8G       # hard cap: kills the whole session scope (children included)
 atm claude --resume <id>       # launches claude inside that cgroup; args pass through untouched
 claude                         # no prefix = native, no limits at all

@@ -63,8 +63,8 @@ ATM_LANG=en atm --help         # 界面语言：跟系统 LC_ALL / LC_MESSAGES /
 `memory.high` → `ATM_MEMORY_HIGH`，`memory.swap-max` → `ATM_MEMORY_SWAP_MAX`，以此类推。
 拼错的键、坏掉的文件都是错误，不会静默忽略——否则你会以为限制生效了其实没有。
 
-终端里裸跑 `atm install` 会进一个四问的向导（选择器键、侧栏键、要不要持久化插件、要不要总量 slice；回车 = 默认）；
-带任何选项（如 `-y`）就跳过向导。
+`atm install` 只问最后一句「继续吗」：所有可调的值都在 `atm config` 里，install 只是按配置应用（键位、总量 slice、tmux 选项）。
+`--key s` 这类参数是快捷写法，会先记进 config 再装。
 `atm install --conf PATH` / `atm uninstall --conf PATH` 可以指向 `~/.tmux.conf` 以外的配置。
 `eval "$(atm pick --print)"` 在 stdout 被接走时也能用：选择器画在 `/dev/tty` 上。
 
@@ -73,6 +73,9 @@ ATM_LANG=en atm --help         # 界面语言：跟系统 LC_ALL / LC_MESSAGES /
 ```bash
 atm config                     # 交互式编辑器：↑↓ 选键，Enter 改/切换，s 保存，? 帮助（atm config --show 只打印）
 atm config memory.high 4G      # 软上限：节流 + 回收，不杀
+atm config keys.pick s         # 选择器键（大写 = 只看当前目录）；还有 keys.sidebar、keys.popup-width/-height。保存即对运行中的 server 重绑
+atm config tmux.mouse true     # tmux 常用选项：mouse / focus-events / history-limit / base-index / renumber-windows → 写进 ~/.tmux.conf **最前面**的独立块（你后面的行能盖掉它），立即生效
+atm config memory.slice-high 20G  # 总量 slice 的数（默认 auto = 物理内存 50% / 65%）；atm 写的单元会重写 + daemon-reload
 atm config memory.max 8G       # 硬上限：杀整个会话 scope（含子进程）
 atm claude --resume <id>       # 在这个 cgroup 里启动 claude；参数原样透传
 claude                         # 不带前缀 = 原生，不套任何限制
