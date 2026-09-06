@@ -1041,9 +1041,43 @@ def _cmd_update(args: argparse.Namespace) -> int:
         )
         return EXIT_ERROR
     # 新版本在新进程里才看得到；这里的 __version__ 还是老的
-    shown = subprocess.run(["atm", "--version"], capture_output=True, text=True, check=False)
-    print(_("完成：{v0}").format(v0=shown.stdout.strip() or _("（跑 atm --version 看版本）")))
+    shown = _installed_version_line()
+    installed = update.installed_version_from(shown)
+    fallback = update.direct_index_command(info)
+    if (
+        latest
+        and installed
+        and update.version_tuple(installed) < update.version_tuple(latest)
+        and fallback is not None
+    ):
+        # 升级命令跑完版本没动、而 PyPI 明明有新版：镜像还没同步。直连 PyPI 再来一次。
+        print(
+            _("升级命令跑完还是 {installed}，但 PyPI 已有 {latest}：").format(
+                installed=installed, latest=latest
+            )
+        )
+        print(_("你的包管理器走的索引镜像还没同步到新版本。直连 PyPI 再试："))
+        print("  " + " ".join(fallback))
+        if not args.yes and not _confirm(_("继续吗？")):
+            print(_("已取消。镜像通常几分钟到一小时内追上，届时再 `atm update` 即可。"))
+            return EXIT_CANCELLED
+        result = subprocess.run(fallback, check=False)
+        if result.returncode != 0:
+            print(
+                _("atm: 直连 PyPI 的升级命令退出码 {code}").format(code=result.returncode),
+                file=sys.stderr,
+            )
+            return EXIT_ERROR
+        shown = _installed_version_line()
+    print(_("完成：{v0}").format(v0=shown or _("（跑 atm --version 看版本）")))
     return EXIT_OK
+
+
+def _installed_version_line() -> str:
+    import subprocess
+
+    shown = subprocess.run(["atm", "--version"], capture_output=True, text=True, check=False)
+    return (shown.stdout or "").strip()
 
 
 def _cmd_completion(args: argparse.Namespace) -> int:

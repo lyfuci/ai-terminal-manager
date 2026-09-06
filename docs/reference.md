@@ -196,6 +196,12 @@ atm --version
 **不要**对 uv tool 装的 atm 用 `pip install -U`：那会装进另一个解释器，PATH 上的 `atm` 还是旧的；
 而且 PyPI 上的 `atm` 是别人的包，本项目叫 `ai-terminal-manager`。
 
+**镜像滞后**：`atm update` 问的是 PyPI 本尊，但 `uv tool upgrade` 走的是你配的索引镜像（阿里云 / 清华等），
+镜像同步有几分钟到一小时延迟。实测发版后立刻 `atm update` 会出现「PyPI 已有 0.6.0、升级命令却 Nothing to upgrade」。
+于是升级命令跑完 atm 会再查一次版本：没升上去而 PyPI 确有新版，就提示并（确认后）改用
+`uv tool install --reinstall --default-index https://pypi.org/simple ai-terminal-manager` 直连 PyPI 再装一次。
+git 装的不经过索引，没有这个问题。
+
 ## 界面语言
 
 CLI 的输出、`--help`、TUI 提示、报错都有中 / 英 / 日三语。选择顺序：`ATM_LANG`（`zh` / `en` / `ja`）> `LC_ALL` > `LC_MESSAGES` > `LANG` > `locale.getlocale()`；`C` / `POSIX` 或认不出的语言 → 英文。

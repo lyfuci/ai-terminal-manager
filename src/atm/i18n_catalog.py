@@ -405,6 +405,10 @@ EN: dict[str, str] = {
     "键位块已重写 → {path}": "Key block rewritten → {path}",
     "键位块没更新：{exc}": "Key block not updated: {exc}",
     "键位还没装进 tmux；跑一次 `atm install` 才会绑 prefix + {k}": "Keys are not installed in tmux yet; run `atm install` once to bind prefix + {k}",
+    "atm: 直连 PyPI 的升级命令退出码 {code}": "atm: the direct-PyPI upgrade command exited with {code}",
+    "你的包管理器走的索引镜像还没同步到新版本。直连 PyPI 再试：": "The package index mirror your installer uses has not synced the new release yet. Retrying straight from PyPI:",
+    "升级命令跑完还是 {installed}，但 PyPI 已有 {latest}：": "The upgrade ran but the version is still {installed}, while PyPI already has {latest}:",
+    "已取消。镜像通常几分钟到一小时内追上，届时再 `atm update` 即可。": "Cancelled. Mirrors usually catch up within minutes to an hour; run `atm update` again then.",
 }
 
 JA: dict[str, str] = {
@@ -804,6 +808,10 @@ JA: dict[str, str] = {
     "键位块已重写 → {path}": "キーブロックを書き直しました → {path}",
     "键位块没更新：{exc}": "キーブロックを更新できませんでした：{exc}",
     "键位还没装进 tmux；跑一次 `atm install` 才会绑 prefix + {k}": "キーはまだ tmux に入っていません。`atm install` を一度実行すると prefix + {k} が割り当てられます",
+    "atm: 直连 PyPI 的升级命令退出码 {code}": "atm: PyPI 直結のアップグレードコマンドが終了コード {code}",
+    "你的包管理器走的索引镜像还没同步到新版本。直连 PyPI 再试：": "インストーラが使うインデックスミラーにまだ新版が同期されていません。PyPI に直結して再試行：",
+    "升级命令跑完还是 {installed}，但 PyPI 已有 {latest}：": "アップグレード後も {installed} のままですが、PyPI には既に {latest} があります：",
+    "已取消。镜像通常几分钟到一小时内追上，届时再 `atm update` 即可。": "取消しました。ミラーは通常数分〜1 時間で追いつきます。その後にもう一度 `atm update` を。",
 }
 
 CATALOG: dict[str, dict[str, str]] = {"en": EN, "ja": JA}

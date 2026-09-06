@@ -35,7 +35,7 @@ atm swap %7 --into %3     # %7 を %3 に入れ替え
 atm park                  # 現在の pane を bg へ
 atm prune -n              # bg の中の閉じられる idle shell を表示（-n を外すと実際に閉じる）
 atm index --rebuild       # キャッシュを消して全再構築
-atm update                # atm 自身を更新（uv tool / pipx / pip を判別）；--check は確認のみ
+atm update                # atm 自身を更新（uv tool / pipx / pip を判別）；--check は確認のみ。ミラーが遅れていれば PyPI 直結で再試行
 ```
 
 > 投入時はデフォルトで cgroup のメモリゲートを被せる（`MemoryHigh=2G` / `MemoryMax=4G`）。

@@ -28,6 +28,7 @@ from .i18n import _
 
 DIST_NAME = "ai-terminal-manager"
 PYPI_JSON = f"https://pypi.org/pypi/{DIST_NAME}/json"
+PYPI_SIMPLE = "https://pypi.org/simple"
 GIT_URL = "https://github.com/lyfuci/ai-terminal-manager"
 
 
@@ -119,6 +120,39 @@ def upgrade_command(info: InstallInfo) -> list[str] | None:
         target = f"git+{GIT_URL}" if info.origin is Origin.GIT else DIST_NAME
         return [sys.executable, "-m", "pip", "install", "--upgrade", target]
     return None
+
+
+def direct_index_command(info: InstallInfo) -> list[str] | None:
+    """镜像滞后时的兜底：绕过用户配置的索引，直连 PyPI 装最新版。
+
+    实测场景：国内镜像同步 PyPI 有几分钟到一小时的延迟。`atm update` 问 PyPI 本尊知道有 0.6.0，
+    但 `uv tool upgrade` 走镜像只看得到 0.4.0，于是"Nothing to upgrade"、版本原地不动。
+    只对从索引装的有意义；git 装的不经过索引。
+    """
+    if info.origin is not Origin.INDEX:
+        return None
+    if info.installer is Installer.UV_TOOL:
+        return ["uv", "tool", "install", "--reinstall", "--default-index", PYPI_SIMPLE, DIST_NAME]
+    if info.installer is Installer.PIPX:
+        return ["pipx", "install", "--force", "--index-url", PYPI_SIMPLE, DIST_NAME]
+    if info.installer is Installer.PIP:
+        return [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "--index-url",
+            PYPI_SIMPLE,
+            DIST_NAME,
+        ]
+    return None
+
+
+def installed_version_from(output: str) -> str | None:
+    """`atm --version` 的输出（`atm 0.6.0`）→ `0.6.0`；认不出返回 None。"""
+    m = re.search(r"(\d+\.\d+\.\d+)", output)
+    return m.group(1) if m else None
 
 
 def manual_hint(info: InstallInfo) -> str:

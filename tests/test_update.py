@@ -147,6 +147,80 @@ def test_cmd_update_editable_explains_and_exits_ok(monkeypatch, capsys) -> None:
     assert "git pull" in capsys.readouterr().out
 
 
+def test_direct_index_command_only_for_index_installs() -> None:
+    uv = update.InstallInfo(update.Installer.UV_TOOL, update.Origin.INDEX)
+    cmd = update.direct_index_command(uv)
+    assert cmd[:4] == ["uv", "tool", "install", "--reinstall"]
+    assert cmd[4:] == ["--default-index", update.PYPI_SIMPLE, update.DIST_NAME]
+    pipx = update.InstallInfo(update.Installer.PIPX, update.Origin.INDEX)
+    assert "--index-url" in update.direct_index_command(pipx)
+    git = update.InstallInfo(update.Installer.UV_TOOL, update.Origin.GIT, "abc1234")
+    assert update.direct_index_command(git) is None
+    assert (
+        update.direct_index_command(
+            update.InstallInfo(update.Installer.UNKNOWN, update.Origin.UNKNOWN)
+        )
+        is None
+    )
+
+
+def test_installed_version_from_output() -> None:
+    assert update.installed_version_from("atm 0.6.0\n") == "0.6.0"
+    assert update.installed_version_from("") is None
+
+
+def test_cmd_update_falls_back_to_pypi_when_mirror_lags(monkeypatch, capsys) -> None:
+    """镜像只有 0.4.0：uv tool upgrade 说 Nothing to upgrade → 直连 PyPI 再装一次。"""
+    monkeypatch.setattr(
+        update, "detect", lambda: update.InstallInfo(update.Installer.UV_TOOL, update.Origin.INDEX)
+    )
+    monkeypatch.setattr(update, "latest_version", lambda: "0.6.0")
+    monkeypatch.setattr(update, "current_version", lambda: "0.4.0")
+    import subprocess
+
+    calls: list[list[str]] = []
+    state = {"version": "atm 0.4.0"}
+
+    class R:
+        def __init__(self, stdout: str = "") -> None:
+            self.returncode = 0
+            self.stdout = stdout
+
+    def fake_run(cmd, **k):
+        calls.append(cmd)
+        if cmd == ["atm", "--version"]:
+            return R(state["version"])
+        if "--default-index" in cmd:
+            state["version"] = "atm 0.6.0"  # 直连 PyPI 那次才真的升上去
+        return R()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert cli._cmd_update(argparse.Namespace(check=False, yes=True)) == cli.EXIT_OK
+    assert calls[0] == ["uv", "tool", "upgrade", update.DIST_NAME]
+    assert any("--default-index" in c for c in calls)
+    out = capsys.readouterr().out
+    assert "镜像" in out and "完成：atm 0.6.0" in out
+
+
+def test_cmd_update_no_fallback_when_upgrade_worked(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        update, "detect", lambda: update.InstallInfo(update.Installer.UV_TOOL, update.Origin.INDEX)
+    )
+    monkeypatch.setattr(update, "latest_version", lambda: "0.6.0")
+    import subprocess
+
+    calls: list[list[str]] = []
+
+    class R:
+        returncode = 0
+        stdout = "atm 0.6.0"
+
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: (calls.append(cmd), R())[1])
+    assert cli._cmd_update(argparse.Namespace(check=False, yes=True)) == cli.EXIT_OK
+    assert not any("--default-index" in c for c in calls)
+    assert "镜像" not in capsys.readouterr().out
+
+
 def test_version_flag() -> None:
     with pytest.raises(SystemExit) as exc:
         cli._build_parser().parse_args(["--version"])
