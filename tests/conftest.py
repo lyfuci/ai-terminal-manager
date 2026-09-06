@@ -68,6 +68,31 @@ def pi_root(tmp_path: Path) -> Path:
     return tmp_path / "pi" / "agent" / "sessions"
 
 
+@pytest.fixture
+def gemini_root(tmp_path: Path) -> Path:
+    """`~/.gemini/tmp` 的替身。projects.json 是它的**同级**文件，所以要多一层 gemini/。"""
+    return tmp_path / "gemini" / "tmp"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_source_roots(tmp_path: Path, monkeypatch):
+    """把所有数据源的 DEFAULT_ROOT 指到一个不存在的临时目录。
+
+    为什么必须 autouse：`DEFAULT_ROOT` 是 **import 时**用 `Path.home()` 算好的常量，
+    测试里再 monkeypatch `Path.home` 已经晚了 —— 那些不显式传 root 的调用
+    （`atm doctor` 走的 `mod.discover()`）会去读开发者**真实的** ~/.claude / ~/.gemini。
+    仓库硬规则第 1 条是「会话数据只读、测试只用自己的语料」，这里从根上堵死。
+    要用真语料形状的测试自己传 root，不受影响。
+    """
+    from atm.sources import claude, codex, gemini, pi
+
+    isolated = tmp_path / "no-real-sessions"
+    for module in (claude, codex, gemini, pi):
+        monkeypatch.setattr(module, "DEFAULT_ROOT", isolated / module.__name__.rsplit(".", 1)[-1])
+    monkeypatch.setattr(codex, "LEGACY_INDEX", isolated / "no-legacy.jsonl")
+    return isolated
+
+
 @pytest.fixture(autouse=True)
 def _pin_cli_language(monkeypatch):
     """测试里的断言写的是中文原文；把界面语言钉死在 zh，不受开发者机器 LANG 影响。

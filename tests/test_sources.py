@@ -1,15 +1,16 @@
-"""两个会话源的解析。
+"""各个会话源的解析。
 
 重点覆盖「格式假设会变」这件事：脏行、缺字段、超大行、空文件都不能让扫描挂掉。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 from atm.model import UNTITLED, FileRef, Source
-from atm.sources import claude, codex, pi
+from atm.sources import claude, codex, gemini, pi
 
 from .conftest import write_jsonl
 
@@ -541,3 +542,210 @@ def test_pi_id_from_filename_rejects_garbage() -> None:
     assert pi.parse.__module__.endswith("pi")  # 防止 import 写错指到别的模块
     assert pi._id_from_filename("2026-09-05T01_20_00_abc123") == "abc123"
     assert pi._id_from_filename("") == ""
+
+
+# ---------------------------------------------------------------- Gemini CLI
+#
+# 语料形状逆向自本机真实会话（gemini-cli 0.58.0）：追加式 jsonl，第 1 行元数据，
+# 之后既有 `$set` 批量写入也有裸消息记录；首条 user 是注入的 <session_context>。
+# 这里全部用合成语料，不读真实的 ~/.gemini。
+
+_GEMINI_CWD = "/home/user/IdeaProjects/demo"
+_GEMINI_HASH = hashlib.sha256(_GEMINI_CWD.encode()).hexdigest()
+_GEMINI_UUID = "5953006d-7511-4da5-97d7-9e15e9789c36"
+
+
+def _gemini_registry(root: Path, mapping: dict[str, str]) -> None:
+    root.parent.mkdir(parents=True, exist_ok=True)
+    (root.parent / "projects.json").write_text(json.dumps({"projects": mapping}), encoding="utf-8")
+
+
+def _gemini_context(cwd: str = _GEMINI_CWD) -> dict:
+    text = (
+        "<session_context>\nThis is the Gemini CLI.\n"
+        f"- **Workspace Directories:**\n  - {cwd}\n"
+        "- **Directory Structure:**\n</session_context>"
+    )
+    return {"id": "m0", "timestamp": "2026-09-06T16:23:36.651Z", "type": "user",
+            "content": [{"text": text}]}  # fmt: skip
+
+
+def _gemini_user(text: str) -> dict:
+    return {"id": "m1", "timestamp": "2026-09-06T16:24:00.000Z", "type": "user",
+            "content": [{"text": text}]}  # fmt: skip
+
+
+def _gemini_file(
+    root: Path,
+    *,
+    project: str = "demo",
+    session_id: str = _GEMINI_UUID,
+    project_hash: str = _GEMINI_HASH,
+    records: list[dict | str] | None = None,
+) -> Path:
+    meta = {
+        "sessionId": session_id,
+        "projectHash": project_hash,
+        "startTime": "2026-09-06T16:23:36.651Z",
+        "lastUpdated": "2026-09-06T16:24:00.000Z",
+        "kind": "main",
+    }
+    return write_jsonl(
+        root / project / "chats" / f"session-2026-09-06T16-23-{session_id[:8]}.jsonl",
+        [meta, *(records or [])],
+    )
+
+
+def test_gemini_reads_both_batched_and_bare_message_records(gemini_root: Path) -> None:
+    """真实文件里用户后来的话是**裸记录**，只认 $set 会把它们全漏掉。"""
+    _gemini_registry(gemini_root, {_GEMINI_CWD: "demo"})
+    path = _gemini_file(
+        gemini_root,
+        records=[
+            {"$set": {"messages": [_gemini_context()], "lastUpdated": "x"}},
+            _gemini_user("把索引层的缓存加上"),
+        ],
+    )
+
+    entry = gemini.parse(FileRef.from_path(path), gemini.load_registry(gemini_root))
+
+    assert entry is not None
+    assert entry.source is Source.GEMINI
+    assert entry.id == _GEMINI_UUID  # 完整 UUID，resume 要用
+    assert entry.title == "把索引层的缓存加上"  # 不是注入的 session_context
+    assert entry.cwd == _GEMINI_CWD
+    assert entry.git_branch is None
+
+
+def test_gemini_falls_back_to_session_context_for_cwd(gemini_root: Path) -> None:
+    """注册表里没有这个目录标识时，从 <session_context> 里捞 cwd。"""
+    path = _gemini_file(
+        gemini_root,
+        project="unknown-identifier",
+        records=[{"$set": {"messages": [_gemini_context(), _gemini_user("你好")]}}],
+    )
+
+    entry = gemini.parse(FileRef.from_path(path), {})
+
+    assert entry is not None and entry.cwd == _GEMINI_CWD and entry.title == "你好"
+
+
+def test_gemini_skips_sessions_with_unresolvable_cwd(gemini_root: Path) -> None:
+    """从 Windows 迁来的旧会话就是这种：目录名是哈希、文件里也没有上下文。
+
+    列出来只会让用户白按一次（gemini 的 resume 按项目隔离），所以直接丢弃。
+    """
+    path = _gemini_file(
+        gemini_root, project="a" * 64, records=[{"$set": {"messages": [_gemini_user("孤儿会话")]}}]
+    )
+
+    assert gemini.parse(FileRef.from_path(path), {}) is None
+
+
+def test_gemini_rejects_registry_cwd_that_contradicts_project_hash(gemini_root: Path) -> None:
+    """注册表可变，projectHash 是写会话时算的。对不上就不信注册表。"""
+    _gemini_registry(gemini_root, {"/somewhere/else": "demo"})
+    path = _gemini_file(
+        gemini_root, records=[{"$set": {"messages": [_gemini_context(), _gemini_user("你好")]}}]
+    )
+
+    entry = gemini.parse(FileRef.from_path(path), gemini.load_registry(gemini_root))
+
+    assert entry is not None and entry.cwd == _GEMINI_CWD  # 退回上下文里的那个
+
+
+def test_gemini_rejects_id_that_cannot_resume(gemini_root: Path) -> None:
+    """findSession 是完整 UUID 精确比对；拼一个 8 位的 id 出来一定 resume 不了。"""
+    _gemini_registry(gemini_root, {_GEMINI_CWD: "demo"})
+    path = _gemini_file(
+        gemini_root, session_id="5953006d", records=[{"$set": {"messages": [_gemini_user("hi")]}}]
+    )
+
+    assert gemini.parse(FileRef.from_path(path), gemini.load_registry(gemini_root)) is None
+
+
+def test_gemini_untitled_when_only_injected_context(gemini_root: Path) -> None:
+    _gemini_registry(gemini_root, {_GEMINI_CWD: "demo"})
+    path = _gemini_file(gemini_root, records=[{"$set": {"messages": [_gemini_context()]}}])
+
+    entry = gemini.parse(FileRef.from_path(path), gemini.load_registry(gemini_root))
+
+    assert entry is not None and entry.title == UNTITLED
+
+
+def test_gemini_ignores_non_user_message_types(gemini_root: Path) -> None:
+    _gemini_registry(gemini_root, {_GEMINI_CWD: "demo"})
+    noise = [
+        {"id": "n1", "type": "gemini", "content": [{"text": "模型的回答"}]},
+        {"id": "n2", "type": "info", "content": "系统提示"},
+        {"id": "n3", "type": "error", "content": "出错了"},
+    ]
+    path = _gemini_file(gemini_root, records=[*noise, _gemini_user("真正的第一句")])
+
+    entry = gemini.parse(FileRef.from_path(path), gemini.load_registry(gemini_root))
+
+    assert entry is not None and entry.title == "真正的第一句"
+
+
+def test_gemini_reads_legacy_single_object_json(gemini_root: Path) -> None:
+    """0.58 之前写的是整个一个 JSON 对象，content 是裸字符串。"""
+    _gemini_registry(gemini_root, {_GEMINI_CWD: "demo"})
+    path = gemini_root / "demo" / "chats" / "session-2026-01-06T14-50-5953006d.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "sessionId": _GEMINI_UUID,
+                "projectHash": _GEMINI_HASH,
+                "startTime": "2026-01-06T14:50:00.000Z",
+                "lastUpdated": "2026-01-06T15:00:00.000Z",
+                "messages": [{"id": "m1", "type": "user", "content": "旧格式的第一句"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    entry = gemini.parse(FileRef.from_path(path), gemini.load_registry(gemini_root))
+
+    assert entry is not None and entry.title == "旧格式的第一句" and entry.cwd == _GEMINI_CWD
+
+
+def test_gemini_tolerates_corrupt_lines(gemini_root: Path) -> None:
+    _gemini_registry(gemini_root, {_GEMINI_CWD: "demo"})
+    path = _gemini_file(
+        gemini_root,
+        records=["{ 不是 json", {"$set": "也不是字典"}, _gemini_user("脏行后面的正常消息")],
+    )
+
+    entry = gemini.parse(FileRef.from_path(path), gemini.load_registry(gemini_root))
+
+    assert entry is not None and entry.title == "脏行后面的正常消息"
+
+
+def test_gemini_discover_only_scans_the_chats_directory(gemini_root: Path) -> None:
+    """tmp/<项目>/ 下面还有 logs/ 和 tool-outputs/，不能捞进来。"""
+    _gemini_file(gemini_root)
+    for noise in ("logs/session-fake.jsonl", "tool-outputs/session-fake.jsonl", "logs.json"):
+        p = gemini_root / "demo" / noise
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{}", encoding="utf-8")
+
+    found = [Path(ref.path).name for ref in gemini.discover(gemini_root)]
+
+    assert found == [f"session-2026-09-06T16-23-{_GEMINI_UUID[:8]}.jsonl"]
+
+
+def test_gemini_missing_root_and_registry_are_quiet(tmp_path: Path) -> None:
+    assert list(gemini.discover(tmp_path / "nope")) == []
+    assert gemini.load_registry(tmp_path / "nope") == {}
+
+
+def test_source_roots_has_a_field_for_every_source() -> None:
+    """加了新来源却忘了给 SourceRoots 开字段 —— 那个源会在测试里去扫真实家目录。"""
+    from dataclasses import fields
+
+    from atm.index import SourceRoots
+
+    names = {f.name for f in fields(SourceRoots)}
+    missing = {s.value for s in Source if f"{s.value}_root" not in names}
+    assert not missing, f"SourceRoots 缺字段：{missing}"

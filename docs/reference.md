@@ -335,7 +335,7 @@ atm config --reset                # 全部默认
 
 ## 数据来源（逆向观察，不是公开契约）
 
-> ⚠️ 这两个格式都是**观察出来的**，CLI 升级随时可能变。
+> ⚠️ 这些格式都是**观察出来的**，CLI 升级随时可能变。
 > 解析层对未知 type / 缺字段 / 脏行全部容忍 —— 单条坏数据不会让侧栏挂掉。
 
 **Claude Code** `~/.claude/projects/<cwd 的 / 换成 ->/<sessionId>.jsonl`
@@ -369,6 +369,22 @@ atm config --reset                # 全部默认
   （还有 `toolResult` / `bashExecution` / `compactionSummary` / `branchSummary`），不过滤会让 bash 输出冒充标题
 - schema v3 里**没有 git 字段**，所以 pi 的条目不显示分支
 - 恢复：`pi --session <id>`
+
+**Gemini CLI** `~/.gemini/tmp/<项目标识>/chats/session-<时间>-<id 前 8 位>.jsonl`
+
+实测语料：gemini-cli 0.58.0，本机 15 个会话文件。
+
+- **两种格式并存**：0.58 之前是单个 JSON 对象（`.json`），之后是追加式 `.jsonl`。上游两种都读，atm 也是
+- `.jsonl` 第 1 行是元数据（`sessionId` / `projectHash` / `startTime` / `kind`）；之后**既有**
+  `{"$set":{"messages":[…]}}` 批量写入，**也有裸消息记录**直接追加 —— 只认前者会漏掉用户后面所有的话
+- 首条 `type:"user"` 是注入的 `<session_context>`（几 KB 的目录树），标题必须跳过它
+- `content` 可能是字符串（旧）或 parts 数组 `[{"text":…}]`（新）
+- **cwd 不在会话文件里**：目录名是 `~/.gemini/projects.json` 注册表里的可读标识（`/home/sean` → `sean`）。
+  按「注册表反查 → `<session_context>` 里的 `Workspace Directories:`」两条路找，都不中就**丢弃该会话** ——
+  gemini 的 resume 按项目隔离，cwd 不对根本恢复不了。实测本机 14 条从 Windows 迁来的旧会话正属此类
+- `projectHash` 是 cwd 绝对路径的 **sha256**（实测吻合），拿它校验注册表给出的 cwd
+- 恢复：`gemini --resume <完整 UUID>` —— `findSession` 是精确比对，不做前缀匹配，
+  所以元数据里没有 sessionId 时宁可丢弃，也不从文件名拼一个 8 位 id
 
 **所有会话文件一律只读。** 不原地改、不整理、不删。
 

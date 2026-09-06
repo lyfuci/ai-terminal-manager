@@ -62,6 +62,14 @@
 アダプタは上流の `session-format.md` に従って書いたもので、**本機に pi は未インストール、実データでの検証はしていない**。
 `cwd` は 1 行目の SessionHeader にしかなく、表示名は独立した `session_info` レコードで何度も変更されうる（末尾をもう一度走査して最後のものを取る）。復元：`pi --session <id>`。
 
+**Gemini CLI** —— `~/.gemini/tmp/<プロジェクト識別子>/chats/session-<ts>-<id[:8]>.jsonl`（0.58.0、本機の実ファイル 15 件で検証）。
+二つの形式が併存：0.58 より前は単一の JSON オブジェクト、以降は追記式 jsonl。jsonl ではメッセージが
+`{"$set":{"messages":[…]}}` の一括書き込み**と**裸のレコード追記の**両方**で来る —— 前者だけを読むと 2 ターン目以降の発言を全部取りこぼす。
+最初の `type:"user"` は注入された `<session_context>`（数 KB のディレクトリツリー）でタイトルにはならない。
+**cwd はファイル内にない**：ディレクトリ名は `~/.gemini/projects.json` レジストリの可読識別子で、`projectHash` は実測でプロジェクト絶対パスの sha256。
+レジストリでもコンテキストでも cwd が解決できないセッションは捨てる —— gemini の復元はプロジェクト単位のため、cwd が違うと復元できない。
+復元：`gemini --resume <完全な UUID>`（完全一致、前方一致なし）。
+
 **三者ともインジェクションのラッパーを除外する必要がある**：Codex は実測で本当の質問の前に 10865 文字の
 `<recommended_plugins>…</environment_context>` を差し込む。Claude は `<local-command-caveat>` / `<command-name>` の一群。
 Pi は role の列挙が広く（`toolResult` / `bashExecution` / `compactionSummary`）、フィルタしないと bash の出力がタイトルに化ける。

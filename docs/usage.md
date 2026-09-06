@@ -17,7 +17,7 @@ Once installed it's four keys (`prefix` is `Ctrl-b` by default):
 | `prefix + b` | **Sidebar**: opens a full-height strip on the far left if closed; switches to it if open; collapses it if you're already in it |
 | `prefix + B` | Park the current pane in the background window `bg` — the process keeps running and can be picked back from the sidebar |
 
-**In the popup**: type to fuzzy-search, `↑↓` / `^N` `^P` to move, `Tab` cycles All / Claude / Codex / Pi, `⏎`
+**In the popup**: type to fuzzy-search, `↑↓` / `^N` `^P` to move, `Tab` cycles All / Claude / Codex / Pi / Gemini, `⏎`
 selects, `Esc` cancels, `F1` / `?` (with an empty search box) opens the full key list. After picking a session comes a second step: every pane (with busy/idle state) + "split a new
 pane" + "new window" + "just print".
 

@@ -16,7 +16,7 @@ from pathlib import Path
 from . import cache as cache_mod
 from .cache import CachedEntry, IndexCache
 from .model import FileRef, IndexStats, SessionEntry, SessionIndex, Source
-from .sources import claude, codex, pi
+from .sources import claude, codex, gemini, pi
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +61,7 @@ class SourceRoots:
     codex_root: Path | None = None
     codex_legacy_index: Path | None = None
     pi_root: Path | None = None
+    gemini_root: Path | None = None
 
 
 def build(
@@ -135,6 +136,10 @@ def build(
         ingest(codex.discover(roots.codex_root), lambda ref: codex.parse(ref, legacy_titles))
     if Source.PI in wanted:
         ingest(pi.discover(roots.pi_root), pi.parse)
+    if Source.GEMINI in wanted:
+        # 注册表（目录标识 → 项目路径）只读一次，别每个文件都去 parse 一遍 projects.json
+        registry = gemini.load_registry(roots.gemini_root)
+        ingest(gemini.discover(roots.gemini_root), lambda ref: gemini.parse(ref, registry))
 
     # 内容没变就别写盘。热路径下 100% 命中是常态，无脑重写会白白产生
     # 140KB 写入 + 一次 fsync —— 在 WSL 上这些字节最终要落到宿主的虚拟磁盘。
@@ -169,6 +174,8 @@ def _cached_source(path: str, cached: CachedEntry) -> Source | None:
         return Source.CODEX
     if "/.pi/" in path:
         return Source.PI
+    if "/.gemini/" in path:
+        return Source.GEMINI
     if "/.claude/" in path:
         return Source.CLAUDE
     return None
