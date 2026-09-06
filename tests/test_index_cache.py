@@ -20,10 +20,13 @@ from .conftest import write_jsonl
 
 
 def _roots(claude_root: Path, codex_root: Path, tmp_path: Path) -> SourceRoots:
+    # 每个源都显式给一个 tmp 路径：漏掉哪个，那个源就会去扫开发者真实的家目录
     return SourceRoots(
         claude_root=claude_root,
         codex_root=codex_root,
         codex_legacy_index=tmp_path / "no-legacy.jsonl",
+        pi_root=tmp_path / "no-pi",
+        gemini_root=tmp_path / "no-gemini",
     )
 
 

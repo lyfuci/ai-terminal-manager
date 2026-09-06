@@ -19,6 +19,7 @@ _JUNK_PREFIX = re.compile(
     r"|command-name|command-message|command-args"
     r"|system-reminder|user_instructions|environment_context|editor_context"
     r"|task-notification|function_results|bash-input|bash-stdout|bash-stderr"
+    r"|session_context"
     r")\b",
     re.IGNORECASE,
 )

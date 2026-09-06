@@ -26,7 +26,7 @@ atm はその層を補い、それ以外には触れない。
 
 ## これは何で、何ではないか
 
-**これは** AI CLI（Claude Code / Codex / Pi）向けの tmux セッションマネージャ。やることは三つ：
+**これは** AI CLI（Claude Code / Codex / Pi / Gemini CLI）向けの tmux セッションマネージャ。やることは三つ：
 
 1. 三つの CLI それぞれの履歴セッションを**一つのリストに統合**し、あいまい検索して、選んだ一件を**指定した tmux pane に投げ込んで** `--resume` する；
 2. 折りたためる**常駐の左サイドバー**。実行中の pane を一覧し、選ぶと `swap-pane` でメイン pane に入れ替わる。プロセスは止まらない；
@@ -49,7 +49,7 @@ atm はその層を補い、それ以外には触れない。
 
 - Linux または WSL2 + **tmux ≥ 3.2**（`display-popup` は 3.2 から；開発基準 3.6、3.4 は実測で互換）
 - **Python ≥ 3.11**、ランタイム依存ゼロ
-- Claude Code / Codex / Pi のうち少なくとも一つ（atm はそれらが `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/` に書くセッションファイルを読むだけ）
+- Claude Code / Codex / Pi / Gemini CLI のうち少なくとも一つ（atm はそれらが `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/`、`~/.gemini/tmp/*/chats/` に書くセッションファイルを読むだけ）
 
 ### 導入
 

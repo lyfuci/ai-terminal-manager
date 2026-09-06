@@ -63,6 +63,13 @@
 适配器按上游 `session-format.md` 写成，**本机没装 pi、未经真实语料验证**；`cwd` 只在第 1 行 SessionHeader，
 显示名是独立的 `session_info` 记录、可改多次（尾部再扫一遍取最后一个）。恢复：`pi --session <id>`。
 
+**Gemini CLI** —— `~/.gemini/tmp/<项目标识>/chats/session-<时间>-<id 前 8 位>.jsonl`（0.58.0，本机 15 个真实文件实测）。
+两种格式并存：0.58 之前是单个 JSON 对象，之后是追加式 jsonl。jsonl 里消息**既有** `{"$set":{"messages":[…]}}`
+批量写入**也有裸记录**追加 —— 只认前者会漏掉用户后面所有的话。首条 `type:"user"` 是注入的 `<session_context>`
+（几 KB 的目录树），不能当标题。**cwd 不在文件里**：目录名是 `~/.gemini/projects.json` 注册表里的可读标识，
+而 `projectHash` 实测是项目绝对路径的 sha256。注册表和上下文两条路都找不到 cwd 的会话直接丢弃 ——
+gemini 的 resume 按项目隔离，cwd 不对根本恢复不了。恢复：`gemini --resume <完整 UUID>`（精确比对，无前缀匹配）。
+
 **三边都要防注入包装**：Codex 实测会在真实提问前塞一条 10865 字的
 `<recommended_plugins>…</environment_context>`，Claude 则是 `<local-command-caveat>` / `<command-name>` 那一套，
 Pi 的 role 枚举更宽（`toolResult` / `bashExecution` / `compactionSummary`），不过滤会让 bash 输出冒充标题。

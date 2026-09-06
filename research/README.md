@@ -70,6 +70,16 @@ written from the upstream `session-format.md`; **pi is not installed here and it
 data.** `cwd` appears only in the line-1 SessionHeader; the display name is a separate `session_info` record that can
 change repeatedly (the tail is scanned again to take the last one). Resume: `pi --session <id>`.
 
+**Gemini CLI** — `~/.gemini/tmp/<project identifier>/chats/session-<ts>-<id[:8]>.jsonl` (gemini-cli 0.58.0, verified
+against 15 real files on this machine). Two formats coexist: a single JSON object before 0.58, an append-only jsonl
+after. In the jsonl, messages arrive **both** as `{"$set":{"messages":[…]}}` batches **and** as bare message records —
+reading only the former loses everything the user said after the first turn. The first `type:"user"` message is an
+injected `<session_context>` (a multi-KB directory tree), never a title. **cwd is not in the file**: the directory name
+is a readable identifier from the `~/.gemini/projects.json` registry, and `projectHash` is the sha256 of the project
+path (measured). Sessions whose cwd resolves through neither the registry nor the context block are dropped — gemini
+scopes resume per project, so a wrong cwd cannot resume at all. Resume: `gemini --resume <full UUID>` (exact match, no
+prefixes).
+
 **All three need injection-wrapper filtering**: Codex measurably inserts a 10,865-character
 `<recommended_plugins>…</environment_context>` before the real question; Claude has its
 `<local-command-caveat>` / `<command-name>` family; Pi's role enum is wider (`toolResult` / `bashExecution` /

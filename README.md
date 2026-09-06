@@ -32,7 +32,7 @@ Two things you get for free along the way:
 
 ## What it is — and isn't
 
-**It is** a tmux session manager for AI CLIs (Claude Code / Codex / Pi). Three things:
+**It is** a tmux session manager for AI CLIs (Claude Code / Codex / Pi / Gemini CLI). Three things:
 
 1. merge the session history of all three CLIs into **one list**, fuzzy-search it, and **drop a session into the
    tmux pane you choose** to `--resume` there;
@@ -60,8 +60,8 @@ layouts (tmux is a binary split tree).
 
 - Linux or WSL2 with **tmux ≥ 3.2** (`display-popup` appeared in 3.2; developed against 3.6, tested on 3.4)
 - **Python ≥ 3.11**, zero runtime dependencies
-- at least one of Claude Code / Codex / Pi installed (atm only reads the session files they write to
-  `~/.claude/projects/`, `~/.codex/sessions/`, `~/.pi/agent/sessions/`)
+- at least one of Claude Code / Codex / Pi / Gemini CLI installed (atm only reads the session files they write to
+  `~/.claude/projects/`, `~/.codex/sessions/`, `~/.pi/agent/sessions/`, `~/.gemini/tmp/*/chats/`)
 
 ### Installation
 

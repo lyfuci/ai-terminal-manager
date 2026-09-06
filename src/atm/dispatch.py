@@ -165,6 +165,10 @@ RESUME_PROGRAMS: dict[Source, tuple[str, ...]] = {
     # 上游文档 sessions.md：`--session <path|id>  Use a specific session file or partial session ID`
     # （未在真机验证过，本机没装 pi。）
     Source.PI: ("pi", "--session"),
+    # 实测 `gemini --help`：`-r, --resume  Resume a previous session.`
+    # 只吃**完整 UUID**（或纯数字序号），且只在会话所属项目的 cwd 下才找得到。
+    # 细节见 sources/gemini.py。
+    Source.GEMINI: ("gemini", "--resume"),
 }
 
 

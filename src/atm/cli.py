@@ -31,7 +31,7 @@ EXIT_ERROR = 1
 EXIT_CANCELLED = 130
 
 
-LAUNCH_PROGRAMS = ("claude", "codex", "pi")
+LAUNCH_PROGRAMS = ("claude", "codex", "pi", "gemini")
 
 
 _VERBOSE_FLAGS = {"-v": 1, "-vv": 2, "--verbose": 1}
@@ -684,13 +684,19 @@ def _doctor_report() -> dict:
 
     from .sources import claude as claude_src
     from .sources import codex as codex_src
+    from .sources import gemini as gemini_src
     from .sources import pi as pi_src
 
     config = _config_mod()
     guard = _guard_mod()
 
     sources = {}
-    for name, mod in (("claude", claude_src), ("codex", codex_src), ("pi", pi_src)):
+    for name, mod in (
+        ("claude", claude_src),
+        ("codex", codex_src),
+        ("pi", pi_src),
+        ("gemini", gemini_src),
+    ):
         root = mod.DEFAULT_ROOT
         sources[name] = {
             "root": str(root),
