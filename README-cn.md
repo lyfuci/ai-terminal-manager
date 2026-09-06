@@ -86,7 +86,7 @@ atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把�
 
 界面语言跟系统 locale（中 / 英 / 日），`ATM_LANG=zh|en|ja` 可强制。
 
-配置编辑不会固化环境变量覆盖；重置也会同步已安装的配置。`atm install --conf PATH` 保存 `keys.conf-path`，供后续编辑和卸载沿用。换键先绑新键再解绑旧键。关闭 tmux 选项保留运行中的值，变更对新 server 生效。总量 slice 只支持用户 manager，重载失败会明确报告。详见[配置变更](docs/usage-cn.md#配置变更)。
+配置编辑不会固化环境变量覆盖；重置也会同步已安装的配置。`atm install --conf PATH` 保存 `keys.conf-path`，供后续编辑和卸载沿用。换键先绑新键再解绑旧键。关闭 tmux 选项保留运行中的值，变更对新 server 生效。总量 slice 只支持用户 manager，重载失败会明确报告。详见[配置变更](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage-cn.md#配置变更)。
 
 可选：`atm config memory.high 4G` 设一次，之后 `atm claude` / `atm codex` / `atm pi` 就在 cgroup 内存闸门里启动；
 直接敲 `claude` 仍然不受限——前缀即选择。见 [docs/usage-cn.md](docs/usage-cn.md)。

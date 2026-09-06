@@ -102,7 +102,7 @@ atm install     # write key bindings to ~/.tmux.conf + install resurrect/continu
 
 The CLI speaks English, Chinese and Japanese, following your locale (`ATM_LANG=en|zh|ja` overrides).
 
-Config edits keep environment overrides temporary; reset also reconciles installed artifacts. `atm install --conf PATH` saves `keys.conf-path` for later edits and uninstall. Key changes bind new keys before retiring old ones. Disabling tmux options preserves running values and applies to new servers. Aggregate slice installation supports the user manager only, and reload failures are reported explicitly. See [configuration behavior](docs/usage.md#configuration-changes).
+Config edits keep environment overrides temporary; reset also reconciles installed artifacts. `atm install --conf PATH` saves `keys.conf-path` for later edits and uninstall. Key changes bind new keys before retiring old ones. Disabling tmux options preserves running values and applies to new servers. Aggregate slice installation supports the user manager only, and reload failures are reported explicitly. See [configuration behavior](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md#configuration-changes).
 
 Optional but recommended on a shared or memory-tight box: `atm config memory.high 4G` then launch with
 `atm claude` / `atm codex` / `atm pi` to run inside a cgroup memory gate. Plain `claude` stays unlimited —
