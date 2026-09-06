@@ -1,7 +1,7 @@
 [project]
 # PyPI 上 `atm` 已被占用；发行名用全名，命令名仍是 `atm`。
 name = "ai-terminal-manager"
-version = "0.7.0"
+version = "0.8.0"
 description = "Multi-session manager for AI CLIs (Claude Code / Codex / Pi) inside tmux: unified history, resume into any pane, persistent sidebar"
 readme = "README.md"
 license = "MIT"
