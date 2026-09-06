@@ -82,6 +82,28 @@ def test_corrupt_file_raises_not_silently_defaults(cfg_path: Path) -> None:
         config.load()
 
 
+def test_tmux_keys_roundtrip_and_env(cfg_path: Path, monkeypatch) -> None:
+    cfg = config.set_value(config.Config(), "tmux.mouse", "on")
+    cfg = config.set_value(cfg, "tmux.focus-events", "true")
+    config.save(cfg)
+    assert "[tmux]" in cfg_path.read_text(encoding="utf-8")
+    loaded, sources = config.load_with_sources()
+    assert loaded.tmux_mouse and loaded.tmux_focus_events
+    assert sources["tmux.mouse"] == "file"
+    monkeypatch.setenv("ATM_TMUX_MOUSE", "false")
+    loaded, sources = config.load_with_sources()
+    assert loaded.tmux_mouse is False and sources["tmux.mouse"] == "env ATM_TMUX_MOUSE"
+    with pytest.raises(config.ConfigError):
+        config.set_value(cfg, "tmux.mouse", "maybe")
+
+
+def test_unknown_tmux_key_is_error(cfg_path: Path) -> None:
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text("[tmux]\nmose = true\n", encoding="utf-8")
+    with pytest.raises(config.ConfigError, match="mose"):
+        config.load()
+
+
 def test_dumps_is_valid_toml_and_flat() -> None:
     import tomllib
 

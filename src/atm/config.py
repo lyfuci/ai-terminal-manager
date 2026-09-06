@@ -1,4 +1,7 @@
-"""`atm config`：用户级配置，目前只管一件事 —— 启动 AI CLI 时套什么内存闸门。
+"""`atm config`：用户级配置。所有「值」都在这：内存闸门、总量 slice 的数、tmux 键位、tmux 常用选项。
+
+边界：**值进 config，动作留 install**。`atm install` 只做写键位块 / 克隆持久化插件这类一次性动作，
+然后按这里的值把 slice、tmux 选项落地；改这里的任何值、保存，sync.py 立刻让 tmux / systemd 跟上。
 
 为什么要有这个文件而不是一堆命令行参数：闸门参数（MemoryHigh / MemoryMax / slice）是**这台机器**
 的属性，不是某一次投递的属性。48G 的机器和 8G 的机器该给的数字不一样，但每次 `--mem-high` 手敲
@@ -54,6 +57,23 @@ class Config:
     # systemd-run 走 `--user`（当前用户的 user manager）。关掉就是系统级 scope，需要 root，
     # 一般人用不到，留着是因为有人在容器 / 服务器上确实是 root 跑的。
     memory_user: bool = True
+    # 总量 slice 的两个数。"auto" = 物理内存的 50% / 65%（guard.py 算），也可以写死 24G。
+    memory_slice_high: str = "auto"
+    memory_slice_max: str = "auto"
+    # tmux 键位：prefix + pick 唤出选择器（大写 = 只看当前目录），prefix + sidebar 开关侧栏
+    # （大写 = 把当前格子收进后台）。浮层尺寸给 display-popup 的 -w / -h。
+    keys_pick: str = "a"
+    keys_sidebar: str = "b"
+    keys_popup_width: str = "80%"
+    keys_popup_height: str = "70%"
+    # tmux 常用选项 —— 就是大多数人手写在 ~/.tmux.conf 顶上的那几行。默认全是「不写」：
+    # 0 / false 表示不动用户的 tmux 配置；开了才由 tmuxopts.py 写进 ~/.tmux.conf **最前面**
+    # 的独立 marker 块（用户后面自己写的任何一行都能盖掉它），并对活着的 server 立即生效。
+    tmux_mouse: bool = False
+    tmux_focus_events: bool = False
+    tmux_history_limit: int = 0  # 0 = 不写；常用 50000（tmux 默认 2000）
+    tmux_base_index: int = 0  # 0 = 不写；1 = window / pane 都从 1 开始编号
+    tmux_renumber_windows: bool = False
 
     def memory_limit(self) -> dispatch.MemoryLimit | None:
         """按配置生成闸门；关了或机器不支持就是 None（= 不套）。"""
@@ -80,6 +100,17 @@ KEYS: dict[str, str] = {
     "memory.swap-max": "memory_swap_max",
     "memory.slice": "memory_slice",
     "memory.user": "memory_user",
+    "memory.slice-high": "memory_slice_high",
+    "memory.slice-max": "memory_slice_max",
+    "keys.pick": "keys_pick",
+    "keys.sidebar": "keys_sidebar",
+    "keys.popup-width": "keys_popup_width",
+    "keys.popup-height": "keys_popup_height",
+    "tmux.mouse": "tmux_mouse",
+    "tmux.focus-events": "tmux_focus_events",
+    "tmux.history-limit": "tmux_history_limit",
+    "tmux.base-index": "tmux_base_index",
+    "tmux.renumber-windows": "tmux_renumber_windows",
 }
 
 _HELP: dict[str, str] = {
@@ -89,6 +120,17 @@ _HELP: dict[str, str] = {
     "memory.swap-max": "swap 上限（WSL 上 swap 在宿主 SSD，建议小）",
     "memory.slice": "所有会话共同归入的 systemd slice，兜总量",
     "memory.user": "systemd-run 是否走 --user（一般 true）",
+    "memory.slice-high": "总量软限（所有 atm 会话合计）：auto = 物理内存 50%，或写死如 24G",
+    "memory.slice-max": "总量硬限：auto = 物理内存 65%，或写死如 31G",
+    "keys.pick": "prefix + 这个键唤出选择器（大写 = 只看当前目录）。单个小写字母",
+    "keys.sidebar": "prefix + 这个键开关侧栏（大写 = 把当前格子收进后台）。单个小写字母",
+    "keys.popup-width": "选择器浮层宽度，给 display-popup -w（如 80% 或 120）",
+    "keys.popup-height": "选择器浮层高度，给 display-popup -h（如 70% 或 40）",
+    "tmux.mouse": "tmux 鼠标：点格子切焦点、滚轮翻滚动缓冲、拖边框调大小（写进 ~/.tmux.conf）",
+    "tmux.focus-events": "tmux 把终端的焦点进出转给程序（编辑器自动重载、AI CLI 感知切窗要它）",
+    "tmux.history-limit": "每格滚动缓冲行数；0 = 不写（tmux 默认 2000），常用 50000",
+    "tmux.base-index": "window / pane 编号起点；0 = 不写（tmux 从 0 数），1 = 从 1 开始",
+    "tmux.renumber-windows": "关掉一个 window 后剩下的自动重新编号，不留空洞",
 }
 
 
@@ -168,11 +210,13 @@ def _from_raw(raw: dict, p: Path) -> Config:
                     )
                 )
             cfg = replace(cfg, **{KEYS[key]: _coerce(key, value)})
+    validate(cfg)
     return cfg
 
 
 def save(cfg: Config, path: Path | None = None) -> Path:
     """原子写：先写临时文件再 rename，中途断电不会留下半个 TOML。"""
+    validate(cfg)
     p = path or config_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + ".tmp")
@@ -226,11 +270,11 @@ def describe(cfg: Config, sources: dict[str, str] | None = None) -> str:
     ]
     for key, field in KEYS.items():
         value = getattr(cfg, field)
-        shown = str(value).lower() if isinstance(value, bool) else value
+        shown = str(value).lower() if isinstance(value, bool) else str(value)
         src = sources.get(key, "default")
         tag = "" if src == "default" else f"  ← {src}"
-        lines.append(f"  {key:<16} {shown:<12}{tag}")
-        lines.append(f"  {'':<16} {_(_HELP[key])}")
+        lines.append(f"  {key:<22} {shown:<12}{tag}")
+        lines.append(f"  {'':<22} {_(_HELP[key])}")
     lines.append("")
     if not dispatch.memory_limits_available():
         lines.append(
@@ -253,20 +297,25 @@ def to_json(cfg: Config, sources: dict[str, str]) -> dict:
 
 
 def dumps(cfg: Config) -> str:
-    """扁平 TOML：一个 [memory] 表，字符串和布尔。不支持别的类型，也不需要。"""
+    """扁平 TOML：每个段一个表（[memory] / [tmux]），字符串和布尔。不支持别的类型，也不需要。"""
     lines = [
         _("# atm 的用户配置。改完立即生效，不用重启。"),
         _("# `atm config` 查看，`atm config <key> <value>` 修改。"),
-        "",
-        "[memory]",
     ]
-    for key, field in KEYS.items():
-        name = key.split(".", 1)[1].replace("-", "_")
-        value = getattr(cfg, field)
-        if isinstance(value, bool):
-            lines.append(f"{name} = {'true' if value else 'false'}")
-        else:
-            lines.append(f'{name} = "{value}"')
+    sections = dict.fromkeys(k.split(".", 1)[0] for k in KEYS)  # 保持 KEYS 里的出现顺序
+    for section in sections:
+        lines += ["", f"[{section}]"]
+        for key, field in KEYS.items():
+            if not key.startswith(section + "."):
+                continue
+            name = key.split(".", 1)[1].replace("-", "_")
+            value = getattr(cfg, field)
+            if isinstance(value, bool):
+                lines.append(f"{name} = {'true' if value else 'false'}")
+            elif isinstance(value, int):
+                lines.append(f"{name} = {value}")
+            else:
+                lines.append(f'{name} = "{value}"')
     return "\n".join(lines) + "\n"
 
 
@@ -282,6 +331,15 @@ def _coerce(key: str, value: object):
         if s in _FALSE:
             return False
         raise ConfigError(_("{key} 要 true/false，收到 {value!r}").format(key=key, value=value))
+    if kind == "int":
+        if isinstance(value, bool) or not re.match(r"^\d+$", str(value).strip()):
+            raise ConfigError(_("{key} 要非负整数，收到 {value!r}").format(key=key, value=value))
+        n = int(str(value).strip())
+        if key == "tmux.base-index" and n > 1:
+            raise ConfigError(
+                _("{key} 只能是 0（不写）或 1，收到 {value!r}").format(key=key, value=value)
+            )
+        return n
     s = str(value).strip()
     if key == "memory.slice":
         if not re.match(r"^[\w.-]+\.slice$", s):
@@ -289,7 +347,31 @@ def _coerce(key: str, value: object):
                 _("{key} 要形如 name.slice，收到 {value!r}").format(key=key, value=value)
             )
         return s
+    if key in ("memory.slice-high", "memory.slice-max"):
+        return "auto" if s.lower() == "auto" else validate_size(key, s)
+    if key in ("keys.pick", "keys.sidebar"):
+        if not re.match(r"^[a-z]$", s):
+            raise ConfigError(
+                _("{key} 只能是单个小写字母，收到 {value!r}（大写留给配套的第二条绑定）").format(
+                    key=key, value=value
+                )
+            )
+        return s
+    if key in ("keys.popup-width", "keys.popup-height"):
+        if not re.match(r"^[1-9]\d*%?$", s):
+            raise ConfigError(
+                _("{key} 要形如 80% 或 120，收到 {value!r}").format(key=key, value=value)
+            )
+        return s
     return validate_size(key, s)
+
+
+def validate(cfg: Config) -> None:
+    """跨字段的约束。单字段的在 _coerce 里。"""
+    if cfg.keys_pick == cfg.keys_sidebar:
+        raise ConfigError(
+            _("keys.pick 和 keys.sidebar 不能相同（都是 {key!r}）").format(key=cfg.keys_pick)
+        )
 
 
 # ---------------------------------------------------------------- 启动包装

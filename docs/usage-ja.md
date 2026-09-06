@@ -63,8 +63,8 @@ ATM_LANG=ja atm --help         # 表示言語：LC_ALL / LC_MESSAGES / LANG に�
 `memory.high` → `ATM_MEMORY_HIGH`、`memory.swap-max` → `ATM_MEMORY_SWAP_MAX` など。
 未知のキーや壊れたファイルはエラーであり、黙って無視しない——制限が効いていると思い込むのを防ぐため。
 
-ターミナルで引数なしの `atm install` は 4 問のウィザードになる（ピッカーキー、サイドバーキー、永続化プラグイン、合計 slice；
-Enter でデフォルト）；何かオプション（`-y` など）を付ければスキップ。
+`atm install` は最後の確認しか聞かない：調整できる値はすべて `atm config` にあり、install はそれを適用するだけ
+（キーバインド、合計 slice、tmux オプション）。`--key s` などは先に config に保存してから入れるショートカット。
 `atm install --conf PATH` / `atm uninstall --conf PATH` で `~/.tmux.conf` 以外の設定を対象にできる。
 `eval "$(atm pick --print)"` は stdout が捕捉されていても動く：ピッカーは `/dev/tty` に描く。
 
@@ -73,6 +73,9 @@ Enter でデフォルト）；何かオプション（`-y` など）を付けれ
 ```bash
 atm config                     # 対話エディタ：↑↓ でキー選択、Enter で編集/切替、s で保存、? でヘルプ（atm config --show は表示のみ）
 atm config memory.high 4G      # ソフト上限：スロットリング + 回収、殺さない
+atm config keys.pick s         # ピッカーキー（大文字 = 現在のディレクトリのみ）；keys.sidebar、keys.popup-width/-height も。保存で実行中の server に再割り当て
+atm config tmux.mouse true     # tmux 共通オプション：mouse / focus-events / history-limit / base-index / renumber-windows → ~/.tmux.conf の**先頭**に独立ブロック（下のあなたの行が勝つ）、即時適用
+atm config memory.slice-high 20G  # 合計 slice の数値（デフォルト auto = 物理メモリの 50% / 65%）；atm が書いたユニットを書き直し + daemon-reload
 atm config memory.max 8G       # ハード上限：セッションの scope 全体（子プロセス含む）を kill
 atm claude --resume <id>       # その cgroup 内で claude を起動；引数はそのまま透過
 claude                         # プレフィックスなし = ネイティブ、制限なし
