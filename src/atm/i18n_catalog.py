@@ -409,6 +409,20 @@ EN: dict[str, str] = {
     "你的包管理器走的索引镜像还没同步到新版本。直连 PyPI 再试：": "The package index mirror your installer uses has not synced the new release yet. Retrying straight from PyPI:",
     "升级命令跑完还是 {installed}，但 PyPI 已有 {latest}：": "The upgrade ran but the version is still {installed}, while PyPI already has {latest}:",
     "已取消。镜像通常几分钟到一小时内追上，届时再 `atm update` 即可。": "Cancelled. Mirrors usually catch up within minutes to an hour; run `atm update` again then.",
+    "0 或 1": "0 or 1",
+    "4G / 512M / infinity 这样的大小": "a size like 4G / 512M / infinity",
+    "80% 或 120": "80% or 120",
+    "auto，或 24G / 512M 这样的大小": "auto, or a size like 24G / 512M",
+    "true / false": "true / false",
+    "⚠ 环境变量覆盖中，改文件不生效；先 unset 它": "⚠ Overridden by an environment variable; editing the file has no effect until you unset it",
+    "单个小写字母": "one lowercase letter",
+    "形如 name.slice": "like name.slice",
+    "来源：{v}": "Source: {v}",
+    "格式：{v}": "Format: {v}",
+    "环境变量：{v}": "Env var: {v}",
+    "界面语言：{lang}（来自 {source}；ATM_LANG=zh|en|ja 可强制）": "UI language: {lang} (from {source}; force with ATM_LANG=zh|en|ja)",
+    "非负整数": "a non-negative integer",
+    "默认：{v}": "Default: {v}",
 }
 
 JA: dict[str, str] = {
@@ -812,6 +826,20 @@ JA: dict[str, str] = {
     "你的包管理器走的索引镜像还没同步到新版本。直连 PyPI 再试：": "インストーラが使うインデックスミラーにまだ新版が同期されていません。PyPI に直結して再試行：",
     "升级命令跑完还是 {installed}，但 PyPI 已有 {latest}：": "アップグレード後も {installed} のままですが、PyPI には既に {latest} があります：",
     "已取消。镜像通常几分钟到一小时内追上，届时再 `atm update` 即可。": "取消しました。ミラーは通常数分〜1 時間で追いつきます。その後にもう一度 `atm update` を。",
+    "0 或 1": "0 か 1",
+    "4G / 512M / infinity 这样的大小": "4G / 512M / infinity のようなサイズ",
+    "80% 或 120": "80% か 120",
+    "auto，或 24G / 512M 这样的大小": "auto、または 24G / 512M のようなサイズ",
+    "true / false": "true / false",
+    "⚠ 环境变量覆盖中，改文件不生效；先 unset 它": "⚠ 環境変数で上書き中。unset するまでファイルの変更は効きません",
+    "单个小写字母": "小文字 1 字",
+    "形如 name.slice": "name.slice の形式",
+    "来源：{v}": "由来：{v}",
+    "格式：{v}": "形式：{v}",
+    "环境变量：{v}": "環境変数：{v}",
+    "界面语言：{lang}（来自 {source}；ATM_LANG=zh|en|ja 可强制）": "表示言語：{lang}（{source} より；ATM_LANG=zh|en|ja で強制）",
+    "非负整数": "非負の整数",
+    "默认：{v}": "デフォルト：{v}",
 }
 
 CATALOG: dict[str, dict[str, str]] = {"en": EN, "ja": JA}

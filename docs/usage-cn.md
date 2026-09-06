@@ -71,7 +71,7 @@ ATM_LANG=en atm --help         # 界面语言：跟系统 LC_ALL / LC_MESSAGES /
 ## 内存闸门：`atm claude` 和 `claude` 的区别
 
 ```bash
-atm config                     # 交互式编辑器：↑↓ 选键，Enter 改/切换，s 保存，? 帮助（atm config --show 只打印）
+atm config                     # 交互式编辑器：↑↓ 选键，Enter 改/切换，s 保存，? 帮助；右侧面板按界面语言说明选中项（格式 / 默认 / 环境变量 / 来源）（atm config --show 只打印）
 atm config memory.high 4G      # 软上限：节流 + 回收，不杀
 atm config keys.pick s         # 选择器键（大写 = 只看当前目录）；还有 keys.sidebar、keys.popup-width/-height。保存即对运行中的 server 重绑
 atm config tmux.mouse true     # tmux 常用选项：mouse / focus-events / history-limit / base-index / renumber-windows → 写进 ~/.tmux.conf **最前面**的独立块（你后面的行能盖掉它），立即生效

@@ -254,3 +254,87 @@ def test_draw_scrolls_to_keep_cursor_visible() -> None:
     ed._draw(win)
     assert any("tmux.renumber-windows" in t for t in win.lines.values())
     assert not any("memory.enabled" in t for t in win.lines.values())
+
+
+# ---------------------------------------------------------------- 右侧说明面板
+
+
+class RecWin:
+    """记录 (y, x, text) 的假窗口。"""
+
+    def __init__(self, height: int, width: int) -> None:
+        self._size = (height, width)
+        self.cells: list[tuple[int, int, str]] = []
+
+    def getmaxyx(self) -> tuple[int, int]:
+        return self._size
+
+    def erase(self) -> None:
+        self.cells.clear()
+
+    def refresh(self) -> None:
+        pass
+
+    def addstr(self, y: int, x: int, text: str, attr: int = 0) -> None:
+        self.cells.append((y, x, text))
+
+
+def test_panel_x_threshold() -> None:
+    assert ConfigEditor.panel_x(80) is None
+    assert ConfigEditor.panel_x(90) == 52
+    assert ConfigEditor.panel_x(140) == 77
+
+
+def test_panel_lines_describe_selected_key_in_current_language(monkeypatch) -> None:
+    from atm import i18n
+
+    sources = {**dict.fromkeys(config.KEYS, "default"), "memory.high": "env ATM_MEMORY_HIGH"}
+    ed = editor(config.Config(), sources)
+    row = ed._rows[row_index("memory.high")]
+    zh = ed.panel_lines(row, 60)
+    assert zh[0] == "memory.high"
+    assert any("软上限" in ln for ln in zh)
+    assert any("格式：" in ln and "4G" in ln for ln in zh)
+    assert any("默认：2G" in ln for ln in zh)
+    assert any("环境变量：ATM_MEMORY_HIGH" in ln for ln in zh)
+    assert any("来源：env ATM_MEMORY_HIGH" in ln for ln in zh)
+    assert any(ln.startswith("⚠") for ln in zh)
+    assert any("界面语言：zh" in ln for ln in zh)
+
+    monkeypatch.setenv("ATM_LANG", "en")
+    i18n.reset_lang()
+    try:
+        en = ed.panel_lines(row, 60)
+        assert any("soft cap" in ln for ln in en)
+        assert any("UI language: en" in ln and "ATM_LANG" in ln for ln in en)
+        assert not any("软上限" in ln for ln in en)
+    finally:
+        monkeypatch.delenv("ATM_LANG")
+        i18n.reset_lang()
+
+
+def test_wide_terminal_draws_panel_and_clips_rows() -> None:
+    ed = editor(config.Config(), {**dict.fromkeys(config.KEYS, "default"), "memory.slice": "file"})
+    win = RecWin(30, 120)
+    ed._draw(win)
+    px = ConfigEditor.panel_x(120)
+    right = [c for c in win.cells if c[1] >= px]
+    assert any("memory.enabled" in t for _y, _x, t in right)  # 面板第一行是键名
+    assert any("要不要套闸门" in t for _y, _x, t in right)  # 说明在面板里
+    assert any(t.startswith("┌") for _y, _x, t in right)
+    # 列表区的文字都在面板左边结束
+    for y, x, t in win.cells:
+        if 3 <= y < 27 and x < px:
+            from atm.text import display_width
+
+            assert x + display_width(t) <= px, (y, x, t)
+    # 底部那行不再重复说明
+    assert not any(y == 27 and "要不要套闸门" in t for y, _x, t in win.cells)
+
+
+def test_narrow_terminal_falls_back_to_bottom_line() -> None:
+    ed = editor()
+    win = RecWin(24, 70)
+    ed._draw(win)
+    assert not any(t.startswith("┌") for _y, _x, t in win.cells)
+    assert any(y == 21 and x == 0 and "要不要套闸门" in t for y, x, t in win.cells)

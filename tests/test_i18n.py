@@ -145,3 +145,17 @@ def test_all_catalog_entries_format_without_error() -> None:
             names = {m.strip("{}").split("!")[0].split(":")[0] for m in PLACEHOLDER.findall(key)}
             kwargs = {n: Any() for n in names if n}
             value.format(**kwargs)
+
+
+def test_lang_source_names_the_deciding_variable(monkeypatch) -> None:
+    monkeypatch.setenv("ATM_LANG", "ja")
+    i18n.reset_lang()
+    assert (i18n.lang(), i18n.lang_source()) == ("ja", "ATM_LANG")
+    monkeypatch.delenv("ATM_LANG")
+    monkeypatch.setenv("LC_ALL", "zh_CN.UTF-8")
+    i18n.reset_lang()
+    assert (i18n.lang(), i18n.lang_source()) == ("zh", "LC_ALL")
+    monkeypatch.delenv("LC_ALL")
+    monkeypatch.setenv("LANG", "C.UTF-8")
+    i18n.reset_lang()
+    assert (i18n.lang(), i18n.lang_source()) == ("en", "LANG")
