@@ -27,6 +27,7 @@ def _roots(claude_root: Path, codex_root: Path, tmp_path: Path) -> SourceRoots:
         codex_legacy_index=tmp_path / "no-legacy.jsonl",
         pi_root=tmp_path / "no-pi",
         gemini_root=tmp_path / "no-gemini",
+        opencode_root=tmp_path / "no-opencode",
     )
 
 

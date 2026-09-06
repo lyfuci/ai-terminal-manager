@@ -121,7 +121,7 @@ def test_doctor_json_shape(cfg_path: Path, tmp_path: Path, monkeypatch, capsys) 
     data = json.loads(capsys.readouterr().out)
     for key in ("version", "sources", "clis", "tmux", "persistence", "memory", "index", "ok"):
         assert key in data
-    assert set(data["sources"]) == {"claude", "codex", "pi", "gemini"}
+    assert set(data["sources"]) == {"claude", "codex", "pi", "gemini", "opencode"}
     assert data["ok"] is True
 
 

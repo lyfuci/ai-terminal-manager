@@ -1,6 +1,6 @@
 # AGENTS.md — for any agent working in this repo (Claude Code / Codex / Pi / humans)
 
-One line: **atm is a tmux session manager for AI CLIs** — it merges Claude Code / Codex / Pi session history into one
+One line: **atm is a tmux session manager for AI CLIs** — it merges Claude Code / Codex / Pi / Gemini / opencode history into one
 list and drops a session into a chosen pane, plus a persistent sidebar to swap between running panes. No GUI, no layout
 sync, no tmux private protocol. Positioning and trade-offs: `README.md`.
 
@@ -9,6 +9,7 @@ sync, no tmux private protocol. Positioning and trade-offs: `README.md`.
 ```
 src/atm/            product code (src layout, zero runtime deps, Python >= 3.11)
   sources/          one adapter per CLI: discover() -> Iterator[FileRef], parse(ref) -> SessionEntry | None
+                    opencode is SQLite, not files: it synthesises `<db>#<session_id>` FileRefs, connection is mode=ro
   index.py          aggregation + cache; MUST NOT import tmux.py (keeps the door open for other backends)
   dispatch.py       resume command construction + cgroup memory gate + dispatch into a pane
   tmux.py           every tmux interaction; public CLI only
@@ -35,7 +36,8 @@ uv build                               # wheel + sdist; sdist excludes research/
 
 ## Hard rules (violations get sent back)
 
-1. **Session data is read-only.** `~/.claude/projects/`, `~/.codex/`, `~/.pi/agent/sessions/` belong to the CLIs.
+1. **Session data is read-only.** `~/.claude/projects/`, `~/.codex/`, `~/.pi/agent/sessions/`, `~/.gemini/tmp/`,
+   `~/.local/share/opencode/opencode.db` belong to the CLIs.
    No code path may write, move, delete or "tidy" them. Tests use their own fixtures.
 2. **tmux through the public CLI only.** Never read or write `/tmp/tmux-<uid>/*` sockets; never parse anything but
    the documented control-mode (`-CC`) text protocol.

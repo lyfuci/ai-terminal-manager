@@ -69,6 +69,12 @@ def pi_root(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def opencode_root(tmp_path: Path) -> Path:
+    """opencode 的数据目录替身。库文件由 `write_opencode_db` 建。"""
+    return tmp_path / "opencode"
+
+
+@pytest.fixture
 def gemini_root(tmp_path: Path) -> Path:
     """`~/.gemini/tmp` 的替身。projects.json 是它的**同级**文件，所以要多一层 gemini/。"""
     return tmp_path / "gemini" / "tmp"
@@ -84,10 +90,10 @@ def _isolate_source_roots(tmp_path: Path, monkeypatch):
     仓库硬规则第 1 条是「会话数据只读、测试只用自己的语料」，这里从根上堵死。
     要用真语料形状的测试自己传 root，不受影响。
     """
-    from atm.sources import claude, codex, gemini, pi
+    from atm.sources import claude, codex, gemini, opencode, pi
 
     isolated = tmp_path / "no-real-sessions"
-    for module in (claude, codex, gemini, pi):
+    for module in (claude, codex, gemini, opencode, pi):
         monkeypatch.setattr(module, "DEFAULT_ROOT", isolated / module.__name__.rsplit(".", 1)[-1])
     monkeypatch.setattr(codex, "LEGACY_INDEX", isolated / "no-legacy.jsonl")
     return isolated
@@ -103,3 +109,57 @@ def _pin_cli_language(monkeypatch):
     i18n.reset_lang()
     yield
     i18n.reset_lang()
+
+
+def write_opencode_db(root: Path, sessions: list[dict], parts: list[dict] | None = None) -> Path:
+    """造一个 opencode 形状的 SQLite 库。
+
+    只建 atm 真正读的三张表和它读的列 —— 上游 session 表有 28 列，
+    照抄全部只会让「上游加了一列」变成测试要改的事。
+    """
+    import json as _json
+    import sqlite3
+
+    root.mkdir(parents=True, exist_ok=True)
+    db = root / "opencode.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, title TEXT,"
+        " time_created INTEGER, time_updated INTEGER, parent_id TEXT);"
+        "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT);"
+        "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT,"
+        " time_created INTEGER, data TEXT);"
+    )
+    for s in sessions:
+        conn.execute(
+            "INSERT INTO session (id, directory, title, time_created, time_updated, parent_id)"
+            " VALUES (:id, :directory, :title, :time_created, :time_updated, :parent_id)",
+            {
+                "directory": "/home/user/demo",
+                "title": None,
+                "time_created": 1788714639122,
+                "time_updated": 1788714639780,
+                "parent_id": None,
+                **s,
+            },
+        )
+    for i, p in enumerate(parts or []):
+        message_id = f"msg{i}"
+        conn.execute(
+            "INSERT INTO message (id, session_id, data) VALUES (?, ?, ?)",
+            (message_id, p["session_id"], _json.dumps({"role": p.get("role", "user")})),
+        )
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, data)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (
+                f"prt{i}",
+                message_id,
+                p["session_id"],
+                p.get("time_created", i),
+                _json.dumps({"type": p.get("type", "text"), "text": p.get("text", "")}),
+            ),
+        )
+    conn.commit()
+    conn.close()
+    return db

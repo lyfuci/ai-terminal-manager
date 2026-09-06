@@ -9,10 +9,12 @@ import hashlib
 import json
 from pathlib import Path
 
-from atm.model import UNTITLED, FileRef, Source
-from atm.sources import claude, codex, gemini, pi
+import pytest
 
-from .conftest import write_jsonl
+from atm.model import UNTITLED, FileRef, Source
+from atm.sources import claude, codex, gemini, opencode, pi
+
+from .conftest import write_jsonl, write_opencode_db
 
 # ---------------------------------------------------------------- claude
 
@@ -749,3 +751,131 @@ def test_source_roots_has_a_field_for_every_source() -> None:
     names = {f.name for f in fields(SourceRoots)}
     missing = {s.value for s in Source if f"{s.value}_root" not in names}
     assert not missing, f"SourceRoots 缺字段：{missing}"
+
+
+# ---------------------------------------------------------------- opencode
+#
+# 形状逆向自本机真实库（opencode 1.18.29）：所有会话在一个 SQLite 库里，
+# session 表直接带 id / directory(cwd) / title，不用从消息里猜标题。
+
+_OC_ID = "ses_f884ca0eeffeIrW7qezlXTfA2D"
+
+
+def test_opencode_reads_the_session_table_directly(opencode_root: Path) -> None:
+    write_opencode_db(opencode_root, [{"id": _OC_ID, "title": "把索引层的缓存加上"}])
+
+    sessions = opencode.load_sessions(opencode_root)
+    refs = list(opencode.discover(opencode_root, sessions))
+    assert len(refs) == 1
+    entry = opencode.parse(refs[0], sessions)
+
+    assert entry is not None
+    assert entry.source is Source.OPENCODE
+    assert entry.id == _OC_ID
+    assert entry.title == "把索引层的缓存加上"  # 上游给的标题，不用猜
+    assert entry.cwd == "/home/user/demo"
+    assert entry.git_branch is None
+    assert entry.updated_at.timestamp() == 1788714639780 / 1000  # 库里是毫秒
+
+
+def test_opencode_falls_back_to_first_user_text_when_title_is_placeholder(
+    opencode_root: Path,
+) -> None:
+    """会话报错/中断时 title 停在 `New session - <iso>`，那不是标题。"""
+    write_opencode_db(
+        opencode_root,
+        [{"id": _OC_ID, "title": "New session - 2026-09-06T17:10:39.122Z"}],
+        [
+            {"session_id": _OC_ID, "role": "user", "text": "真正的第一句"},
+            {"session_id": _OC_ID, "role": "assistant", "text": "模型的回答"},
+        ],
+    )
+
+    sessions = opencode.load_sessions(opencode_root)
+    entry = opencode.parse(next(opencode.discover(opencode_root, sessions)), sessions)
+
+    assert entry is not None and entry.title == "真正的第一句"
+
+
+def test_opencode_untitled_when_nothing_usable(opencode_root: Path) -> None:
+    write_opencode_db(opencode_root, [{"id": _OC_ID, "title": None}])
+
+    sessions = opencode.load_sessions(opencode_root)
+    entry = opencode.parse(next(opencode.discover(opencode_root, sessions)), sessions)
+
+    assert entry is not None and entry.title == UNTITLED
+
+
+def test_opencode_excludes_sub_agent_sessions(opencode_root: Path) -> None:
+    """parent_id 非空 = 子 agent 开的，不是用户的对话。"""
+    write_opencode_db(
+        opencode_root,
+        [
+            {"id": _OC_ID, "title": "用户的会话"},
+            {"id": "ses_child", "title": "子 agent", "parent_id": _OC_ID},
+        ],
+    )
+
+    assert list(opencode.load_sessions(opencode_root)) == [_OC_ID]
+
+
+def test_opencode_skips_sessions_without_cwd(opencode_root: Path) -> None:
+    write_opencode_db(opencode_root, [{"id": _OC_ID, "directory": "", "title": "无目录"}])
+
+    sessions = opencode.load_sessions(opencode_root)
+    assert opencode.parse(next(opencode.discover(opencode_root, sessions)), sessions) is None
+
+
+def test_opencode_ref_path_is_per_session_so_the_cache_is_fine_grained(
+    opencode_root: Path,
+) -> None:
+    """一个库装所有会话，但缓存要按会话失效 —— 路径带 id、指纹用该行的 time_updated。"""
+    write_opencode_db(
+        opencode_root,
+        [
+            {"id": "ses_a", "time_updated": 1000},
+            {"id": "ses_b", "time_updated": 2000},
+        ],
+    )
+
+    refs = {Path(r.path).name.split("#")[1]: r for r in opencode.discover(opencode_root)}
+
+    assert set(refs) == {"ses_a", "ses_b"}
+    assert refs["ses_a"].fingerprint != refs["ses_b"].fingerprint
+    assert all(str(opencode_root / "opencode.db") in r.path for r in refs.values())
+
+
+def test_opencode_size_comes_from_the_parts(opencode_root: Path) -> None:
+    write_opencode_db(
+        opencode_root,
+        [{"id": _OC_ID, "title": "t"}],
+        [{"session_id": _OC_ID, "text": "x" * 100}],
+    )
+
+    ref = next(opencode.discover(opencode_root))
+
+    assert ref.size_bytes > 100  # part.data 是 JSON，比正文长一点
+
+
+def test_opencode_missing_or_broken_db_is_quiet(opencode_root: Path, tmp_path: Path) -> None:
+    assert opencode.load_sessions(tmp_path / "nope") == {}
+    opencode_root.mkdir(parents=True, exist_ok=True)
+    (opencode_root / "opencode.db").write_text("这不是 sqlite", encoding="utf-8")
+    assert opencode.load_sessions(opencode_root) == {}
+    assert list(opencode.discover(opencode_root)) == []
+
+
+def test_opencode_never_writes_to_the_database(opencode_root: Path) -> None:
+    """硬规则第 1 条：别人的会话数据只读。连接是 mode=ro，写入必须失败。"""
+    import sqlite3
+
+    db = write_opencode_db(opencode_root, [{"id": _OC_ID, "title": "t"}])
+    before = db.read_bytes()
+
+    conn = opencode._connect(db)
+    with pytest.raises(sqlite3.OperationalError):
+        conn.execute("DELETE FROM session")
+    conn.close()
+
+    list(opencode.discover(opencode_root))
+    assert db.read_bytes() == before
