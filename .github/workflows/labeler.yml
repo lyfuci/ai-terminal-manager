@@ -1,0 +1,19 @@
+name: labeler
+
+# pull_request_target 而不是 pull_request：来自 fork 的 PR 用后者拿不到写权限，
+# 标签就打不上。这个 job **不检出代码**、只调官方 action，所以没有跑到 fork 代码的风险。
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          sync-labels: true # 文件改回去了就把对应标签摘掉

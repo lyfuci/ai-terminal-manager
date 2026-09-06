@@ -1,0 +1,90 @@
+# 自动打标签的规则（actions/labeler v5）。
+#
+# 只自动化「看文件就能确定」的两个维度：
+#   area:  改到了哪一块 —— 按路径判断，最可靠
+#   type:  哪一类改动   —— 按分支名前缀判断（本仓库约定 feat/ fix/ docs/ chore/ …）
+# priority: 和 status: 是人的判断，不自动加。
+#
+# 一个 PR 命中多条就会有多个标签，这是预期的：动了四个模块本来就该四个 area 都标上。
+
+"area: sources":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/atm/sources/**"
+          - "src/atm/jsonl.py"
+          - "src/atm/model.py"
+
+"area: tmux":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/atm/tmux.py"
+          - "src/atm/install.py"
+          - "src/atm/persist.py"
+          - "src/atm/tmuxopts.py"
+          - "src/atm/sidebar.py"
+          - "atm.tmux"
+
+"area: tui":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/atm/tui.py"
+          - "src/atm/sidebar_tui.py"
+          - "src/atm/config_tui.py"
+          - "src/atm/fuzzy.py"
+          - "src/atm/text.py"
+
+"area: config":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/atm/config.py"
+          - "src/atm/sync.py"
+          - "src/atm/guard.py"
+          - "src/atm/dispatch.py"
+
+"area: index":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/atm/index.py"
+          - "src/atm/cache.py"
+
+"area: packaging":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "pyproject.toml"
+          - "uv.lock"
+          - ".github/**"
+          - "src/atm/update.py"
+          - "src/atm/completion.py"
+
+"area: i18n":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/atm/i18n.py"
+          - "src/atm/i18n_catalog.py"
+
+# 只动文档 / 只动测试的 PR 直接定性，不用等分支名
+"type: docs":
+  - changed-files:
+      - all-globs-to-all-files:
+          - "**/*.md"
+
+"type: test":
+  - changed-files:
+      - all-globs-to-all-files:
+          - "tests/**"
+
+# 其余按分支名前缀。仓库约定见 AGENTS.md「Conventions」。
+"type: feat":
+  - head-branch: ["^feat/", "^feature/"]
+
+"type: fix":
+  - head-branch: ["^fix/", "^hotfix/"]
+
+"type: refactor":
+  - head-branch: ["^refactor/"]
+
+"type: perf":
+  - head-branch: ["^perf/"]
+
+"type: chore":
+  - head-branch: ["^chore/", "^release/", "^ci/", "^deps/"]
