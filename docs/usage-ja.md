@@ -17,12 +17,12 @@
 | `prefix + b` | **サイドバー**：閉じていれば最左に全高の一列を開く；開いていればそこへ移動；すでに中なら閉じる |
 | `prefix + B` | 現在の pane をバックグラウンドウィンドウ `bg` に退避——プロセスは動き続け、後でサイドバーから戻せる |
 
-**ポップアップ内**：文字入力であいまい検索、`↑↓` / `^N` `^P` で移動、`Tab` で 全部 / Claude / Codex / Pi を巡回、`⏎` で選択、`Esc` でキャンセル。
+**ポップアップ内**：文字入力であいまい検索、`↑↓` / `^N` `^P` で移動、`Tab` で 全部 / Claude / Codex / Pi を巡回、`⏎` で選択、`Esc` でキャンセル、`F1` / `?`（検索欄が空のとき）でキー一覧。
 選択後は第二段階：全 pane（忙閑状態付き）+「新しく pane を分割」+「新しい window」+「表示のみ」。
 
 **サイドバー内**：上半分は**実行中の pane**（選択 → `swap-pane` でメインへ、プロセスは継続）、下半分は**履歴**
 （選択 → バックグラウンドの新 window で resume してから入れ替え）。`⏎` でメインへ、`^T` でどの pane に入れるか指定、`^X` で選択中を `bg` に退避、
-`Tab` でソース切替、`^R` でインデックス再構築、`^C` で終了。
+`Tab` でソース切替、`^R` でインデックス再構築、`^C` で終了、`F1` / `?` でキー一覧。
 
 **コマンドライン**からも使える（tmux 外では `pick` がコマンド表示に降格：`eval "$(atm pick --print)"`）：
 
@@ -63,13 +63,15 @@ ATM_LANG=ja atm --help         # 表示言語：LC_ALL / LC_MESSAGES / LANG に�
 `memory.high` → `ATM_MEMORY_HIGH`、`memory.swap-max` → `ATM_MEMORY_SWAP_MAX` など。
 未知のキーや壊れたファイルはエラーであり、黙って無視しない——制限が効いていると思い込むのを防ぐため。
 
+ターミナルで引数なしの `atm install` は 4 問のウィザードになる（ピッカーキー、サイドバーキー、永続化プラグイン、合計 slice；
+Enter でデフォルト）；何かオプション（`-y` など）を付ければスキップ。
 `atm install --conf PATH` / `atm uninstall --conf PATH` で `~/.tmux.conf` 以外の設定を対象にできる。
 `eval "$(atm pick --print)"` は stdout が捕捉されていても動く：ピッカーは `/dev/tty` に描く。
 
 ## メモリゲート：`atm claude` と `claude` の違い
 
 ```bash
-atm config                     # 対話エディタ：↑↓ でキー選択、Enter で編集/切替、s で保存（atm config --show は表示のみ）
+atm config                     # 対話エディタ：↑↓ でキー選択、Enter で編集/切替、s で保存、? でヘルプ（atm config --show は表示のみ）
 atm config memory.high 4G      # ソフト上限：スロットリング + 回収、殺さない
 atm config memory.max 8G       # ハード上限：セッションの scope 全体（子プロセス含む）を kill
 atm claude --resume <id>       # その cgroup 内で claude を起動；引数はそのまま透過

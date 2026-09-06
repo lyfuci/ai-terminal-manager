@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import curses
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
@@ -99,9 +100,32 @@ class ConfigEditor(_Screen):
 
     # ------------------------------------------------------------ 纯逻辑：按键
 
+    @property
+    def help_open(self) -> bool:
+        return self._help_open
+
+    def _help_title(self) -> str:
+        return _("atm 配置")
+
+    def _help_entries(self) -> Sequence[tuple[str, str]]:
+        return (
+            ("↑↓ / j k", _("选择")),
+            (_("Enter / 空格"), _("修改；布尔值直接切换")),
+            ("r", _("恢复这一项的默认值（还没保存）")),
+            ("s", _("保存并退出")),
+            ("q / Esc", _("退出；有未保存改动时要按两次")),
+            ("Q", _("不保存直接退出")),
+            (_("编辑中"), _("Enter 确认  Esc 取消  ^U 清空")),
+            ("F1 / ?", _("这份帮助")),
+            ("", ""),
+            (_("← env"), _("这项被环境变量盖着，改文件不生效")),
+        )
+
     def handle_key(self, key: object) -> Action:
         """喂一个 get_wch() 的返回值（str 或 int），返回要不要退出。"""
         self._status = None
+        if self._help_key(key, typing=self._editing):
+            return Action.NONE
         if self._editing:
             return self._handle_edit_key(key)
 
@@ -282,8 +306,9 @@ class ConfigEditor(_Screen):
         if self._editing:
             footer = _("输入新值  Enter 确认  Esc 取消  ^U 清空")
         else:
-            footer = _("↑↓ 选择  Enter 修改/切换  r 恢复默认  s 保存退出  q 退出")
+            footer = _("↑↓ 选择  Enter 修改/切换  r 恢复默认  s 保存退出  q 退出  ? 帮助")
         self._put(stdscr, height - 1, 0, footer, _color(5))
+        self._draw_help(stdscr)
         stdscr.refresh()
 
 

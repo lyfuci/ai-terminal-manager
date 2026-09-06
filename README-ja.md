@@ -73,7 +73,7 @@ uv がなければ `pipx install ai-terminal-manager` でも同じ。更新は *
 
 ```bash
 atm doctor      # データソースはあるか、tmux は通るか、何件見つかるか、自動保存フックが本当に入っているか
-atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/continuum を入れる。書く内容を先に表示して確認を取る；-y で確認省略
+atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/continuum を入れる。ターミナルでは 4 問のウィザード → 書く内容を表示して確認；-y で全部省略
 ```
 
 `atm install` は二つのことをし、それぞれをマーカーで囲んだブロックとして書く。変更前に自動バックアップ：

@@ -283,16 +283,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_install = sub.add_parser("install", help=_("装 tmux 键位绑定（会改 ~/.tmux.conf）"))
     p_install.add_argument("-y", "--yes", action="store_true", help=_("不问直接装"))
+    # 这四个的 default 故意是 None：裸 `atm install` 在终端里跑会进问答向导，
+    # 给了任何选项就按选项来、跳过向导。真正的默认值在 _resolve_install_args 里补。
+    p_install.add_argument("--key", help=_("绑哪个键（默认 a；大写 = 只看当前目录的会话）"))
     p_install.add_argument(
-        "--key", default=_install_mod().DEFAULT_KEY, help=_("绑哪个键（默认 a）")
+        "--sidebar-key", help=_("侧栏开关键（默认 b；大写 = 把当前格子收进后台）")
     )
-    p_install.add_argument(
-        "--sidebar-key",
-        default=_install_mod().DEFAULT_SIDEBAR_KEY,
-        help=_("侧栏开关键（默认 b；大写 = 把当前格子收进后台）"),
-    )
-    p_install.add_argument("--width", default=_install_mod().DEFAULT_WIDTH, help=_("浮层宽度"))
-    p_install.add_argument("--height", default=_install_mod().DEFAULT_HEIGHT, help=_("浮层高度"))
+    p_install.add_argument("--width", help=_("浮层宽度（默认 80%%）"))
+    p_install.add_argument("--height", help=_("浮层高度（默认 70%%）"))
     p_install.add_argument("--print", action="store_true", help=_("只看会写什么，不动文件"))
     p_install.add_argument("--conf", type=Path, help=_("tmux 配置文件路径（默认 ~/.tmux.conf）"))
     p_install.add_argument(
@@ -814,11 +812,94 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return EXIT_OK if guard_ok else EXIT_ERROR
 
 
+def _interactive() -> bool:
+    """两端都是终端才问问题；管道 / CI 里一律走默认值。"""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _wizard_wanted(args: argparse.Namespace) -> bool:
+    """裸 `atm install`（只允许带 --conf）+ 两端都是终端 → 进问答向导。"""
+    if not _interactive():
+        return False
+    if args.yes or args.print or args.no_persist or args.no_slice:
+        return False
+    return all(v is None for v in (args.key, args.sidebar_key, args.width, args.height))
+
+
+def _install_wizard(args: argparse.Namespace) -> bool:
+    """问四个问题填 install 的选项（借 `gh auth login` 的形式）。回车 = 默认。
+
+    返回 False = 用户 Ctrl-C / Ctrl-D 中断。只填 args，不动任何文件 ——
+    后面照旧打印计划、再确认一次才写。
+    """
+    install = _install_mod()
+    print(_("atm install 向导：回车用默认值，Ctrl-C 退出。（带任意选项运行可跳过向导，例如 -y）"))
+    print()
+    try:
+        while True:
+            prompt = _("唤出选择器的键  prefix + ?（大写 = 只看当前目录的会话）")
+            key = _ask(prompt, install.DEFAULT_KEY)
+            try:
+                install.validate_key(_("这个键"), key)
+            except ValueError as exc:
+                print(f"  {exc}")
+                continue
+            break
+        while True:
+            prompt = _("侧栏开关键  prefix + ?（大写 = 把当前格子收进后台）")
+            sidebar_key = _ask(prompt, install.DEFAULT_SIDEBAR_KEY)
+            try:
+                install.validate_key(_("这个键"), sidebar_key)
+            except ValueError as exc:
+                print(f"  {exc}")
+                continue
+            if sidebar_key == key:
+                print(_("  和上一个键相同了，换一个。"))
+                continue
+            break
+        persist = _ask_yes_no(_("装 tmux-resurrect / tmux-continuum，重启后恢复窗口布局？"))
+        use_slice = _ask_yes_no(_("写总量闸门 systemd slice，限制所有 AI 会话合计的内存？"))
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    args.key = key
+    args.sidebar_key = sidebar_key
+    args.no_persist = not persist
+    args.no_slice = not use_slice
+    print()
+    return True
+
+
+def _resolve_install_args(args: argparse.Namespace) -> None:
+    install = _install_mod()
+    args.key = args.key or install.DEFAULT_KEY
+    args.sidebar_key = args.sidebar_key or install.DEFAULT_SIDEBAR_KEY
+    args.width = args.width or install.DEFAULT_WIDTH
+    args.height = args.height or install.DEFAULT_HEIGHT
+
+
+def _ask(prompt: str, default: str) -> str:
+    answer = input(f"{prompt} [{default}] ").strip()
+    return answer or default
+
+
+def _ask_yes_no(prompt: str, *, default: bool = True) -> bool:
+    answer = input(f"{prompt} [{'Y/n' if default else 'y/N'}] ").strip().lower()
+    if not answer:
+        return default
+    return answer in ("y", "yes")
+
+
 def _cmd_install(args: argparse.Namespace) -> int:
     persist = _persist_mod()
     if not tmux.is_installed():
         print(_("tmux 没装。先装：{v0}").format(v0=persist.tmux_install_hint()))
         print(_("（配置照样可以先写好，装完 tmux 直接生效。）\n"))
+
+    if _wizard_wanted(args) and not _install_wizard(args):
+        print(_("已取消，没有改动任何文件。"))
+        return EXIT_CANCELLED
+    _resolve_install_args(args)
 
     plan = _install_mod().build_plan(
         conf_path=args.conf,

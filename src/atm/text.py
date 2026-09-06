@@ -181,6 +181,44 @@ def truncate_display(text: str, limit: int, *, ellipsis: str = "…") -> str:
     return text
 
 
+def wrap_display(text: str, width: int) -> list[str]:
+    """按显示宽度换行：有空格就在空格处断（英文），单个词都放不下再按字符硬断（中文）。
+
+    只给帮助浮层这种短说明用；width <= 0 时原样一行。
+    """
+    if width <= 0 or display_width(text) <= width:
+        return [text]
+    lines: list[str] = []
+    current = ""
+    for word in text.split(" "):
+        candidate = word if not current else f"{current} {word}"
+        if display_width(candidate) <= width:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+            current = ""
+        # 单个词就超宽（中文整句没有空格）：按字符硬断
+        while display_width(word) > width:
+            cut = max(1, _chars_that_fit(word, width))
+            lines.append(word[:cut])
+            word = word[cut:]
+        current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _chars_that_fit(text: str, width: int) -> int:
+    """从头数，最多几个字符能塞进 width 列。"""
+    used = 0
+    for index, ch in enumerate(text):
+        used += char_width(ch)
+        if used > width:
+            return index
+    return len(text)
+
+
 def pad_display(text: str, width: int) -> str:
     """右侧补空格到指定显示宽度（已超宽则先截断）。"""
     truncated = truncate_display(text, width)

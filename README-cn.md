@@ -73,7 +73,7 @@ uv tool install ./ai-terminal-manager
 
 ```bash
 atm doctor      # 数据源在不在、tmux 通不通、能扫到多少条会话、自动存档钩子有没有真的装上
-atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把要写的内容打出来问过你；-y 跳过确认
+atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。终端里先问四个问题（键位 / 持久化 / 总量闸门），再把要写的内容打出来确认；-y 全跳过
 ```
 
 `atm install` 做两件事，各自写成一个 marker 包起来的块，改前自动备份：
