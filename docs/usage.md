@@ -88,7 +88,7 @@ Enabling tmux options still applies them live. Disabling an option removes atm's
 atm config                     # interactive editor: ↑↓ pick a key, Enter edit/toggle, s save, ? help; a right-hand panel explains the selected key (format, default, env var, source) in the UI language (atm config --show for plain text)
 atm config memory.high 4G      # soft cap: throttle + reclaim, never kills
 atm config keys.pick s         # picker key (uppercase = current dir only); keys.sidebar, keys.popup-width/-height too. Saving rebinds the running server
-atm config tmux.mouse true     # common tmux options: mouse / focus-events / history-limit / base-index / renumber-windows → own block at the TOP of ~/.tmux.conf (your lines below win), applied live
+atm config tmux.mouse true     # common tmux options: mouse / focus-events / history-limit / base-index / renumber-windows → own block in ~/.tmux.conf, applied live. If your own lines set the same option, atm names them with line numbers instead of silently losing to them
 atm config memory.slice-high 20G  # aggregate slice numbers (default auto = 50% / 65% of RAM); the unit atm wrote is rewritten + daemon-reload
 atm config memory.max 8G       # hard cap: kills the whole session scope (children included)
 atm claude --resume <id>       # launches claude inside that cgroup; args pass through untouched

@@ -64,7 +64,8 @@ def _sync_tmux_options(cfg: config_mod.Config, conf_path: Path | None) -> list[s
         notes.append(_("tmux 选项已对运行中的 server 生效"))
     elif result.live_error:
         notes.append(_("tmux 选项对运行中的 server 生效失败：{err}").format(err=result.live_error))
-    return notes
+    notes += tmuxopts.report_lines(result)
+    return [n for n in notes if n]
 
 
 def _sync_keys(old: config_mod.Config, new: config_mod.Config, conf_path: Path | None) -> list[str]:
