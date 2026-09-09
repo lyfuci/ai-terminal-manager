@@ -125,21 +125,34 @@ class PersistStatus:
     last_save: Path | None
 
 
-def build_block(plugins_dir: Path, *, save_interval: int = DEFAULT_SAVE_INTERVAL) -> str:
+def build_block(
+    plugins_dir: Path,
+    *,
+    save_interval: int = DEFAULT_SAVE_INTERVAL,
+    on_boot: bool = False,
+    atm_command: str | None = None,
+) -> str:
     tpm = plugins_dir / "tpm" / "tpm"
-    body = "\n".join(
-        (
-            _("# 重启后恢复 session / window / pane / cwd（只搭骨架，不重新拉起 claude / codex ——"),
-            _("# 会话在对应格子里用 atm 按需 resume，别把它们加进 @resurrect-processes）"),
-            "set -g @plugin 'tmux-plugins/tpm'",
-            "set -g @plugin 'tmux-plugins/tmux-resurrect'",
-            "set -g @plugin 'tmux-plugins/tmux-continuum'",
-            "set -g @continuum-restore 'on'",
-            f"set -g @continuum-save-interval '{save_interval}'",
-            f"run '{tpm}'",
-        )
-    )
-    return f"{MARKER_BEGIN}\n{body}\n{MARKER_END}"
+    lines = [
+        _("# 重启后恢复 session / window / pane / cwd（只搭骨架，不重新拉起 claude / codex ——"),
+        _("# 会话在对应格子里用 atm 按需 resume，别把它们加进 @resurrect-processes）"),
+        "set -g @plugin 'tmux-plugins/tpm'",
+        "set -g @plugin 'tmux-plugins/tmux-resurrect'",
+        "set -g @plugin 'tmux-plugins/tmux-continuum'",
+        "set -g @continuum-restore 'on'",
+        f"set -g @continuum-save-interval '{save_interval}'",
+    ]
+    if on_boot:
+        # resurrect 把布局搭回来之后调一次 atm（`atm config restore.on-boot`）。
+        # 挂在 post-restore-all 而不是 @resurrect-processes：走 atm 自己的路径才有串行 +
+        # cgroup 闸门 + 内存下限，而且格子里在跑东西时会跳过。闸门不齐时 atm 自己会让路。
+        from .install import resolve_atm_command
+
+        command = atm_command or resolve_atm_command()
+        lines.append(_("# 开机恢复完布局后，把会话也填回空格子（atm config restore.on-boot）"))
+        lines.append(f"set -g @resurrect-hook-post-restore-all '{command} restore --boot'")
+    lines.append(f"run '{tpm}'")
+    return f"{MARKER_BEGIN}\n" + "\n".join(lines) + f"\n{MARKER_END}"
 
 
 def build_plan(
@@ -147,6 +160,8 @@ def build_plan(
     conf_path: Path | None = None,
     plugins_dir: Path | None = None,
     save_interval: int = DEFAULT_SAVE_INTERVAL,
+    cfg: object | None = None,
+    atm_command: str | None = None,
 ) -> PersistPlan:
     path = conf_path or Path.home() / ".tmux.conf"
     pdir = plugins_dir or DEFAULT_PLUGINS_DIR
@@ -156,7 +171,12 @@ def build_plan(
     return PersistPlan(
         conf_path=path,
         plugins_dir=pdir,
-        block=build_block(pdir, save_interval=save_interval),
+        block=build_block(
+            pdir,
+            save_interval=save_interval,
+            on_boot=bool(getattr(cfg, "restore_on_boot", False)),
+            atm_command=atm_command,
+        ),
         already_installed=already,
         user_manages_tpm=_mentions_tpm(outside),
         missing_plugins=tuple(name for name in PLUGINS if not (pdir / name).is_dir()),

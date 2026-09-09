@@ -100,6 +100,10 @@ atm install     # write key bindings to ~/.tmux.conf + install resurrect/continu
   all available memory in one go (`research/notes/2026-08-12-incident.md`, appendix 3); you resume sessions on demand in the
   right pane. Don't want it: `--no-persist`. If you already manage tpm yourself it is skipped, nothing is written
   twice.
+- **`atm restore`**: after a reboot the panes come back empty — this refills them from the resurrect save, one at a
+  time, through the memory gate, and never over a pane that is already running something. `atm config
+  restore.on-boot true` makes it happen automatically at boot, behind a gate that stands down if the previous
+  boot restore was cut short or memory is already tight.
 
 The CLI speaks English, Chinese and Japanese, following your locale (`ATM_LANG=en|zh|ja` overrides).
 

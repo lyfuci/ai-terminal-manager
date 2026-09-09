@@ -13,6 +13,7 @@ import logging
 import os
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -151,6 +152,12 @@ def _sync_mod():
     return sync
 
 
+def _restore_mod():
+    from . import restore
+
+    return restore
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="atm",
@@ -231,6 +238,29 @@ def _build_parser() -> argparse.ArgumentParser:
     p_resume.add_argument("--mem-high", help=_("软上限，超了节流+回收不杀（默认取 atm config）"))
     p_resume.add_argument("--mem-max", help=_("硬上限，回收压不住才杀（默认取 atm config）"))
     p_resume.set_defaults(handler=_cmd_resume, source=None, cwd=None, here=False)
+
+    p_restore = sub.add_parser(
+        "restore", help=_("把上次的会话填回已恢复出来的空格子（重启之后用）")
+    )
+    p_restore.add_argument(
+        "-t",
+        "--target",
+        help=_("只恢复这个 tmux 目标：`main` 整个会话，`main:1` 只那个窗口。默认当前会话"),
+    )
+    p_restore.add_argument(
+        "--all", dest="all_sessions", action="store_true", help=_("存档里所有会话都恢复")
+    )
+    p_restore.add_argument("--print", action="store_true", help=_("只看计划，不动手"))
+    p_restore.add_argument("-y", "--yes", action="store_true", help=_("不问直接恢复"))
+    p_restore.add_argument(
+        "--no-mem-limit", action="store_true", help=_("不给会话套 cgroup 内存闸门（默认套）")
+    )
+    p_restore.add_argument(
+        "--boot",
+        action="store_true",
+        help=_("开机模式：resurrect 的钩子调的，先过闸门再全量恢复，过程写进日志"),
+    )
+    p_restore.set_defaults(handler=_cmd_restore)
 
     p_index = sub.add_parser("index", help=_("构建/查看索引"))
     p_index.add_argument("--rebuild", action="store_true", help=_("清缓存后全量重建"))
@@ -470,6 +500,100 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     if target is None:
         return EXIT_CANCELLED
     return _do_dispatch(entry, target, force=args.force, memory=_memory_limit(args))
+
+
+def _cmd_restore(args: argparse.Namespace) -> int:
+    """把 resurrect 存档里记着的会话，填回现在空着的格子里。"""
+    restore = _restore_mod()
+    if args.boot:
+        return _cmd_restore_boot(restore)
+    if not tmux.has_server():
+        print(_("没有正在跑的 tmux server，没有格子可以填。"))
+        return EXIT_ERROR
+
+    path = restore.save_path()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(_("读不到 resurrect 存档 {path}：{exc}").format(path=path, exc=exc))
+        return EXIT_ERROR
+
+    saved = restore.parse_save(text)
+    if not saved:
+        print(_("{path} 里没有可恢复的会话记录。").format(path=path))
+        return EXIT_OK
+
+    target = None
+    if not args.all_sessions:
+        target = args.target or restore.current_session()
+        if target is None:
+            print(_("不在 tmux 里，认不出该恢复哪个会话。用 -t <会话名> 或 --all。"))
+            return EXIT_ERROR
+
+    entries = {e.id: e for e in index_mod.build().entries}
+    items = restore.build_plan(saved, tmux.list_panes(), entries, target=target)
+    print(restore.describe(items))
+
+    ready = [i for i in items if i.ready]
+    if args.print or not ready:
+        return EXIT_OK
+    if not args.yes and not _confirm(_("\n继续吗？")):
+        print(_("已取消。"))
+        return EXIT_CANCELLED
+
+    memory = None if args.no_mem_limit else _config_mod().load().memory_limit()
+    print()
+    for note in restore.execute(tuple(ready), memory=memory):
+        print(note)
+    return EXIT_OK
+
+
+def _cmd_restore_boot(restore) -> int:
+    """`atm restore --boot`：resurrect 恢复完布局之后自动跑的那一次。
+
+    没有终端、没有人看着，所以三件事和交互模式不一样：先过闸门（restore.py 里那两层），
+    不问直接做，全过程追加进 `~/.local/state/atm/restore.log`。
+    退出码永远是 0 —— 这是钩子里的后台动作，让 resurrect 看见失败没有任何好处。
+    """
+    cfg = _config_mod().load()
+    gate = restore.boot_gate(cfg)
+    if not gate.ok:
+        restore.append_log([gate.reason])
+        return EXIT_OK
+
+    path = restore.save_path()
+    try:
+        saved = restore.parse_save(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        restore.append_log([_("读不到 resurrect 存档 {path}：{exc}").format(path=path, exc=exc)])
+        return EXIT_OK
+
+    entries = {e.id: e for e in index_mod.build().entries}
+    items = restore.build_plan(saved, tmux.list_panes(), entries, target=None)
+    ready = tuple(i for i in items if i.ready)
+    if not ready:
+        restore.append_log([_("开机恢复：没有空格子要填。")])
+        return EXIT_OK
+
+    attempt = restore.Attempt(
+        boot_id=restore.boot_id(),
+        at=datetime.now().isoformat(timespec="seconds"),
+        planned=len(ready),
+        done=0,
+    )
+    restore.write_attempt(attempt)
+    lines = [_("开机恢复：{n} 条。").format(n=len(ready))]
+    lines += restore.execute(
+        ready,
+        memory=cfg.memory_limit(),
+        floor=_config_mod().size_to_bytes(cfg.restore_min_available),
+        on_done=lambda done: restore.write_attempt(replace(attempt, done=done)),
+    )
+    # 中途因为内存下限停手时，done 会小于 planned；补一笔收尾，
+    # 免得下一次开机把「我主动停的」当成「被杀了」。
+    restore.write_attempt(replace(attempt, done=attempt.planned))
+    restore.append_log(lines)
+    return EXIT_OK
 
 
 def _cmd_index(args: argparse.Namespace) -> int:
@@ -862,7 +986,7 @@ def _cmd_install(args: argparse.Namespace) -> int:
 
     conf_path = Path(cfg.keys_conf_path) if cfg.keys_conf_path else None
     plan = _install_mod().build_plan(cfg=cfg, conf_path=conf_path)
-    persist_plan = None if args.no_persist else persist.build_plan(conf_path=conf_path)
+    persist_plan = None if args.no_persist else persist.build_plan(conf_path=conf_path, cfg=cfg)
 
     print(plan.describe())
     # resolve_atm_command 永远返回绝对路径，所以不能拿 != "atm" 判断「没装成命令」——
@@ -1352,6 +1476,30 @@ def _report_persist(st) -> None:
         print(_("  最近存档: {when:%Y-%m-%d %H:%M}").format(when=when))
     else:
         print(_("  最近存档: 还没有"))
+    _report_boot_restore()
+
+
+def _report_boot_restore() -> None:
+    """开机恢复没有终端，做没做、为什么没做只能在这里看。关着就一句带过。"""
+    restore = _restore_mod()
+    config = _config_mod()
+    try:
+        cfg = config.load()
+    except config.ConfigError:
+        return  # 配置本身有错的话 _report_guard 已经报过了，这里不重复
+    if not cfg.restore_on_boot:
+        print(_("  开机恢复: 关（atm config restore.on-boot true 打开）"))
+        return
+    gate = restore.boot_gate(cfg)
+    print(
+        _("  开机恢复: 开，下限 {floor}；{state}").format(
+            floor=cfg.restore_min_available,
+            state=_("闸门通过") if gate.ok else gate.reason,
+        )
+    )
+    log = restore.log_path()
+    if log.exists():
+        print(_("  开机恢复日志: {path}").format(path=log))
 
 
 def _report_root(name: str, root: Path, count: int) -> None:

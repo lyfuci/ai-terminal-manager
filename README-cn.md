@@ -83,6 +83,9 @@ atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把�
   开 `@continuum-restore`、10 分钟自动存档。重启后 session / window / pane / cwd 自动搭回来。
   刻意**不**让它重新拉起 claude / codex ——开机批量拉起会瞬间吃光内存（`research/notes/2026-08-12-incident.md` 附三）；
   会话由你在对应格子里按需 resume。不想要：`--no-persist`。你自己已经在用 tpm 会自动跳过，不重复写。
+- **`atm restore`**：重启后格子是空的——这条命令按 resurrect 的存档把会话一条一条填回去，串行、套内存闸门、
+  在跑东西的格子绝不覆盖。`atm config restore.on-boot true` 让它开机自动跑；上次没跑完或内存已经紧张时，
+  闸门会自己让路。
 
 界面语言跟系统 locale（中 / 英 / 日），`ATM_LANG=zh|en|ja` 可强制。
 

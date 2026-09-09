@@ -84,6 +84,10 @@ atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/contin
   claude / codex を再起動させることは意図的に**しない**——起動時に一斉に立ち上げるとメモリを一瞬で食い尽くす
   （`research/notes/2026-08-12-incident.md` 付録三）。セッションは対応する pane で必要なときに resume する。不要なら `--no-persist`。
   自分で tpm を管理している場合は自動でスキップし、二重に書かない。
+- **`atm restore`**：再起動後の pane は空になる——このコマンドが resurrect の保存ファイルからセッションを
+  1 本ずつ、メモリゲートを通して埋め戻す。何かが動いている pane は決して上書きしない。
+  `atm config restore.on-boot true` で起動時に自動実行。前回が中断していたりメモリが厳しい場合は
+  ゲートが自動で見送る。
 
 表示言語はシステムの locale に従う（日 / 英 / 中）、`ATM_LANG=ja|en|zh` で強制可。
 

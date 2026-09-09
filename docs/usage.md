@@ -38,6 +38,7 @@ atm swap %7 --into %3     # swap %7 into %3
 atm park                  # park the current pane in bg
 atm prune -n              # show idle shells in bg that could be closed (drop -n to actually close them)
 atm index --rebuild       # clear the cache and rebuild from scratch
+atm restore               # after a reboot: put last time's sessions back into the empty panes
 atm update                # upgrade atm itself (detects uv tool / pipx / pip); --check only looks. If your index mirror lags PyPI it retries straight from PyPI
 ```
 
@@ -47,6 +48,65 @@ atm update                # upgrade atm itself (detects uv tool / pipx / pip); -
 
 **Full options, measured performance, format details of the three JSONL flavours: [`docs/reference.md`](reference.md).**
 Development and contributing: [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+---
+
+## After a reboot: `atm restore`
+
+tmux-resurrect brings the *skeleton* back — windows, panes, each pane's working directory — but the panes come back
+as empty shells. atm deliberately does **not** add the AI CLIs to `@resurrect-processes`, because that relaunches
+every one of them at once; on this machine four sessions together ate 87% of RAM and froze it twice.
+
+`atm restore` fills those panes back in, one at a time:
+
+```bash
+atm restore                  # the tmux session you are in; shows the plan, asks, then fills
+atm restore -t work          # a different session; `-t work:1` narrows it to one window
+atm restore --all            # every session in the save file
+atm restore --print          # just show the plan
+atm restore -y               # skip the confirmation
+```
+
+The plan says what will happen to every line, including the ones it will not touch:
+
+```
+Will restore 2 session(s):
+  main:1.1  claude    fix the index cache
+  main:1.4  codex     tidy up the release script
+
+Leaving these 2 alone:
+  main:1.2  * github  -- skipped: something is already running in that pane
+  main:2.1  old work  -- skipped: that pane no longer exists in the layout
+```
+
+**A pane that is running something is never overwritten** — that is the one invariant this command is built around.
+Restores go out serially (three CLIs each reading a 20MB+ transcript at the same moment is a real spike), through
+atm's normal dispatch path, so every one of them gets the cgroup memory gate.
+
+### Doing it automatically at boot
+
+Off by default. Turn it on and `atm install` hangs the command off resurrect's post-restore hook:
+
+```bash
+atm config restore.on-boot true
+atm install                  # writes the hook; takes effect on the next tmux server start
+```
+
+Before it restores anything, the boot run checks three things and stands down if any of them fails:
+
+| Check | Why |
+|---|---|
+| The cgroup memory gate is available | Without it a bulk restore has no safety net |
+| The previous boot restore ran to the end | If it was cut short, something killed it — this is what breaks a restore → freeze → reboot → restore loop |
+| `MemAvailable` is above `restore.min-available` (default `4G`) | Re-checked before every single session, so a boot restore degrades to "fill panes until memory gets tight" instead of filling them all |
+
+There is no terminal at boot, so what happened goes to `~/.local/state/atm/restore.log`, and `atm doctor` shows the
+current state in one line. If a run was cut short the message tells you exactly how to re-enable it: run `atm restore`
+by hand to confirm things are fine, then delete `~/.local/state/atm/boot-restore.json`.
+
+> atm does not read the journal for OOM kills. Unless you are in the `adm` or `systemd-journal` group,
+> `journalctl` only shows *your own* messages and the kernel's OOM lines are invisible — a check that can only ever
+> answer "all clear" is worse than no check.
 
 ---
 
