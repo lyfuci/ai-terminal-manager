@@ -5,9 +5,14 @@
 这几行是大多数人手写在 ~/.tmux.conf 顶上的「常用配置」。收进 `atm config` 之后，编辑器里切一下、
 保存，就同时写进文件 + 对活着的 server 生效，不用记 tmux 的选项名。
 
-落地方式：**独立的一对 marker，放在文件最前面** —— tmux 配置后来者胜，用户自己在下面写的任何一行
-都能盖掉我们的。只写「开着 / 非默认」的选项，关着的不写 `off`，免得盖掉用户自己配置里的 on；
-全关时整块删掉。对活着的 server 直接下 `set -g`，不 source 整份配置。
+落地方式：**独立的一对 marker，放在文件最前面**。只写「开着 / 非默认」的选项，关着的不写 `off`，
+免得盖掉用户自己配置里的 on；全关时整块删掉。对活着的 server 直接下 `set -g`，不 source 整份配置。
+
+**atm 不承诺它写的值最终生效**，因为做不到（实测，见 conflicts.py 的模块文档）：
+tmux 3.4 会同时读 `~/.tmux.conf` 和 `~/.config/tmux/tmux.conf`，后者在后面；tpm 用
+`run-shell -b` 加载插件，那个后台任务在整份配置读完之后才跑。所以没有任何行位置能保证赢。
+能做的是**不说假话**：把块外看得见的同名设置连行号一起报出来（conflicts.py），
+并且说清楚这份报告不是全集。
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import config as config_mod
+from . import conflicts as conflicts_mod
 from . import tmux
 from .i18n import _
 from .install import _backup, _has_marker, _read, _strip_block
@@ -76,6 +82,12 @@ SPECS: dict[str, OptionSpec] = {
 }
 
 
+# tmux 选项名 → atm 配置键。base-index 一个键管两个 tmux 选项，所以是多对一。
+OPTION_TO_KEY: dict[str, str] = {
+    name: f"tmux.{key}" for key, spec in SPECS.items() for name in spec.tmux_names
+}
+
+
 def _conf_line(argv: list[str]) -> str:
     """argv → 配置文件里的一行：`set-option -g mouse on` 写成 `set -g mouse on`。"""
     return " ".join(["set", *argv[1:]])
@@ -88,6 +100,10 @@ class TmuxOptsPlan:
     commands: tuple[tuple[str, ...], ...]  # 开着的选项要下的命令
     previously_enabled: tuple[str, ...]  # 现有块里有的
     already_installed: bool
+    # 块外同样设了这些选项的行。atm 只报告，不动它们 —— 见 conflicts.py
+    conflicts: tuple[conflicts_mod.Conflict, ...] = ()
+    other_files: tuple[Path, ...] = ()
+    sourced: tuple[str, ...] = ()
 
     @property
     def block(self) -> str:
@@ -127,6 +143,12 @@ class TmuxOptsPlan:
             lines.append(disabled_note(self.to_turn_off))
         if self.already_installed and not self.is_noop:
             lines.append(_("（已存在 tmux 选项块，会被整块替换掉，不会重复追加）"))
+        lines += _conflict_section(
+            self.conflicts,
+            self.conf_path,
+            _("⚠ {path} 里这些行也设了同样的选项：").format(path=self.conf_path),
+            _("  删掉它们能去掉这一层覆盖。atm 不会替你改你写的内容。"),
+        )
         return "\n".join(lines)
 
 
@@ -138,6 +160,12 @@ class TmuxOptsResult:
     applied_live: bool
     live_error: str | None
     disabled: tuple[str, ...] = ()
+    # 下面三项都是**写完文件之后**重新扫出来的：写入会插入/删除行，
+    # 沿用 build_plan 时的行号会指到错误的位置（Codex 审出的 P1）。
+    conflicts: tuple[conflicts_mod.Conflict, ...] = ()
+    released: tuple[conflicts_mod.Conflict, ...] = ()
+    other_files: tuple[Path, ...] = ()
+    sourced: tuple[str, ...] = ()
 
 
 def build_plan(cfg: config_mod.Config, *, conf_path: Path | None = None) -> TmuxOptsPlan:
@@ -151,12 +179,17 @@ def build_plan(cfg: config_mod.Config, *, conf_path: Path | None = None) -> Tmux
         if spec.active(value):
             enabled.append(name)
             commands.extend(tuple(argv) for argv in spec.on(value))
+    # 只对**开着**的选项报冲突：关掉的那些 atm 从不写入，用户自己设它天经地义
+    watched = _watched(tuple(enabled))
     return TmuxOptsPlan(
         conf_path=path,
         enabled=tuple(enabled),
         commands=tuple(commands),
         previously_enabled=_enabled_in_block(existing) if already else (),
         already_installed=already,
+        conflicts=conflicts_mod.scan(existing, watched),
+        other_files=conflicts_mod.other_config_files(path),
+        sourced=conflicts_mod.sourced_files(existing),
     )
 
 
@@ -183,15 +216,91 @@ def apply(plan: TmuxOptsPlan, *, live: bool = True) -> TmuxOptsResult:
             applied_live = True
         except tmux.TmuxError as exc:
             live_error = str(exc)
+    # 重新读一遍写完后的文件再扫：行号必须对得上用户现在看到的文件
+    final = _read(plan.conf_path)
     return TmuxOptsResult(
-        plan.conf_path, backup, written, applied_live, live_error, plan.to_turn_off
+        plan.conf_path,
+        backup,
+        written,
+        applied_live,
+        live_error,
+        plan.to_turn_off,
+        conflicts_mod.scan(final, _watched(plan.enabled)),
+        conflicts_mod.scan(final, _watched(plan.to_turn_off)),
+        conflicts_mod.other_config_files(plan.conf_path),
+        conflicts_mod.sourced_files(final),
     )
+
+
+def _watched(names: tuple[str, ...]) -> dict[str, str]:
+    """SPECS 的键 → 要扫的 tmux 选项名表。"""
+    wanted = set(names)
+    return {n: k for n, k in OPTION_TO_KEY.items() if k.removeprefix("tmux.") in wanted}
 
 
 def disabled_note(names: tuple[str, ...]) -> str:
-    return _("关闭选项 {names}：运行中的值保持不变，变更对新 tmux server 生效。").format(
+    return _("关闭选项 {names}：atm 不再管它们，运行中的值保持不变。").format(
         names=", ".join(names)
     )
+
+
+def report_lines(result: TmuxOptsResult) -> list[str]:
+    """写完之后要告诉用户的话。cli 和 sync 共用这一份，免得两处措辞跑偏。"""
+    lines: list[str] = []
+    lines += _conflict_section(
+        result.conflicts,
+        result.conf_path,
+        _("⚠ {path} 里这些行也设了同样的选项：").format(path=result.conf_path),
+        _("  删掉它们能去掉这一层覆盖。atm 不会替你改你写的内容。"),
+    )
+    lines += _conflict_section(
+        result.released,
+        result.conf_path,
+        _("{path} 里这些行仍然在设它们，下次开 tmux 时还会执行：").format(path=result.conf_path),
+        _("  要不要改由你决定 —— atm 不动你写的内容。"),
+    )
+    if result.conflicts or result.released:
+        lines.append(
+            _("  atm 只看了 {path}。这些地方没看，里面的同名设置也可能再盖一层：").format(
+                path=result.conf_path
+            )
+        )
+        for path in result.other_files:
+            lines.append(f"    {path}")
+        for src in result.sourced:
+            lines.append(_("    {s}（由 source-file 引入）").format(s=src))
+        lines.append(_("    tmux 插件（tpm 用 run-shell -b 加载，在配置读完之后才跑）"))
+    return lines
+
+
+def _conflict_section(
+    found: tuple[conflicts_mod.Conflict, ...], conf_path: Path, heading: str, advice: str
+) -> list[str]:
+    if not found:
+        return []
+    certain = [c for c in found if c.certain]
+    unsure = [c for c in found if not c.certain]
+    lines: list[str] = [""]
+    if certain:
+        lines.append(heading)
+        for c in certain:
+            lines.append(f"    {conf_path}:{c.line_no}  {c.text}{_suffix(c)}")
+        lines.append(advice)
+    if unsure:
+        lines.append(_("这些行也提到同样的选项，但在花括号块 / %if 里，或带了 -o，未必生效："))
+        for c in unsure:
+            lines.append(f"    {conf_path}:{c.line_no}  {c.text}{_suffix(c)}")
+    return lines
+
+
+def _suffix(c: conflicts_mod.Conflict) -> str:
+    """给一行补一句「它是什么」。只说读得出来的，不猜最终结果。"""
+    marks = []
+    if c.unsets:
+        marks.append(_("取消设置"))
+    if c.after_atm_block:
+        marks.append(_("在 atm 的块之后"))
+    return f"   ({', '.join(marks)})" if marks else ""
 
 
 def sync(cfg: config_mod.Config, *, conf_path: Path | None = None) -> TmuxOptsResult:

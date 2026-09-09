@@ -933,12 +933,15 @@ def _report_tmuxopts(result) -> None:
         print(_("\n已写 tmux 选项块 → {path}").format(path=result.conf_path))
         if result.backup_path:
             print(_("备份    {backup}").format(backup=result.backup_path))
+    tmuxopts = _tmuxopts_mod()
     if result.disabled:
-        print(_tmuxopts_mod().disabled_note(result.disabled))
+        print(tmuxopts.disabled_note(result.disabled))
     if result.applied_live:
         print(_("tmux 选项已对运行中的 server 立即生效"))
     elif result.live_error:
         print(_("tmux 选项对运行中的 server 生效失败：{err}").format(err=result.live_error))
+    for line in tmuxopts.report_lines(result):
+        print(line)
 
 
 def _apply_slice(cfg) -> None:

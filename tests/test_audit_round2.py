@@ -243,6 +243,11 @@ def test_no_systemctl_is_success_not_a_reload_failure(isolated, monkeypatch, cap
     ],
 )
 def test_disabling_tmux_option_preserves_live_user_value(isolated, monkeypatch, field, value):
+    """关掉一项 = atm 不再管它。既不重置运行中的值，也不改用户的文件。
+
+    原来这里断言的是「变更对新 tmux server 生效」，那句话本身是假的：用户自己的行还在时，
+    下次开 tmux 它照样生效。现在改成断言真实行为，并且要求 atm 把那些行报出来。
+    """
     conf = isolated / ".tmux.conf"
     user = "set -g mouse on\nset -g history-limit 80000\nset -g base-index 3\n"
     conf.write_text(user)
@@ -251,13 +256,28 @@ def test_disabling_tmux_option_preserves_live_user_value(isolated, monkeypatch, 
     calls = []
     monkeypatch.setattr(tmux, "run", lambda args: calls.append(args))
     monkeypatch.setattr(tmux, "has_server", lambda: True)
-    plan = tmuxopts.build_plan(config.Config())
-    assert "新 tmux server" in plan.describe()
+
     notes = sync.apply_changes(old, config.Config())
-    assert calls == []
-    assert conf.read_text() == user
-    assert any("新 tmux server" in note for note in notes)
-    assert not any("已对运行中的 server 生效" in note for note in notes)
+    joined = "\n".join(notes)
+
+    assert calls == []  # 不拿硬编码的默认值去覆盖运行中的值
+    assert conf.read_text() == user  # 用户自己写的内容一个字节都没动
+    assert "不再管" in joined
+    assert "已对运行中的 server 生效" not in joined
+
+    # 用户文件里还设着同名选项的那几项，必须连**行号和原文**一起点名；没设的不许瞎报。
+    # 只断言「选项名出现过」是自我满足的：disabled_note 里本来就有它。
+    still_set = {
+        "tmux_mouse": (1, "set -g mouse on"),
+        "tmux_history_limit": (2, "set -g history-limit 80000"),
+        "tmux_base_index": (3, "set -g base-index 3"),
+    }
+    if field in still_set:
+        line_no, command = still_set[field]
+        assert conf.read_text().splitlines()[line_no - 1] == command  # 行号真的对得上
+        assert f"{conf}:{line_no}  {command}" in joined
+    else:
+        assert "仍然在设" not in joined
 
 
 @pytest.mark.parametrize("available", [False, True])
