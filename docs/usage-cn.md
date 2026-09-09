@@ -35,6 +35,7 @@ atm swap %7 --into %3     # 把 %7 换进 %3
 atm park                  # 当前格子收进 bg
 atm prune -n              # 看看 bg 里有哪些空闲 shell 可以关（去掉 -n 才真关）
 atm index --rebuild       # 清缓存全量重建
+atm restore               # 重启之后：把上次的会话填回恢复出来的空格子
 atm update                # 升级 atm 自己（识别 uv tool / pipx / pip）；--check 只看不升。镜像没同步到新版时会改直连 PyPI 再试
 ```
 
@@ -44,6 +45,64 @@ atm update                # 升级 atm 自己（识别 uv tool / pipx / pip）�
 
 **完整选项、实测性能、三个 JSONL 的格式细节：[`docs/reference.md`](reference.md)。**
 开发和贡献：[CONTRIBUTING.md](../CONTRIBUTING.md)。
+
+---
+
+## 重启之后：`atm restore`
+
+tmux-resurrect 能把**骨架**搭回来 —— window、分格、每格的工作目录 —— 但格子里是空 shell。
+atm 刻意**不**把 AI CLI 加进 `@resurrect-processes`，因为那会在开机时把它们**全部同时**拉起：
+本机实测四个会话合计吃掉 87% 内存，冻死过两次。
+
+`atm restore` 就是把这些格子一条一条填回去：
+
+```bash
+atm restore                  # 当前所在的 tmux 会话；先给计划，确认后再填
+atm restore -t work          # 换一个会话；`-t work:1` 只填那个 window
+atm restore --all            # 存档里所有会话
+atm restore --print          # 只看计划
+atm restore -y               # 不问直接填
+```
+
+计划会把每一条的去向都说清楚，包括**不动**的那些：
+
+```
+将恢复 2 条会话：
+  main:1.1  claude    把索引层的缓存加上
+  main:1.4  codex     整理发版脚本
+
+以下 2 条不动：
+  main:1.2  * github  —— 跳过：这个格子里已经在跑东西了
+  main:2.1  旧的活    —— 跳过：布局里没有这一格了
+```
+
+**在跑东西的格子绝不会被覆盖** —— 这是整个命令围着转的那条不变量。
+投递是**串行**的（三个 CLI 同时各读一份 20MB+ 的转录是实实在在的尖峰），走 atm 正常的投递路径，
+所以每一条都套着 cgroup 内存闸门。
+
+### 让它开机自动跑
+
+默认关。打开之后 `atm install` 会把这条命令挂到 resurrect 的 post-restore 钩子上：
+
+```bash
+atm config restore.on-boot true
+atm install                  # 写钩子；下次起 tmux server 生效
+```
+
+开机那一次在动手之前先查三件事，任何一条不过就让路：
+
+| 查什么 | 为什么 |
+|---|---|
+| cgroup 内存闸门在不在 | 没有闸门，批量恢复就没有兜底 |
+| 上一次开机恢复有没有跑完 | 没跑完说明被杀了 —— 这条专门用来打断「恢复 → 冻死 → 重启 → 再恢复」的循环 |
+| `MemAvailable` 高于 `restore.min-available`（默认 `4G`） | 每投一条之前都重查一遍，所以开机恢复会退化成「填到内存吃紧为止」，而不是硬填完 |
+
+开机时没有终端，所以做了什么写进 `~/.local/state/atm/restore.log`，`atm doctor` 里也有一行当前状态。
+上一次被打断的话，提示会直接告诉你怎么重新打开：手动跑一次 `atm restore` 确认没问题，
+然后删掉 `~/.local/state/atm/boot-restore.json`。
+
+> atm 不去 journal 里查 OOM 记录。不在 `adm` / `systemd-journal` 组时，`journalctl` **只看得到你自己的日志**，
+> 内核的 OOM 行根本看不见 —— 一个只会回答「一切正常」的检查比没有检查更糟。
 
 ---
 

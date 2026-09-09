@@ -77,6 +77,12 @@ class Config:
     tmux_history_limit: int = 0  # 0 = 不写；常用 50000（tmux 默认 2000）
     tmux_base_index: int = 0  # 0 = 不写；1 = window / pane 都从 1 开始编号
     tmux_renumber_windows: bool = False
+    # 开机恢复：resurrect 把布局搭回来之后，让 atm 自动把会话也填回空格子。
+    # **默认关**，而且开了也不是无条件跑 —— restore.py 的闸门会先确认闸门齐备、
+    # 上一次开机恢复跑完了、可用内存够。「开机全量拉起」正是 2026-08-12 冻死机器的那条路。
+    restore_on_boot: bool = False
+    # 开机恢复前和每条投递前都看一眼 MemAvailable，低于这个数就不再往下投。
+    restore_min_available: str = "4G"
 
     def memory_limit(self) -> dispatch.MemoryLimit | None:
         """按配置生成闸门；关了或机器不支持就是 None（= 不套）。"""
@@ -115,6 +121,8 @@ KEYS: dict[str, str] = {
     "tmux.history-limit": "tmux_history_limit",
     "tmux.base-index": "tmux_base_index",
     "tmux.renumber-windows": "tmux_renumber_windows",
+    "restore.on-boot": "restore_on_boot",
+    "restore.min-available": "restore_min_available",
 }
 
 _HELP: dict[str, str] = {
@@ -136,6 +144,8 @@ _HELP: dict[str, str] = {
     "tmux.history-limit": "每格滚动缓冲行数；0 = 不写（tmux 默认 2000），常用 50000",
     "tmux.base-index": "window / pane 编号起点；0 = 不写（tmux 从 0 数），1 = 从 1 开始",
     "tmux.renumber-windows": "关掉一个 window 后剩下的自动重新编号，不留空洞",
+    "restore.on-boot": "开机恢复完布局后自动把会话填回空格子（闸门不齐 / 内存不够会自己让路）",
+    "restore.min-available": "开机恢复的可用内存下限；MemAvailable 低于它就停手（如 4G）",
 }
 
 
@@ -249,6 +259,20 @@ def validate_size(label: str, value: str) -> str:
             )
         )
     return s.upper() if s.lower() != "infinity" else "infinity"
+
+
+_SIZE_UNITS = {"": 1, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30, "T": 1 << 40}
+
+
+def size_to_bytes(value: str) -> int | None:
+    """`4G` → 4294967296。`infinity` 和认不出的写法都是 None（= 没有下限，别拦）。"""
+    s = str(value).strip()
+    if not _SIZE_RE.match(s) or s.lower() == "infinity":
+        return None
+    unit = s[-1].upper()
+    if unit in _SIZE_UNITS and not unit.isdigit():
+        return int(float(s[:-1]) * _SIZE_UNITS[unit])
+    return int(float(s))
 
 
 def set_value(cfg: Config, key: str, value: str) -> Config:

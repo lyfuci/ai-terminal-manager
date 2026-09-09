@@ -12,11 +12,12 @@ src/atm/            product code (src layout, zero runtime deps, Python >= 3.11)
                     opencode is SQLite, not files: it synthesises `<db>#<session_id>` FileRefs, connection is mode=ro
   index.py          aggregation + cache; MUST NOT import tmux.py (keeps the door open for other backends)
   dispatch.py       resume command construction + cgroup memory gate + dispatch into a pane
+  restore.py        resurrect save file -> restore plan; the boot-restore gate (never overwrites a busy pane)
   tmux.py           every tmux interaction; public CLI only
   install.py / persist.py / guard.py   ~/.tmux.conf key block / resurrect+continuum block / aggregate slice
   tmuxopts.py       ~/.tmux.conf common-options block (atm config tmux.*)
   conflicts.py      finds lines OUTSIDE atm's blocks that set the same options; atm reports, never edits them
-  config.py         ~/.config/atm/config.toml: every tunable VALUE (memory.*, keys.*, tmux.*); `atm claude|codex|pi`
+  config.py         ~/.config/atm/config.toml: every tunable VALUE (memory.*, keys.*, tmux.*, restore.*); `atm claude|codex|pi`
   sync.py           after a config save: rewrite the affected block / unit and apply live. install = ACTIONS only
 tests/              pytest; tmp_path fixtures ONLY — never read real session data
 docs/usage*.md      usage (en/cn/ja); docs/reference.md (Chinese) full options, measured numbers, JSONL formats
@@ -79,4 +80,6 @@ a freshly started server; continuum silently skips its autosave hook when anothe
 ## Out of scope
 
 A resident daemon / GUI (architecture forks A/B are undecided, not rejected); tmux wire protocol; uploading session
-data; letting resurrect relaunch claude/codex at boot (mass relaunch ate all memory — the 2026-08-12 incident).
+data; putting claude/codex into `@resurrect-processes` (mass simultaneous relaunch ate all memory — the 2026-08-12
+incident). `atm restore` refills panes instead: serial, memory-gated, never over a busy pane; its opt-in
+`restore.on-boot` hangs off resurrect's post-restore hook and stands down when the gate or free memory is missing.

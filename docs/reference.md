@@ -169,6 +169,7 @@ atm list --json              # 结构化输出，喂给别的脚本
 atm resume <id前缀>          # 不进 TUI，按 id 直接投
 atm panes                    # 列出所有 tmux pane 及其忙闲状态
 atm index --rebuild          # 清缓存全量重建
+atm restore                  # 重启之后：把上次的会话填回恢复出来的空格子
 atm doctor                   # 体检
 ```
 
@@ -181,6 +182,85 @@ atm doctor                   # 体检
 ```bash
 eval "$(atm pick --print)"
 ```
+
+
+
+## 重启恢复（`atm restore`）
+
+resurrect 把布局搭回来，格子里是空 shell；这个命令把上次的会话填回去。
+数据来源就是 resurrect 已经在写的存档（默认每 10 分钟一次），不另建一份状态。
+
+```bash
+atm restore                  # 当前 tmux 会话；先给计划再问
+atm restore -t work          # `-t` 收 tmux 的目标写法：`work` 整个会话，`work:1` 只那个 window
+atm restore --all            # 存档里所有会话
+atm restore --print          # 只看计划
+atm restore -y               # 不问直接做
+atm restore --no-mem-limit   # 不套 cgroup 闸门（一般别用）
+atm restore --boot           # 开机钩子调的那次，见下
+```
+
+每一条会落到四种状态之一，`--print` 里都会写明：
+
+| 状态 | 含义 | 会不会投 |
+|---|---|---|
+| `ready` | 格子在、是空 shell、会话记录还在 | 会 |
+| `occupied` | 格子里在跑东西 | **不会**，这是这条命令唯一的硬不变量 |
+| `no-pane` | 布局里已经没有这一格 | 不会 |
+| `no-session` | 索引里找不到这条会话（文件被删了） | 不会 |
+
+投递是串行的，走 `dispatch.py` 的正常路径，所以每条都套 cgroup 闸门、都做 cwd 存在性检查和体积警告，
+并且 `focus=False` —— 恢复完光标还留在你原来那格。
+
+### 存档格式（逆向观察）
+
+resurrect 的存档是制表符分隔的行，`pane` 行长这样（本机 3.4 实测语料）：
+
+```
+pane  main  1  1  :*  1  ✳ github  :/home/sean  1  claude  :/home/…/claude --resume <uuid>
+ 0     1    2  3   4  5      6           7      8     9                  10
+```
+
+atm 只用其中 5 列：会话名（1）、window（2）、pane（5）、标题（6）、cwd（7）、完整命令行（10）。
+会话 id 从第 10 列反查 `dispatch.RESUME_PROGRAMS` 得到 —— 各家的恢复参数不一样
+（`--resume` / `resume` / `--session`），反查而不是写死，加新来源时这里不用改。
+按仓库硬规则第 4 条，解析全程「认不出就跳过这一行」：列数变了、字段错位了，最坏只是少恢复几条。
+
+### 开机自动恢复（`restore.on-boot`，默认关）
+
+打开后 `atm install` 往持久化块里写一行：
+
+```
+set -g @resurrect-hook-post-restore-all '<atm 的绝对路径> restore --boot'
+```
+
+挂在 resurrect 的 post-restore-all 钩子上，而**不是** `@resurrect-processes`：后者是 2026-08-12
+冻死机器的那条路（四个会话同时拉起，吃掉 87% 内存）。走 atm 自己的路径才有串行、cgroup 闸门、
+「格子里在跑东西就跳过」。
+
+`--boot` 那次在动手前过一道闸门，任何一条不过就只写日志、不恢复：
+
+| 检查 | 拒绝的理由 |
+|---|---|
+| `restore.on-boot` 是否为 true | 没开 |
+| `dispatch.memory_limits_available()` | 拿不到 cgroup，批量恢复没有兜底 |
+| 上次的 `~/.local/state/atm/boot-restore.json` 是否 `done >= planned` | 上次没跑完 = 被杀了。这条专门打断「恢复 → 冻死 → 重启 → 再恢复」的循环 |
+| `MemAvailable >= restore.min-available`（默认 `4G`） | 内存已经紧张 |
+
+状态文件在投递前写入 `planned`，每投完一条（**包括失败的**）更新一次 `done` ——
+它记的是「走到哪了」，不是「成功了几条」；否则一条坏会话会让下次开机永远拒绝。
+`restore.min-available` 在每条投递之前都重查一次，所以开机恢复会自然退化成
+「填到内存吃紧为止」而不是硬填完；中途停手时会把 `done` 补齐到 `planned`，
+免得「我主动停的」被下次当成「被杀了」。
+
+开机时没有终端，所以全过程追加进 `~/.local/state/atm/restore.log`（`XDG_STATE_HOME` 生效），
+`atm doctor` 里也有一行当前状态。`--boot` 的退出码**永远是 0**：它是 tmux 钩子里的后台动作，
+让 resurrect 看见非零没有任何好处。
+
+**为什么不查 journal 里的 OOM 记录。** 普通用户不在 `adm` / `systemd-journal` 组时，
+`journalctl` 只看得到自己的日志，内核的 `oom-kill` 是系统消息，查出来永远是「没有」——
+一个只会返回「一切正常」的检查比没有检查更糟。同理 `systemctl --user show tmux.service -p Result`
+只在同一次开机内有意义：user manager 每次登录重建，跨重启读到的是新一轮的结果。
 
 
 ## 升级
@@ -448,6 +528,7 @@ src/atm/
 ├── tui.py          # curses 选择器（本机没装 fzf，不能把它当硬依赖）
 ├── tmux.py         # 只用公开 CLI，绝不碰内部 unix socket
 ├── dispatch.py     # 组装 resume 命令 + 投递
+├── restore.py      # 解析 resurrect 存档 → 恢复计划 + 开机恢复的闸门（2026-09-10）
 ├── sidebar.py      # 运行态：主格 / swap / park / toggle 的纯规划函数（2026-09-02）
 ├── sidebar_tui.py  # 常驻侧栏的 curses 循环，每秒刷 pane 列表
 └── cli.py          # argparse 入口

@@ -4,6 +4,7 @@
 - `tmux.*` 变了 → tmuxopts：重写 ~/.tmux.conf 最前面的选项块 + 对活着的 server `set -g`
 - `keys.*` 变了 → install：键位块已装的话重写 + 重绑，旧键解绑；没装就提示先 `atm install`
 - `memory.slice*` 变了 → guard：单元文件是 atm 写的就按新数重写 + daemon-reload
+- `restore.on-boot` 变了 → persist：持久化块里加上 / 去掉 resurrect 的 post-restore-all 钩子
 
 返回一组人话，调用方决定打到 stdout 还是编辑器状态行。任何一步失败都不抛 —— 配置文件已经保存成功了，
 失败的只是「让 tmux / systemd 跟上」这一步，把原因说出来就行。
@@ -21,6 +22,7 @@ _TMUX_FIELDS = ("tmux_mouse", "tmux_focus_events", "tmux_history_limit", "tmux_b
 _TMUX_FIELDS += ("tmux_renumber_windows",)
 _KEY_FIELDS = ("keys_pick", "keys_sidebar", "keys_popup_width", "keys_popup_height")
 _SLICE_FIELDS = ("memory_slice", "memory_slice_high", "memory_slice_max", "memory_user")
+_RESTORE_FIELDS = ("restore_on_boot",)
 
 
 def _changed(old: config_mod.Config, new: config_mod.Config, names: tuple[str, ...]) -> bool:
@@ -41,6 +43,8 @@ def apply_changes(
         notes += _sync_keys(old, new, conf_path)
     if _changed(old, new, _SLICE_FIELDS):
         notes += _sync_slice(new)
+    if _changed(old, new, _RESTORE_FIELDS):
+        notes += _sync_persist(new, conf_path)
     return notes
 
 
@@ -93,6 +97,31 @@ def _sync_keys(old: config_mod.Config, new: config_mod.Config, conf_path: Path |
     elif result.live_error:
         notes.append(_("对运行中的 server 重绑失败：{err}").format(err=result.live_error))
     return notes
+
+
+def _sync_persist(cfg: config_mod.Config, conf_path: Path | None) -> list[str]:
+    """`restore.on-boot` 改了：持久化块里那行 resurrect 钩子要跟着加 / 去。
+
+    块还没装就什么都不做 —— 值已经存进配置了，下次 `atm install` 自然会带上。
+    """
+    from . import persist
+
+    path = conf_path or Path.home() / ".tmux.conf"
+    try:
+        if not persist._has_marker(persist._read(path), persist.MARKER_BEGIN):
+            if cfg.restore_on_boot:
+                return [_("持久化块还没装；跑一次 `atm install` 才会挂上开机恢复的钩子")]
+            return []
+        result = persist.apply(persist.build_plan(conf_path=path, cfg=cfg))
+    except (OSError, RuntimeError) as exc:
+        return [_("持久化块没更新：{exc}").format(exc=exc)]
+    if not result.block_written:
+        return []
+    if cfg.restore_on_boot:
+        return [
+            _("开机恢复的钩子已写进 {path}；下次起 tmux server 生效").format(path=result.conf_path)
+        ]
+    return [_("开机恢复的钩子已从 {path} 去掉").format(path=result.conf_path)]
 
 
 def _sync_slice(cfg: config_mod.Config) -> list[str]:

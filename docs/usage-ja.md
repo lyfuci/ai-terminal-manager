@@ -35,6 +35,7 @@ atm swap %7 --into %3     # %7 を %3 に入れ替え
 atm park                  # 現在の pane を bg へ
 atm prune -n              # bg の中の閉じられる idle shell を表示（-n を外すと実際に閉じる）
 atm index --rebuild       # キャッシュを消して全再構築
+atm restore               # 再起動のあと：前回のセッションを空の pane に戻す
 atm update                # atm 自身を更新（uv tool / pipx / pip を判別）；--check は確認のみ。ミラーが遅れていれば PyPI 直結で再試行
 ```
 
@@ -44,6 +45,65 @@ atm update                # atm 自身を更新（uv tool / pipx / pip を判別
 
 **全オプション、実測性能、三種 JSONL のフォーマット詳細：[`docs/reference.md`](reference.md)。**
 開発と貢献：[CONTRIBUTING.md](../CONTRIBUTING.md)。
+
+---
+
+## 再起動のあと：`atm restore`
+
+tmux-resurrect が戻してくれるのは**骨組み**（window・pane・各 pane の作業ディレクトリ）だけで、
+pane の中身は空の shell です。atm はあえて AI CLI を `@resurrect-processes` に**入れません**。
+起動時に全部を一斉に立ち上げてしまうからで、実測ではセッション 4 本で RAM の 87% を食い、2 回フリーズしました。
+
+`atm restore` はその pane を 1 本ずつ埋め戻します：
+
+```bash
+atm restore                  # いま入っている tmux セッション。計画を出して確認してから実行
+atm restore -t work          # 別のセッション。`-t work:1` なら その window だけ
+atm restore --all            # 保存ファイル内の全セッション
+atm restore --print          # 計画を見るだけ
+atm restore -y               # 確認なしで実行
+```
+
+計画には、**触らない**ものも含めて 1 件ずつ理由が出ます：
+
+```
+2 件のセッションを復元します：
+  main:1.1  claude    インデックスのキャッシュを追加
+  main:1.4  codex     リリーススクリプトの整理
+
+次の 2 件はそのまま：
+  main:1.2  * github  -- スキップ：その pane では既に何かが動いています
+  main:2.1  古い作業  -- スキップ：その pane はレイアウトに存在しません
+```
+
+**何かが動いている pane は決して上書きされません** —— このコマンドが守る唯一の不変条件です。
+投入は**直列**（3 つの CLI が同時に 20MB 超のトランスクリプトを読むのは実際にスパイクになります）で、
+atm 通常の投入経路を通るので、どれも cgroup メモリゲートの下に入ります。
+
+### 起動時に自動で走らせる
+
+既定は無効です。有効にすると `atm install` が resurrect の post-restore フックにこのコマンドを掛けます：
+
+```bash
+atm config restore.on-boot true
+atm install                  # フックを書き込む。次回 tmux server 起動時に有効
+```
+
+起動時の実行は、何かする前に 3 点を確認し、1 つでも駄目なら見送ります：
+
+| 確認すること | 理由 |
+|---|---|
+| cgroup メモリゲートが使えるか | ゲートがなければ一括復元に安全網がない |
+| 前回の起動時復元が最後まで走ったか | 途中で止まっていたら kill されたということ。「復元 → フリーズ → 再起動 → また復元」の循環を断つのはこの条件 |
+| `MemAvailable` が `restore.min-available`（既定 `4G`）より上か | 1 件ごとに再確認するので、起動時復元は「メモリが厳しくなるまで埋める」に自然に劣化する |
+
+起動時には端末がないため、何をしたかは `~/.local/state/atm/restore.log` に書き出され、
+`atm doctor` にも現在の状態が 1 行出ます。前回が中断していた場合は、再有効化の手順もそのメッセージに出ます ——
+手動で `atm restore` を実行して問題ないことを確認し、`~/.local/state/atm/boot-restore.json` を削除するだけです。
+
+> atm は journal の OOM 記録を見ません。`adm` / `systemd-journal` グループに入っていなければ `journalctl` は
+> **自分のログしか見えず**、カーネルの OOM 行は見えません。「常に異常なし」としか答えられない検査は、
+> 検査がないより悪いからです。
 
 ---
 
