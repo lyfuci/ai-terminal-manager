@@ -178,6 +178,8 @@ Windows GUI / 控制模式解析器 / 布局同步全部蒸发。2026-09-05 起 
      它让内核在**每次内存分配时同步回收**。实测单会话峰值 4.7GB，软上限压到 2G，等于让一个正常干活的长会话
      被永久限流：活着、不报错、`oom_kill` 是 0，慢到像卡死。小内存机器现场：`current=2633M` 对 `high=2G`，
      `high` 事件 **227 万次**。单会话闸门是挑替死鬼，**总量归 slice** —— 数值要按这个分工定（现在默认 `auto`）。
+     **而且两层都要读回来**：小内存机器上先撞上限的是**总量** —— 5 个 scope 各自都在自己软上限以下，
+     合计 4725M 撞着 slice 的 4096M，于是每一个都在被回收拖慢，而只查单个 scope 会报「没有会话撞过软上限」。
    - **systemd 把 slice 名字里的 `-` 当路径层级**：`atm-ai.slice` 在
      `user@UID.service/atm.slice/atm-ai.slice`，不是 `user@UID.service/atm-ai.slice`。
      按扁平路径找，三个活着的 scope 一个都看不到。另外 `MemoryHigh=infinity` 之后 `memory.high` 读出来是

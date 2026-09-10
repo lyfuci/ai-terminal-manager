@@ -1454,10 +1454,37 @@ def _report_pressure(slice_name: str) -> None:
     scopes = dispatch_mod.scope_pressure(slice_name)
     if not scopes:
         return
-    hot = [s for s in scopes if s.throttled]
     print(_("  在跑的会话: {n} 个（{slice_name} 里）").format(n=len(scopes), slice_name=slice_name))
+
+    # 先报总量那一层。小内存机器上先撞上限的往往是它，而不是某一个会话 ——
+    # 只报单个 scope 会得出「没有会话撞过软上限」，而实际上每一个都在被回收拖慢。
+    total = dispatch_mod.slice_pressure(slice_name)
+    if total is not None and total.throttled:
+        state = (
+            _("⚠ 合计仍在总量软上限之上，slice 里每个会话都在被回收拖慢")
+            if total.over_high
+            else _("曾撞到过")
+        )
+        print(
+            _("  节流(总量): 合计 {cur}M / 软上限 {high}M，high 事件 {n} 次 —— {state}").format(
+                cur=total.current >> 20,
+                high=(total.high or 0) >> 20,
+                n=total.high_events,
+                state=state,
+            )
+        )
+        if total.over_high:
+            print(
+                _(
+                    "  → 总量这一层调大等于放弃「防机器整体死掉」。先考虑少开几个会话；"
+                    "确实要放宽用 atm config memory.slice-high"
+                )
+            )
+
+    hot = [s for s in scopes if s.throttled]
     if not hot:
-        print(_("  节流: 没有会话撞过软上限"))
+        if total is None or not total.throttled:
+            print(_("  节流: 没有会话撞过软上限"))
         return
     for s in sorted(hot, key=lambda s: s.high_events, reverse=True):
         state = _("⚠ 此刻仍在软上限之上，正被同步回收拖慢") if s.over_high else _("曾撞到过")

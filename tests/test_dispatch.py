@@ -589,3 +589,87 @@ def test_doctor_names_the_stuck_scope_and_how_to_release_it(tmp_path, monkeypatc
     assert "run-p207309-i208192.scope" in out
     assert "2276338" in out
     assert "set-property" in out and "MemoryHigh=infinity" in out
+
+
+# ---------------------------------------------------------------- 总量那一层也会限流
+#
+# 2026-09-10 第二次踩：只报单个 scope 的话，5 个会话合计 4725M 撞着 slice 的 4096M
+# 软上限时，doctor 会说「没有会话撞过软上限」—— 而实际上每一个都在被回收拖慢。
+# 小内存机器上先撞的往往就是总量这一层。
+
+
+def fake_slice(root, slice_name="atm-ai.slice", *, current, high, events, scopes=()):
+    """带 slice 自身数值的假 cgroup 树。"""
+    directory = fake_cgroup(root, slice_name, scopes)
+    (directory / "memory.current").write_text(str(current))
+    (directory / "memory.high").write_text(high)
+    (directory / "memory.events").write_text(events)
+    return directory
+
+
+def test_reads_the_slice_itself_not_just_its_scopes(tmp_path) -> None:
+    fake_slice(
+        tmp_path,
+        current=4725 << 20,
+        high=str(4 << 30),
+        events="high 91234\nmax 0\n",
+        scopes=[("run-a.scope", 340 << 20, str(3 << 30), "high 0\nmax 0\n")],
+    )
+    total = dispatch_mod.slice_pressure(root=tmp_path)
+    assert total is not None
+    assert total.name == "atm-ai.slice"
+    assert total.throttled and total.over_high  # 4725M > 4096M
+
+
+def test_slice_throttling_is_reported_even_when_no_single_scope_is(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """现场原话：五个 scope 各自都在软上限以下，合计却超了 —— 这才是当时的真相。"""
+    from atm import cli, config
+
+    fake_slice(
+        tmp_path,
+        current=4725 << 20,
+        high=str(4 << 30),
+        events="high 91234\nmax 0\n",
+        scopes=[
+            ("run-a.scope", 340 << 20, str(3 << 30), "high 0\nmax 0\n"),
+            ("run-b.scope", 1065 << 20, str(3 << 30), "high 0\nmax 0\n"),
+            ("run-c.scope", 2633 << 20, str(3 << 30), "high 0\nmax 0\n"),
+        ],
+    )
+    real_slice, real_scopes = dispatch_mod.slice_pressure, dispatch_mod.scope_pressure
+    monkeypatch.setattr(dispatch_mod, "memory_limits_available", lambda: True)
+    monkeypatch.setattr(config, "load", lambda *a, **k: config.Config())
+    monkeypatch.setattr(
+        dispatch_mod, "slice_pressure", lambda name, **kw: real_slice(name, root=tmp_path)
+    )
+    monkeypatch.setattr(
+        dispatch_mod, "scope_pressure", lambda name, **kw: real_scopes(name, root=tmp_path)
+    )
+
+    cli._report_guard()
+
+    out = capsys.readouterr().out
+    assert "4725" in out and "91234" in out
+    assert "没有会话撞过软上限" not in out  # 正是这句当时把人误导了
+    assert "memory.slice-high" in out  # 给的是「少开几个」+ 怎么放宽，不是「调大就完了」
+
+
+def test_a_slice_under_its_limit_says_nothing_extra(tmp_path) -> None:
+    fake_slice(
+        tmp_path,
+        current=900 << 20,
+        high=str(4 << 30),
+        events="high 0\nmax 0\n",
+        scopes=[("run-a.scope", 300 << 20, str(3 << 30), "high 0\nmax 0\n")],
+    )
+    total = dispatch_mod.slice_pressure(root=tmp_path)
+    assert total is not None and not total.throttled
+
+
+def test_missing_slice_pressure_is_none_not_a_crash(tmp_path) -> None:
+    assert dispatch_mod.slice_pressure(root=tmp_path / "nope") is None
+    directory = fake_cgroup(tmp_path)  # 目录在，但没有 memory.current
+    assert directory.exists()
+    assert dispatch_mod.slice_pressure(root=tmp_path) is None
