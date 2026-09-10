@@ -51,6 +51,9 @@ class Config:
     """所有字段都有默认值，缺文件 = 全默认。默认值和 dispatch 里的常量保持同一来源。"""
 
     memory_enabled: bool = True
+    # 单会话闸门。默认 "auto"：Max 取物理内存 35%（下限 4G），High 贴在 Max 下面（80%）。
+    # 写死一个小数字是错的 —— MemoryHigh 不杀进程只节流，设在正常工作集以下就是永久限流。
+    # 缘由写在 dispatch.py 那段警告里。
     memory_high: str = dispatch.DEFAULT_MEMORY_HIGH
     memory_max: str = dispatch.DEFAULT_MEMORY_MAX
     memory_swap_max: str = dispatch.DEFAULT_MEMORY_SWAP_MAX
@@ -92,9 +95,10 @@ class Config:
         if not dispatch.memory_limits_available():
             log.info("这台机器拿不到 cgroup（systemd-run 或 memory 控制器缺），本次不套内存闸门")
             return None
+        high, max_ = dispatch.resolve_session_limits(self.memory_high, self.memory_max)
         return dispatch.MemoryLimit(
-            high=self.memory_high,
-            max=self.memory_max,
+            high=high,
+            max=max_,
             swap_max=self.memory_swap_max,
             slice_name=self.memory_slice,
             user=self.memory_user,
@@ -127,8 +131,8 @@ KEYS: dict[str, str] = {
 
 _HELP: dict[str, str] = {
     "memory.enabled": "要不要套闸门（true/false）",
-    "memory.high": "软上限：超了节流 + 回收，不杀（如 4G）",
-    "memory.max": "硬上限：回收压不住才杀，杀的是整个会话及其子进程（如 8G）",
+    "memory.high": "单会话软上限：超了节流 + 回收，不杀。auto = 贴在 max 下面（80%），或写死如 6G",
+    "memory.max": "单会话硬上限：回收压不住才杀掉整个会话。auto = 物理内存 35%（下限 4G）",
     "memory.swap-max": "swap 上限（WSL 上 swap 在宿主 SSD，建议小）",
     "memory.slice": "所有会话共同归入的 systemd slice，兜总量",
     "memory.user": "systemd-run 是否走 --user（一般 true）",
@@ -387,7 +391,7 @@ def _coerce(key: str, value: object):
                 _("{key} 要形如 name.slice，收到 {value!r}").format(key=key, value=value)
             )
         return s
-    if key in ("memory.slice-high", "memory.slice-max"):
+    if key in ("memory.high", "memory.max", "memory.slice-high", "memory.slice-max"):
         return "auto" if s.lower() == "auto" else validate_size(key, s)
     if key in ("keys.pick", "keys.sidebar"):
         if not re.match(r"^[a-z]$", s):

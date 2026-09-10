@@ -1417,11 +1417,12 @@ def _report_guard() -> bool:
     if not cfg.memory_enabled:
         print(_("  已关闭（memory.enabled=false）"))
         return True
+    high, max_ = dispatch_mod.resolve_session_limits(cfg.memory_high, cfg.memory_max)
+    auto = _("auto，按物理内存算；") if "auto" in (cfg.memory_high, cfg.memory_max) else ""
     print(
-        _(
-            "  单会话: MemoryHigh={cfg_memory_high} "
-            "MemoryMax={cfg_memory_max}（atm claude / 投递时套）"
-        ).format(cfg_memory_high=cfg.memory_high, cfg_memory_max=cfg.memory_max)
+        _("  单会话: MemoryHigh={high} MemoryMax={max_}（{auto}atm claude / 投递时套）").format(
+            high=high, max_=max_, auto=auto
+        )
     )
     st = guard.status(cfg.memory_slice)
     if st.exists:
@@ -1439,7 +1440,44 @@ def _report_guard() -> bool:
             ).format(st_name=st.name)
         )
     print(_("  直接敲 claude / codex 不受以上任何限制；要限就用 atm claude / atm codex"))
+    _report_pressure(cfg.memory_slice)
     return True
+
+
+def _report_pressure(slice_name: str) -> None:
+    """有没有会话**正在**被节流。
+
+    这是 2026-09-10 那次「一个 pane 卡死」补的洞：原来 doctor 只报「闸门是多少」，
+    不报「有没有生效」。而 MemoryHigh 生效的样子就是进程活着、不报错、慢到像卡死 ——
+    不主动说出来，用户根本无从下手。
+    """
+    scopes = dispatch_mod.scope_pressure(slice_name)
+    if not scopes:
+        return
+    hot = [s for s in scopes if s.throttled]
+    print(_("  在跑的会话: {n} 个（{slice_name} 里）").format(n=len(scopes), slice_name=slice_name))
+    if not hot:
+        print(_("  节流: 没有会话撞过软上限"))
+        return
+    for s in sorted(hot, key=lambda s: s.high_events, reverse=True):
+        state = _("⚠ 此刻仍在软上限之上，正被同步回收拖慢") if s.over_high else _("曾撞到过")
+        print(
+            _("  节流: {name} 用了 {cur}M / 软上限 {high}M，high 事件 {n} 次 —— {state}").format(
+                name=s.name,
+                cur=s.current >> 20,
+                high=(s.high or 0) >> 20,
+                n=s.high_events,
+                state=state,
+            )
+        )
+    if any(s.over_high for s in hot):
+        print(
+            _(
+                "  → 立刻解开：systemctl --user set-property <上面那个 scope> "
+                "MemoryHigh=infinity MemoryMax=infinity"
+            )
+        )
+        print(_("  → 以后不再撞：atm config memory.high auto（或写死一个更大的数）"))
 
 
 def _report_persist(st) -> None:
@@ -1646,8 +1684,10 @@ def _memory_limit(args: argparse.Namespace) -> dispatch_mod.MemoryLimit | None:
     high = getattr(args, "mem_high", None)
     max_ = getattr(args, "mem_max", None)
     # 命令行给的值走和 atm config 同一套校验：`--mem-high lots` 不该等到 systemd-run 才报错
-    high = config.validate_size("--mem-high", high) if high else base.high
-    max_ = config.validate_size("--mem-max", max_) if max_ else base.max
+    # 命令行也接受 auto，和 atm config 同一套写法；auto 交给 resolve_session_limits
+    high, max_ = dispatch_mod.resolve_session_limits(high or base.high, max_ or base.max)
+    high = config.validate_size("--mem-high", high)
+    max_ = config.validate_size("--mem-max", max_)
     return dispatch_mod.MemoryLimit(
         high=high, max=max_, swap_max=base.swap_max, slice_name=base.slice_name, user=base.user
     )

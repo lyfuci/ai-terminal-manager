@@ -205,6 +205,19 @@ layout sync all evaporated. Since 2026-09-05, `atm install` installs resurrect +
      `%subscription-changed`. Pane title, activity, current command — all push-based, no polling — the sidebar's
      "this pane is busy" indicator relies on it.
 
+9. **`MemoryHigh` is a throttle, not a kill threshold — and a cgroup's `-` name is a hierarchy.** Two things bit us
+   on 2026-09-10, both in `dispatch.py` now:
+   - The per-session `MemoryHigh` default of 2G came from a "what fraction gets **killed** at this limit" study, but
+     `MemoryHigh` never kills — it makes the kernel reclaim **synchronously on every allocation**. With a measured
+     session peak of 4.7GB, a soft cap at 2G means a healthy long session is throttled forever: alive, no error,
+     `oom_kill` 0, slow enough to look hung. Measured on a small machine: `current=2633M` against `high=2G` with
+     **2,276,338** `high` events. Per-session limits pick a victim; the **slice** guards the total. Size them
+     accordingly (they are `auto` now).
+   - **systemd treats `-` in a slice name as path hierarchy**: `atm-ai.slice` lives at
+     `user@UID.service/atm.slice/atm-ai.slice`, not `user@UID.service/atm-ai.slice`. Looking at the flat path finds
+     zero scopes even when three are live. And after `MemoryHigh=infinity`, `memory.high` reads the string `max`,
+     not a number — parse it as an int and the **diagnostic** code crashes, which is the one thing it must never do.
+
 ## To be confirmed
 
 1. **Cross-device takeover or not** → decides Route A / B. **Still unanswered**, but no longer blocking: Route C has

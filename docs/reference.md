@@ -316,7 +316,7 @@ atm completion fish > ~/.config/fish/completions/atm.fish
 
 | 层 | 管什么 | 谁设 |
 |---|---|---|
-| **单会话** scope | 一个会话（含它拉起的 MCP server / bash 工具等子进程）最多用多少 | `atm config memory.high / memory.max` |
+| **单会话** scope | 一个会话（含它拉起的 MCP server / bash 工具等子进程）最多用多少 | `atm config memory.high / memory.max`，默认 auto（按物理内存算）|
 | **总量** slice | 所有 atm 启动或投递的会话合计最多用多少 | `atm install` 写 `~/.config/systemd/user/atm-ai.slice`，按物理内存 50% / 65% |
 
 ### 三条进闸门的路，一条不进
@@ -335,8 +335,8 @@ claude                       # 不带 atm 前缀 = 原生，不套任何限制
 
 ```bash
 atm config                        # 终端里：交互式编辑器（↑↓ 选、Enter 改/切换、r 恢复默认、s 保存、? 帮助；≥90 列时右侧面板说明选中项：格式 / 默认 / 环境变量 / 来源 / 界面语言，窄了退回底部一行）；管道里 / --show：打印当前值和来源
-atm config memory.high 4G         # 软上限：超了节流 + 回收，不杀
-atm config memory.max 8G          # 硬上限：回收压不住才杀 —— 杀的是整个 scope，会话和它的子命令一起没
+atm config memory.high 4G         # 软上限：超了节流 + 回收，不杀（auto = Max 的 80%）
+atm config memory.max 8G          # 硬上限：回收压不住才杀 —— 杀的是整个 scope，会话和它的子命令一起没（auto = 物理内存 35%）
 atm config memory.enabled false   # 全关（atm claude 就等于 claude）
 atm config --unset memory.high    # 恢复单项默认
 atm config --reset                # 全部默认
@@ -389,24 +389,82 @@ atm config --reset                # 全部默认
 
 单次覆盖：`atm pick --mem-high 3G --mem-max 6G`、`atm pick --no-mem-limit`。
 
-### 默认值怎么来的
+### 默认值怎么来的（2026-09-10 修正过一次严重错误）
 
-单会话默认 **2G / 4G**，来自 8G 机器上 25 个真实会话的 `memory.peak` 分布：
+单会话两个数都默认 **`auto`**，按物理内存算：
 
-| 上限 | 会杀掉 |
-|---|---|
-| 1G | 3/25（12%）|
-| **2G** | **1/25（4%）** |
-| 4G | 1/25（4%）|
+```
+Max  = 物理内存 × 35%，下限 4G
+High = Max × 80%
+```
 
-2G 是拐点——再往上加没有改善，只有那个 4813MB 的失控户超标。**大内存机器请自己往上调**
-（48G 的机器 4G / 8G 比较合理）：默认值偏保守是因为它是为 8G 的 WSL 定的，不是为你的机器定的。
+| 物理内存 | High | Max | （对比）slice 总量 |
+|---|---|---|---|
+| 8G | 3G | 4G（下限兜住）| 4G / 5G |
+| 16G | 5G | 6G | 8G / 10G |
+| 48G | 13G | 17G | 24G / 31G |
+
+也可以写死：`atm config memory.high 6G`。两个键各自独立，只 auto 一个也行。
+
+#### 原来错在哪
+
+之前两个数写死成 **High=2G / Max=4G**，依据是 8G 机器上 25 个真实会话的 `memory.peak` 分布
+（1G 杀掉 12%、2G 只杀 4%、4G 没有改善，所以「2G 是拐点」）。
+
+**那份分析问的是「设成多少会杀掉多少比例」，答的却是 `MemoryMax` 的问题，却被拿去定了 `MemoryHigh`。**
+而 `MemoryHigh` 从来不杀进程 —— 它只节流：超过之后内核在**每次内存分配时同步回收**。
+同一批实测里还写着单会话峰值到过 **4.7GB**。把软上限设在实测峰值的不到一半，
+结果是任何一个正常干活的长会话都被**永久限流**。
+
+2026-09-10 在一台小内存机器上实测到的现场：
+
+```
+scope   current = 2633M      ← 比软上限高出 600M，一直下不来
+        memory.high = 2G
+        memory.events: high 2276338      ← 227 万次
+```
+
+进程活着、不报错、`oom_kill` 是 0，慢到像卡死。48G 内存的机器上不明显（空闲内存多，
+回收几乎免费），小内存机器上直接不可用。
+
+#### 现在的分工才是对的
+
+| 层 | 职责 | 数值 |
+|---|---|---|
+| **slice 总量** | 唯一真正「防机器整体死掉」的一层 | 物理内存 50% / 65% |
+| **单会话 Max** | 挑替死鬼：让一个会话去死，而不是全部一起死 | 物理内存 35%（下限 4G）|
+| **单会话 High** | 贴在 Max 下面，只在真失控时介入，不碰正常工作集 | Max × 80% |
+
+单会话 Max 比 slice 软限小得多是故意的：它不是总量控制，总量归 slice。
 
 **为什么 High / Max 分开**：实测峰值大多是瞬时尖峰，同一批会话 peak→current 回落 60~75%。
 `MemoryHigh` 只节流 + 强制回收（**不杀**），让尖峰自然压回去；`MemoryMax` 是硬底线。只设 Max 会误杀正常尖峰。
 
 **内存增长跟「开多久」无关，跟「干多少活」有关**——一个挂了 22h35m 的会话只用 346MB，
 一个 CPU 时间 49 分钟的会话到了 4.7GB。
+
+### 怎么知道自己正在被限流
+
+`MemoryHigh` 生效的样子就是「进程活着、不报错、慢到像卡死」，所以它必须被主动报出来 ——
+`atm doctor` 会列出 slice 底下每个 scope 的用量、软上限和 `high` 事件次数：
+
+```
+  在跑的会话: 3 个（atm-ai.slice 里）
+  节流: run-p207309-i208192.scope 用了 2633M / 软上限 2048M，high 事件 2276338 次
+        —— ⚠ 此刻仍在软上限之上，正被同步回收拖慢
+  → 立刻解开：systemctl --user set-property <上面那个 scope> MemoryHigh=infinity MemoryMax=infinity
+  → 以后不再撞：atm config memory.high auto（或写死一个更大的数）
+```
+
+`high` 事件数只增不减，所以「撞过又回落」和「此刻还在上面」是两种不同的报法，不会混为一谈。
+
+两个查 cgroup 时踩过的坑，都写在 `dispatch.py` 里：
+
+1. **systemd 用 `-` 表示 slice 层级。** `atm-ai.slice` 在 cgroup 里不是
+   `user@UID.service/atm-ai.slice`，而是 `user@UID.service/atm.slice/atm-ai.slice` —— 嵌了一层。
+   按扁平路径找，明明有三个活着的 scope 也一个都看不到。
+2. **`MemoryHigh=infinity` 之后 `memory.high` 读出来是字符串 `max`**，不是数字。
+   当成数字解析会炸，而这是**诊断**代码 —— 用户查问题的最后一根绳子，绝不能自己抛。
 
 ### 为什么需要
 

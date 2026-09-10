@@ -22,7 +22,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import config as config_mod
+from .dispatch import total_memory_bytes  # slice 和单会话闸门共用同一份读法
 from .i18n import _
+
+__all__ = ["total_memory_bytes"]  # 重导出，历史调用方按 guard.total_memory_bytes 用
 
 HEADER = "# 由 atm install 生成；atm uninstall 会删掉它。手改无妨，但请去掉这一行，否则会被卸载。"
 HIGH_RATIO = 0.50
@@ -33,16 +36,6 @@ def unit_dir() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME")
     root = Path(base).expanduser() if base else Path.home() / ".config"
     return root / "systemd" / "user"
-
-
-def total_memory_bytes(meminfo: Path = Path("/proc/meminfo")) -> int | None:
-    try:
-        for line in meminfo.read_text().splitlines():
-            if line.startswith("MemTotal:"):
-                return int(line.split()[1]) * 1024
-    except (OSError, ValueError, IndexError):
-        pass
-    return None
 
 
 def suggested_totals(total_bytes: int) -> tuple[str, str]:

@@ -295,7 +295,7 @@ def test_panel_lines_describe_selected_key_in_current_language(monkeypatch) -> N
     assert zh[0] == "memory.high"
     assert any("软上限" in ln for ln in zh)
     assert any("格式：" in ln and "4G" in ln for ln in zh)
-    assert any("默认：2G" in ln for ln in zh)
+    assert any("默认：auto" in ln for ln in zh)
     assert any("环境变量：ATM_MEMORY_HIGH" in ln for ln in zh)
     assert any("来源：env ATM_MEMORY_HIGH" in ln for ln in zh)
     assert any(ln.startswith("⚠") for ln in zh)
