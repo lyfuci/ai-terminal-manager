@@ -86,18 +86,73 @@ def size_notice(entry: SessionEntry) -> str:
 # 而是**整个 tmux server 连同所有会话一起死掉**（2026-08-12 11:59 就这么死过一次）。
 # 套上 cgroup 之后，最坏情况从「全丢」变成「丢一个」。
 #
-# 阈值来自实测（journal 里 25 个真实会话的 memory.peak 分布）：
-#   1G 会杀掉 12%，2G 只杀 4%，再往上加到 4G 没有任何改善 —— 2G 是拐点。
-#
 # 为什么 High/Max 分开（这是关键）：实测峰值**大多是瞬时尖峰**，
 # 同一批会话的 peak→current 回落达 60~75%。所以：
-#   - MemoryHigh 是**软**上限：超了只节流 + 强制回收，**不杀进程**，尖峰会被自然压回去；
+#   - MemoryHigh 是**软**上限：超了只节流 + 强制回收，**不杀进程**；
 #   - MemoryMax 是**硬**底线，只在回收也压不住时才动手，拦的是真正失控的那种。
 # 只设 MemoryMax 会把正常的尖峰误杀。
-DEFAULT_MEMORY_HIGH = "2G"
-DEFAULT_MEMORY_MAX = "4G"
+#
+# ⚠ 2026-09-10 修正过一次严重的定值错误，别再犯：
+# 原来两个数写死成 High=2G / Max=4G，依据是「25 个真实会话的 memory.peak 分布里
+# 1G 杀掉 12%、2G 只杀 4%」。但那是**「设成多少会杀掉多少」**的分析，
+# 却被拿去定 **MemoryHigh** —— 而 MemoryHigh 从来不杀进程，它只节流。
+# 同一段实测里还写着单会话峰值到过 **4.7GB**：把软上限设在实测峰值的不到一半，
+# 结果是任何一个正常干活的长会话都被**永久限流**（内核在每次分配时同步回收）。
+# 现场实测：一个 current=2633M 的会话在 high=2G 下攒了 **227 万次** high 事件，
+# 进程活着、不报错、慢到像卡死。48G 内存的机器上不明显（回收几乎免费），
+# 小内存机器上直接不可用。
+#
+# 现在的分工才是对的：
+#   - **slice 总量**（guard.py，物理内存 50% / 65%）才是「防机器整体死掉」的那一层；
+#   - **单会话 Max** 只负责挑替死鬼 —— 让一个会话去死，而不是全部一起死；
+#   - **单会话 High** 贴在 Max 下面（80%），只在真失控时介入，不碰正常工作集。
+# 所以两个数都默认 "auto"，按物理内存算（见 suggested_session_limits）。
+DEFAULT_MEMORY_HIGH = "auto"
+DEFAULT_MEMORY_MAX = "auto"
+# 读不到 /proc/meminfo 时的退路。宁松不紧：松了还有 slice 兜总量，紧了就是上面那个 bug。
+FALLBACK_MEMORY_HIGH = "6G"
+FALLBACK_MEMORY_MAX = "8G"
 # swap 单独限死：WSL 的 swap.vhdx 在 Windows 文件系统上，一旦开始刷就是宿主 SSD 100%。
 DEFAULT_MEMORY_SWAP_MAX = "512M"
+
+# 单会话 Max 取物理内存的这个比例（下限 4G）；High 取 Max 的 80%。
+# 比 slice 的 50% 小得多是故意的：单会话闸门不是总量控制，总量归 slice。
+SESSION_MAX_RATIO = 0.35
+SESSION_MIN_MAX_GIB = 4
+SESSION_HIGH_OF_MAX = 0.8
+
+
+def total_memory_bytes(meminfo: Path = Path("/proc/meminfo")) -> int | None:
+    """物理内存，字节。读不到就是 None（调用方退回写死的值）。"""
+    try:
+        for line in meminfo.read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemTotal:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def suggested_session_limits(total_bytes: int) -> tuple[str, str]:
+    """(MemoryHigh, MemoryMax)，单个会话，按 GiB 取整。"""
+    gib = 1 << 30
+    hard = max(SESSION_MIN_MAX_GIB, round(total_bytes * SESSION_MAX_RATIO / gib))
+    soft = max(1, round(hard * SESSION_HIGH_OF_MAX))
+    return f"{soft}G", f"{hard}G"
+
+
+def resolve_session_limits(
+    high: str, max_: str, *, total_bytes: int | None = None
+) -> tuple[str, str]:
+    """把 "auto" 换成具体数字。写死的值原样返回，两个可以独立设。"""
+    if high != "auto" and max_ != "auto":
+        return high, max_
+    total = total_bytes if total_bytes is not None else total_memory_bytes()
+    auto_high, auto_max = (
+        suggested_session_limits(total) if total else (FALLBACK_MEMORY_HIGH, FALLBACK_MEMORY_MAX)
+    )
+    return (auto_high if high == "auto" else high, auto_max if max_ == "auto" else max_)
+
 
 # 上面那些是**单个进程**的闸门，拦的是一个会话自己失控。
 # 但真正把机器冻死的是**总量**：实测本机 app-tmux.slice 峰值 6.75GB / 总内存 7.8GB，
@@ -115,8 +170,8 @@ DEFAULT_SLICE = "atm-ai.slice"
 class MemoryLimit:
     """投递时给会话套的 cgroup 内存限制。None 表示不限。"""
 
-    high: str = DEFAULT_MEMORY_HIGH
-    max: str = DEFAULT_MEMORY_MAX
+    high: str = FALLBACK_MEMORY_HIGH
+    max: str = FALLBACK_MEMORY_MAX
     swap_max: str = DEFAULT_MEMORY_SWAP_MAX
     slice_name: str = DEFAULT_SLICE
     # False = 系统级 scope（需要 root）。默认走当前用户的 user manager。
@@ -140,6 +195,100 @@ class MemoryLimit:
             "-p",
             "MemoryAccounting=1",
         ]
+
+
+# ---------------------------------------------------------------- 正在被限流吗
+#
+# 这是 2026-09-10 那次「一个 pane 卡死」暴露的诊断缺口：`atm doctor` 原来只查
+# 「闸门在不在、数字是多少」，不查**有没有正在生效**。而 MemoryHigh 生效的样子就是
+# 进程活着、不报错、慢到像卡死 —— 现场 `memory.events` 里 227 万次 high 事件摆在那儿，
+# 工具一个字都不说。定值改对了不代表这个洞补上了：用户改小了数一样会撞。
+
+
+@dataclass(frozen=True, slots=True)
+class ScopePressure:
+    """slice 底下一个会话 scope 的内存现状。`high_events` 是超过软上限的次数。"""
+
+    name: str
+    current: int
+    high: int | None  # None = max（无限制）
+    high_events: int
+    max_events: int
+
+    @property
+    def throttled(self) -> bool:
+        """在被节流：软上限有限，且已经撞上去过。"""
+        return self.high is not None and self.high_events > 0
+
+    @property
+    def over_high(self) -> bool:
+        """**此刻**还在软上限之上 —— 这才是「现在就卡着」。"""
+        return self.high is not None and self.current > self.high
+
+
+def _cgroup_int(path: Path) -> int | None:
+    """cgroup 里的数值文件。`max` = 无限制 → None。"""
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return None if raw == "max" else int(raw) if raw.isdigit() else None
+
+
+def slice_path_parts(slice_name: str) -> tuple[str, ...]:
+    """`atm-ai.slice` → ("atm.slice", "atm-ai.slice")。
+
+    systemd 用 `-` 表示 slice 的**层级**，所以 `atm-ai.slice` 在 cgroup 里不是
+    `user@UID.service/atm-ai.slice`，而是嵌在 `atm.slice/` 下面一层。
+    本机实测就是这样，按扁平路径找会一个 scope 都看不到。
+    """
+    stem = slice_name.removesuffix(".slice")
+    parts = [p for p in stem.split("-") if p]
+    return tuple(f"{'-'.join(parts[: i + 1])}.slice" for i in range(len(parts)))
+
+
+def slice_cgroup_dir(slice_name: str = DEFAULT_SLICE, *, root: Path | None = None) -> Path:
+    """slice 在 cgroup 里的目录。路径口径和 memory_limits_available() 保持一致。"""
+    base = root or Path("/sys/fs/cgroup")
+    uid = os.getuid()
+    directory = base / "user.slice" / f"user-{uid}.slice" / f"user@{uid}.service"
+    for part in slice_path_parts(slice_name):
+        directory = directory / part
+    return directory
+
+
+def scope_pressure(
+    slice_name: str = DEFAULT_SLICE, *, root: Path | None = None
+) -> tuple[ScopePressure, ...]:
+    """slice 底下每个 scope 的内存现状。读不到就返回空 —— 诊断绝不能自己抛。"""
+    directory = slice_cgroup_dir(slice_name, root=root)
+    out: list[ScopePressure] = []
+    try:
+        children = sorted(d for d in directory.iterdir() if d.is_dir())
+    except OSError:
+        return ()
+    for child in children:
+        current = _cgroup_int(child / "memory.current")
+        if current is None:
+            continue
+        events = {}
+        try:
+            for line in (child / "memory.events").read_text(encoding="utf-8").splitlines():
+                key, _, value = line.partition(" ")
+                if value.isdigit():
+                    events[key] = int(value)
+        except OSError:
+            pass
+        out.append(
+            ScopePressure(
+                name=child.name,
+                current=current,
+                high=_cgroup_int(child / "memory.high"),
+                high_events=events.get("high", 0),
+                max_events=events.get("max", 0),
+            )
+        )
+    return tuple(out)
 
 
 def memory_limits_available() -> bool:

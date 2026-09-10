@@ -173,6 +173,16 @@ Windows GUI / 控制模式解析器 / 布局同步全部蒸发。2026-09-05 起 
    - `refresh-client -A %<pane>:off` —— 让 tmux 对指定 pane **停止读取输出**。同时挂 6 个 Claude Code 但只有 2 个在视野里时，其余直接关推送。这是不炸 CPU 的关键开关；配合 `pause-after` 可自动暂停，恢复时发 `%continue`。
    - `refresh-client -B <name>:<what>:<format>` —— 订阅格式串，变化时推 `%subscription-changed`。pane 标题、是否有活动、当前跑什么命令全部推送式拿到，不用轮询 —— 侧栏「这个格子正在忙」的指示器靠它。
 
+9. **`MemoryHigh` 是节流阀，不是杀阈值；slice 名字里的 `-` 是路径层级。** 2026-09-10 一次踩了两个，都记在 `dispatch.py` 里：
+   - 单会话 `MemoryHigh` 默认 2G，依据是「设成多少会**杀掉**多少比例」的分布 —— 但 `MemoryHigh` 从不杀进程，
+     它让内核在**每次内存分配时同步回收**。实测单会话峰值 4.7GB，软上限压到 2G，等于让一个正常干活的长会话
+     被永久限流：活着、不报错、`oom_kill` 是 0，慢到像卡死。小内存机器现场：`current=2633M` 对 `high=2G`，
+     `high` 事件 **227 万次**。单会话闸门是挑替死鬼，**总量归 slice** —— 数值要按这个分工定（现在默认 `auto`）。
+   - **systemd 把 slice 名字里的 `-` 当路径层级**：`atm-ai.slice` 在
+     `user@UID.service/atm.slice/atm-ai.slice`，不是 `user@UID.service/atm-ai.slice`。
+     按扁平路径找，三个活着的 scope 一个都看不到。另外 `MemoryHigh=infinity` 之后 `memory.high` 读出来是
+     字符串 `max` 而不是数字 —— 当成整数解析会炸，而这是**诊断**代码，最不该炸的就是它。
+
 ## 待确认
 
 1. **跨端接管要不要** → 决定 A / B 路线。**仍未回答**，但不再阻塞：路线 C 已经交付可用的东西了。

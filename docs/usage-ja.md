@@ -39,7 +39,8 @@ atm restore               # 再起動のあと：前回のセッションを空�
 atm update                # atm 自身を更新（uv tool / pipx / pip を判別）；--check は確認のみ。ミラーが遅れていれば PyPI 直結で再試行
 ```
 
-> 投入時はデフォルトで cgroup のメモリゲートを被せる（`MemoryHigh=2G` / `MemoryMax=4G`）。
+> 投入時はデフォルトで cgroup のメモリゲートを被せ、値はマシンに応じて算出する（`memory.high` /
+> `memory.max` は既定 `auto`：Max = 物理メモリの 35%・下限 4G、High = Max の 80%）。
 > WSL のメモリ上限に当たったとき**tmux server がすべてのセッションごと死んだ**ことが一度あったため。
 > 閾値の決め方と無効化は `docs/reference.md`「メモリゲート」。
 
@@ -142,11 +143,11 @@ tmux オプションの有効化は引き続き即時適用する。無効化は
 
 ```bash
 atm config                     # 対話エディタ：↑↓ でキー選択、Enter で編集/切替、s で保存、? でヘルプ；右パネルが選択中の項目を表示言語で説明（形式 / デフォルト / 環境変数 / 由来）（atm config --show は表示のみ）
-atm config memory.high 4G      # ソフト上限：スロットリング + 回収、殺さない
+atm config memory.high 4G      # ソフト上限：スロットリング + 回収、殺さない。既定 auto = Max の 80%
 atm config keys.pick s         # ピッカーキー（大文字 = 現在のディレクトリのみ）；keys.sidebar、keys.popup-width/-height も。保存で実行中の server に再割り当て
 atm config tmux.mouse true     # tmux 共通オプション：mouse / focus-events / history-limit / base-index / renumber-windows → ~/.tmux.conf に独立ブロック、即時適用。あなた自身の行が同じオプションを設定していれば、黙って負けるのではなく行番号付きで報告する
 atm config memory.slice-high 20G  # 合計 slice の数値（デフォルト auto = 物理メモリの 50% / 65%）；atm が書いたユニットを書き直し + daemon-reload
-atm config memory.max 8G       # ハード上限：セッションの scope 全体（子プロセス含む）を kill
+atm config memory.max 8G       # ハード上限：セッションの scope 全体（子プロセス含む）を kill。既定 auto = 物理メモリの 35%・下限 4G
 atm claude --resume <id>       # その cgroup 内で claude を起動；引数はそのまま透過
 claude                         # プレフィックスなし = ネイティブ、制限なし
 ```

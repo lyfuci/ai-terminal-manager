@@ -189,7 +189,8 @@ def test_memory_limit_falls_back_to_config(cfg_path: Path, cgroup_ok) -> None:
     limit = cli._memory_limit(ns)
     assert limit is not None
     assert limit.high == "6G"
-    assert limit.max == dispatch.DEFAULT_MEMORY_MAX
+    # max 没设 → 默认 "auto"，但投递时必须已经解析成具体数字（systemd-run 不认 auto）
+    assert limit.max.endswith("G") and limit.max != "auto"
 
 
 def test_memory_limit_cli_flag_beats_config(cfg_path: Path, cgroup_ok) -> None:

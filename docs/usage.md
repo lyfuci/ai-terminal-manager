@@ -42,7 +42,8 @@ atm restore               # after a reboot: put last time's sessions back into t
 atm update                # upgrade atm itself (detects uv tool / pipx / pip); --check only looks. If your index mirror lags PyPI it retries straight from PyPI
 ```
 
-> Dispatch wraps the process in a cgroup memory gate by default (`MemoryHigh=2G` / `MemoryMax=4G`). The reason:
+> Dispatch wraps the process in a cgroup memory gate by default, sized to the machine (`memory.high` /
+> `memory.max` are `auto`: Max = 35% of RAM with a 4G floor, High = 80% of Max). The reason:
 > hitting the WSL memory ceiling once took **the whole tmux server, and every session with it**. How the thresholds
 > were chosen and how to turn it off: `docs/reference.md`, "memory gate".
 
@@ -146,11 +147,11 @@ Enabling tmux options still applies them live. Disabling an option removes atm's
 
 ```bash
 atm config                     # interactive editor: ↑↓ pick a key, Enter edit/toggle, s save, ? help; a right-hand panel explains the selected key (format, default, env var, source) in the UI language (atm config --show for plain text)
-atm config memory.high 4G      # soft cap: throttle + reclaim, never kills
+atm config memory.high 4G      # soft cap: throttle + reclaim, never kills. Default auto = 80% of max
 atm config keys.pick s         # picker key (uppercase = current dir only); keys.sidebar, keys.popup-width/-height too. Saving rebinds the running server
 atm config tmux.mouse true     # common tmux options: mouse / focus-events / history-limit / base-index / renumber-windows → own block in ~/.tmux.conf, applied live. If your own lines set the same option, atm names them with line numbers instead of silently losing to them
 atm config memory.slice-high 20G  # aggregate slice numbers (default auto = 50% / 65% of RAM); the unit atm wrote is rewritten + daemon-reload
-atm config memory.max 8G       # hard cap: kills the whole session scope (children included)
+atm config memory.max 8G       # hard cap: kills the whole session scope (children included). Default auto = 35% of RAM, floor 4G
 atm claude --resume <id>       # launches claude inside that cgroup; args pass through untouched
 claude                         # no prefix = native, no limits at all
 ```

@@ -339,8 +339,8 @@ def test_memory_limit_wraps_command_with_systemd_run() -> None:
     cmd = dispatch_mod.resume_command(make_entry(), dispatch_mod.MemoryLimit())
     line = cmd.shell_line()
     assert "systemd-run --user --scope" in line
-    assert "MemoryHigh=2G" in line
-    assert "MemoryMax=4G" in line
+    assert "MemoryHigh=6G" in line  # MemoryLimit() 的字段默认值 = 读不到 meminfo 时的退路
+    assert "MemoryMax=8G" in line
     assert line.endswith("claude --resume aaaa-bbbb")
 
 
@@ -375,17 +375,59 @@ def test_slice_is_overridable() -> None:
     assert "--slice=other.slice" in dispatch_mod.resume_command(make_entry(), limit).shell_line()
 
 
-def test_high_is_lower_than_max_by_default() -> None:
+def _gib(v: str) -> int:
+    return int(v[:-1]) * {"M": 1024**2, "G": 1024**3}[v[-1]]
+
+
+@pytest.mark.parametrize("total_gib", [2, 4, 8, 16, 32, 49, 128])
+def test_high_is_lower_than_max_at_every_machine_size(total_gib: int) -> None:
     """High 是软限（节流），Max 是硬限（杀）。High 必须更低，否则软限没意义。
 
     实测依据：会话内存峰值大多是瞬时尖峰（peak→current 回落 60~75%），
-    所以要先给它机会被回收压回去，而不是一超就杀。
+    所以要先给它机会被回收压回去，而不是一超就杀。auto 之后这条要在每种机器尺寸上都成立。
     """
+    high, max_ = dispatch_mod.suggested_session_limits(total_gib << 30)
+    assert _gib(high) < _gib(max_)
 
-    def to_bytes(v: str) -> int:
-        return int(v[:-1]) * {"M": 1024**2, "G": 1024**3}[v[-1]]
 
-    assert to_bytes(dispatch_mod.DEFAULT_MEMORY_HIGH) < to_bytes(dispatch_mod.DEFAULT_MEMORY_MAX)
+@pytest.mark.parametrize("total_gib", [1, 2, 4, 8])
+def test_small_machines_get_the_floor_not_a_throttle(total_gib: int) -> None:
+    """2026-09-10 的 bug：软上限低于正常工作集 = 永久限流。
+
+    小机器上按比例算会得出 1G 之类的数，那正是当年 High=2G 的翻版。下限必须兜住。
+    """
+    _high, max_ = dispatch_mod.suggested_session_limits(total_gib << 30)
+    assert _gib(max_) >= dispatch_mod.SESSION_MIN_MAX_GIB << 30
+
+
+def test_auto_scales_with_ram_and_stays_under_the_slice() -> None:
+    """单会话闸门是「挑替死鬼」，总量归 slice —— 所以单会话 Max 必须明显小于 slice 软限。"""
+    from atm import guard
+
+    total = 48 << 30
+    _high, max_ = dispatch_mod.suggested_session_limits(total)
+    slice_high, _slice_max = guard.suggested_totals(total)
+    assert _gib(max_) < _gib(slice_high)
+
+
+def test_meminfo_that_cannot_be_read_is_none(tmp_path) -> None:
+    assert dispatch_mod.total_memory_bytes(tmp_path / "nope") is None
+    (tmp_path / "junk").write_text("garbage\n")
+    assert dispatch_mod.total_memory_bytes(tmp_path / "junk") is None
+
+
+def test_auto_falls_back_loose_when_meminfo_is_unreadable(monkeypatch) -> None:
+    """读不到内存就宁松不紧：松了还有 slice 兜总量，紧了就是那个永久限流的 bug。"""
+    monkeypatch.setattr(dispatch_mod, "total_memory_bytes", lambda *a, **kw: None)
+    high, max_ = dispatch_mod.resolve_session_limits("auto", "auto")
+    assert (high, max_) == (dispatch_mod.FALLBACK_MEMORY_HIGH, dispatch_mod.FALLBACK_MEMORY_MAX)
+
+
+def test_pinned_values_are_left_alone() -> None:
+    assert dispatch_mod.resolve_session_limits("1G", "2G", total_bytes=48 << 30) == ("1G", "2G")
+    # 两个可以独立设：只 auto 一个
+    high, max_ = dispatch_mod.resolve_session_limits("1G", "auto", total_bytes=48 << 30)
+    assert high == "1G" and max_ != "auto"
 
 
 def test_description_uses_session_name_when_present() -> None:
@@ -446,3 +488,104 @@ def test_unfocused_window_dispatch_creates_window_detached(
     calls.clear()
     dispatch_mod.dispatch(entry, DispatchTarget.window(), focus=True)
     assert "-d" not in next(c for c in calls if c[0] == "new-window")
+
+
+# ---------------------------------------------------------------- 正在被限流吗
+#
+# 2026-09-10：一个 pane 卡死，现场 memory.events 里 227 万次 high 事件摆在那儿，
+# 而 atm doctor 只报「闸门是多少」，不报「有没有生效」。这几条守住那个洞。
+
+
+def fake_cgroup(root, slice_name="atm-ai.slice", scopes=()):
+    """按 systemd 真实的**嵌套**布局搭一棵假 cgroup 树。"""
+    import os
+
+    uid = os.getuid()
+    directory = root / "user.slice" / f"user-{uid}.slice" / f"user@{uid}.service"
+    for part in dispatch_mod.slice_path_parts(slice_name):
+        directory = directory / part
+    for name, current, high, events in scopes:
+        d = directory / name
+        d.mkdir(parents=True)
+        (d / "memory.current").write_text(str(current))
+        (d / "memory.high").write_text(high)
+        (d / "memory.events").write_text(events)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def test_slice_name_dashes_are_a_cgroup_hierarchy() -> None:
+    """systemd 用 `-` 表示 slice 层级。按扁平路径找，一个 scope 都看不到 —— 实测踩过。"""
+    assert dispatch_mod.slice_path_parts("atm-ai.slice") == ("atm.slice", "atm-ai.slice")
+    assert dispatch_mod.slice_path_parts("atm.slice") == ("atm.slice",)
+    assert dispatch_mod.slice_path_parts("a-b-c.slice") == ("a.slice", "a-b.slice", "a-b-c.slice")
+    parts = dispatch_mod.slice_cgroup_dir("atm-ai.slice").parts
+    assert parts[-2:] == ("atm.slice", "atm-ai.slice")
+
+
+def test_reads_current_high_and_event_counts(tmp_path) -> None:
+    fake_cgroup(
+        tmp_path,
+        scopes=[("run-a.scope", 2761998336, str(2 << 30), "low 0\nhigh 2276338\nmax 0\noom 0\n")],
+    )
+    (scope,) = dispatch_mod.scope_pressure(root=tmp_path)
+    assert scope.name == "run-a.scope"
+    assert scope.current == 2761998336
+    assert scope.high == 2 << 30
+    assert scope.high_events == 2276338
+    assert scope.throttled and scope.over_high  # 用量高于软上限 = 此刻正卡着
+
+
+def test_a_healthy_scope_is_not_reported_as_throttled(tmp_path) -> None:
+    fake_cgroup(tmp_path, scopes=[("run-b.scope", 300 << 20, str(4 << 30), "high 0\nmax 0\n")])
+    (scope,) = dispatch_mod.scope_pressure(root=tmp_path)
+    assert not scope.throttled and not scope.over_high
+
+
+def test_past_throttling_is_reported_but_distinguished_from_now(tmp_path) -> None:
+    """撞过又回落 ≠ 现在卡着。两种都要说，但不能混为一谈。"""
+    fake_cgroup(tmp_path, scopes=[("run-c.scope", 300 << 20, str(2 << 30), "high 2712\nmax 0\n")])
+    (scope,) = dispatch_mod.scope_pressure(root=tmp_path)
+    assert scope.throttled and not scope.over_high
+
+
+def test_an_unlimited_scope_can_never_be_throttled(tmp_path) -> None:
+    """set-property MemoryHigh=infinity 之后 memory.high 读出来是 `max`。"""
+    fake_cgroup(tmp_path, scopes=[("run-d.scope", 9 << 30, "max", "high 500\nmax 0\n")])
+    (scope,) = dispatch_mod.scope_pressure(root=tmp_path)
+    assert scope.high is None
+    assert not scope.throttled and not scope.over_high
+
+
+def test_missing_or_unreadable_cgroup_returns_nothing(tmp_path) -> None:
+    """诊断代码绝不能自己抛 —— 它是用户查问题的最后一根绳子。"""
+    assert dispatch_mod.scope_pressure(root=tmp_path / "nope") == ()
+    directory = fake_cgroup(tmp_path)  # slice 在，但底下没有 scope
+    assert dispatch_mod.scope_pressure(root=tmp_path) == ()
+    broken = directory / "run-x.scope"
+    broken.mkdir()
+    (broken / "memory.current").write_text("不是数字")
+    assert dispatch_mod.scope_pressure(root=tmp_path) == ()
+
+
+def test_doctor_names_the_stuck_scope_and_how_to_release_it(tmp_path, monkeypatch, capsys) -> None:
+    """卡死时用户需要的是「哪个 scope」和「怎么解开」，不是「闸门是 2G」。"""
+    from atm import cli, config
+
+    fake_cgroup(
+        tmp_path,
+        scopes=[("run-p207309-i208192.scope", 2761998336, str(2 << 30), "high 2276338\nmax 0\n")],
+    )
+    real = dispatch_mod.scope_pressure
+    monkeypatch.setattr(dispatch_mod, "memory_limits_available", lambda: True)
+    monkeypatch.setattr(config, "load", lambda *a, **k: config.Config())
+    monkeypatch.setattr(
+        dispatch_mod, "scope_pressure", lambda name, **kw: real(name, root=tmp_path)
+    )
+
+    cli._report_guard()
+
+    out = capsys.readouterr().out
+    assert "run-p207309-i208192.scope" in out
+    assert "2276338" in out
+    assert "set-property" in out and "MemoryHigh=infinity" in out

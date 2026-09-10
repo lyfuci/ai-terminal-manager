@@ -91,8 +91,10 @@ atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把�
 
 配置编辑不会固化环境变量覆盖；重置也会同步已安装的配置。`atm install --conf PATH` 保存 `keys.conf-path`，供后续编辑和卸载沿用。换键先绑新键再解绑旧键。关闭 tmux 选项保留运行中的值，变更对新 server 生效。总量 slice 只支持用户 manager，重载失败会明确报告。详见[配置变更](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage-cn.md#配置变更)。
 
-可选：`atm config memory.high 4G` 设一次，之后 `atm claude` / `atm codex` / `atm pi` 就在 cgroup 内存闸门里启动；
-直接敲 `claude` 仍然不受限——前缀即选择。见 [docs/usage-cn.md](docs/usage-cn.md)。
+用 `atm claude` / `atm codex` / `atm pi` 启动，会话就跑在 cgroup 内存闸门里。闸门默认开，数值按机器算
+（`memory.high` / `memory.max` 默认 `auto`：Max = 物理内存 35%、下限 4G，High = Max 的 80%）——
+正常干活的会话不会被限流，失控的那个被兜住。直接敲 `claude` 仍然不受限——前缀即选择。
+`atm doctor` 会报出**正在被限流**的会话。见 [docs/usage-cn.md](docs/usage-cn.md)。
 
 tmux 没装的话 `atm install` 给出对应包管理器的安装命令，不替你跑 sudo。
 卸载：`atm uninstall && uv tool uninstall ai-terminal-manager`——只删这两个块，你自己的配置一个字不动，克隆下来的插件也不动。

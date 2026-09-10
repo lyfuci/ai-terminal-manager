@@ -11,7 +11,8 @@ src/atm/            product code (src layout, zero runtime deps, Python >= 3.11)
   sources/          one adapter per CLI: discover() -> Iterator[FileRef], parse(ref) -> SessionEntry | None
                     opencode is SQLite, not files: it synthesises `<db>#<session_id>` FileRefs, connection is mode=ro
   index.py          aggregation + cache; MUST NOT import tmux.py (keeps the door open for other backends)
-  dispatch.py       resume command construction + cgroup memory gate + dispatch into a pane
+  dispatch.py       resume command construction + cgroup memory gate (auto-sized) + dispatch into a pane;
+                    also reads back cgroup pressure so `atm doctor` can say a session is being throttled
   restore.py        resurrect save file -> restore plan; the boot-restore gate (never overwrites a busy pane)
   tmux.py           every tmux interaction; public CLI only
   install.py / persist.py / guard.py   ~/.tmux.conf key block / resurrect+continuum block / aggregate slice
@@ -75,7 +76,9 @@ uv build                               # wheel + sdist; sdist excludes research/
 
 `research/README.md` → "Known pitfalls". Highlights: tmux 3.4 escapes `\x1f` to the literal `\037`; the tmux server's
 PATH is a snapshot from when it started; tmux-resurrect saves the *child* process command line; an empty save file kills
-a freshly started server; continuum silently skips its autosave hook when another server exists. Every one was measured.
+a freshly started server; continuum silently skips its autosave hook when another server exists; `MemoryHigh` throttles
+rather than kills (sizing it from a kill-rate study froze a session for good), and systemd reads `-` in a slice name as
+cgroup path hierarchy. Every one was measured.
 
 ## Out of scope
 

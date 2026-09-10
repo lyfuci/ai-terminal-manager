@@ -109,9 +109,11 @@ The CLI speaks English, Chinese and Japanese, following your locale (`ATM_LANG=e
 
 Config edits keep environment overrides temporary; reset also reconciles installed artifacts. `atm install --conf PATH` saves `keys.conf-path` for later edits and uninstall. Key changes bind new keys before retiring old ones. Disabling tmux options preserves running values and applies to new servers. Aggregate slice installation supports the user manager only, and reload failures are reported explicitly. See [configuration behavior](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md#configuration-changes).
 
-Optional but recommended on a shared or memory-tight box: `atm config memory.high 4G` then launch with
-`atm claude` / `atm codex` / `atm pi` to run inside a cgroup memory gate. Plain `claude` stays unlimited —
-the prefix is the choice. See [docs/usage.md](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md).
+Launch with `atm claude` / `atm codex` / `atm pi` to run inside a cgroup memory gate. It is on by default and
+sized to the machine (`memory.high` / `memory.max` are `auto`: Max = 35% of RAM with a 4G floor, High = 80% of
+Max), so a normal working session is never throttled while a runaway one is contained. Plain `claude` stays
+unlimited — the prefix is the choice. `atm doctor` reports any session that is actually being throttled.
+See [docs/usage.md](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md).
 
 If tmux isn't installed, `atm install` prints the install command for your package manager; it never runs sudo for
 you. Uninstall: `atm uninstall && uv tool uninstall ai-terminal-manager` — removes only those two blocks, not a character of your
