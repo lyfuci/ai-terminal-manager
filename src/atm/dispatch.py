@@ -257,38 +257,51 @@ def slice_cgroup_dir(slice_name: str = DEFAULT_SLICE, *, root: Path | None = Non
     return directory
 
 
+def _read_pressure(directory: Path, name: str) -> ScopePressure | None:
+    """读一个 cgroup 目录的内存现状。读不到 / 不是数字都返回 None。"""
+    current = _cgroup_int(directory / "memory.current")
+    if current is None:
+        return None
+    events: dict[str, int] = {}
+    try:
+        for line in (directory / "memory.events").read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition(" ")
+            if value.isdigit():
+                events[key] = int(value)
+    except OSError:
+        pass
+    return ScopePressure(
+        name=name,
+        current=current,
+        high=_cgroup_int(directory / "memory.high"),
+        high_events=events.get("high", 0),
+        max_events=events.get("max", 0),
+    )
+
+
+def slice_pressure(
+    slice_name: str = DEFAULT_SLICE, *, root: Path | None = None
+) -> ScopePressure | None:
+    """**slice 本身**的内存现状。
+
+    为什么单独要这一层：小内存机器上先撞上限的往往是总量，不是某一个会话。
+    2026-09-10 现场就是这样 —— 5 个 scope 合计 4725M 撞着 slice 的 4096M 软上限，
+    只报每个 scope 自己会得出「没有会话撞过软上限」，而实际上**每一个都在被回收拖慢**。
+    """
+    return _read_pressure(slice_cgroup_dir(slice_name, root=root), slice_name)
+
+
 def scope_pressure(
     slice_name: str = DEFAULT_SLICE, *, root: Path | None = None
 ) -> tuple[ScopePressure, ...]:
     """slice 底下每个 scope 的内存现状。读不到就返回空 —— 诊断绝不能自己抛。"""
     directory = slice_cgroup_dir(slice_name, root=root)
-    out: list[ScopePressure] = []
     try:
         children = sorted(d for d in directory.iterdir() if d.is_dir())
     except OSError:
         return ()
-    for child in children:
-        current = _cgroup_int(child / "memory.current")
-        if current is None:
-            continue
-        events = {}
-        try:
-            for line in (child / "memory.events").read_text(encoding="utf-8").splitlines():
-                key, _, value = line.partition(" ")
-                if value.isdigit():
-                    events[key] = int(value)
-        except OSError:
-            pass
-        out.append(
-            ScopePressure(
-                name=child.name,
-                current=current,
-                high=_cgroup_int(child / "memory.high"),
-                high_events=events.get("high", 0),
-                max_events=events.get("max", 0),
-            )
-        )
-    return tuple(out)
+    found = (_read_pressure(child, child.name) for child in children)
+    return tuple(p for p in found if p is not None)
 
 
 def memory_limits_available() -> bool:

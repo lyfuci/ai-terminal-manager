@@ -212,7 +212,9 @@ layout sync all evaporated. Since 2026-09-05, `atm install` installs resurrect +
      session peak of 4.7GB, a soft cap at 2G means a healthy long session is throttled forever: alive, no error,
      `oom_kill` 0, slow enough to look hung. Measured on a small machine: `current=2633M` against `high=2G` with
      **2,276,338** `high` events. Per-session limits pick a victim; the **slice** guards the total. Size them
-     accordingly (they are `auto` now).
+     accordingly (they are `auto` now). **And read both layers back**: on a small machine the *total* is what hits
+     its limit first — five scopes each under their own soft cap summed to 4725M against the slice's 4096M, so every
+     one of them was being reclaimed while a per-scope-only check reported "no session has hit its soft limit".
    - **systemd treats `-` in a slice name as path hierarchy**: `atm-ai.slice` lives at
      `user@UID.service/atm.slice/atm-ai.slice`, not `user@UID.service/atm-ai.slice`. Looking at the flat path finds
      zero scopes even when three are live. And after `MemoryHigh=infinity`, `memory.high` reads the string `max`,
