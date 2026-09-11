@@ -100,6 +100,20 @@ def _isolate_source_roots(tmp_path: Path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_user_config(tmp_path: Path, monkeypatch):
+    """把 `atm config` 的文件指到临时目录。
+
+    为什么必须 autouse：任何走 `config.load()` 的路径（`atm doctor`、`restore --boot` 的闸门、
+    `_memory_limit`）在测试里都会读**开发者真实的** ~/.config/atm/config.toml，于是测试结果
+    取决于开发者机器上的设置。2026-09-12 就这么挂过一次：真机上把 `restore.on-boot` 设成 true，
+    `test_boot_mode_stands_down_and_says_why` 立刻变红 —— 它断言的是「默认关所以闸门拒绝」，
+    而那个默认值被真实配置盖掉了。CI 上没有这个文件，所以一直是绿的，问题只在真机上出现。
+    要测具体配置的用例自己 `config.save()` 到这个隔离路径，不受影响。
+    """
+    monkeypatch.setenv("ATM_CONFIG", str(tmp_path / "isolated-atm" / "config.toml"))
+
+
+@pytest.fixture(autouse=True)
 def _pin_cli_language(monkeypatch):
     """测试里的断言写的是中文原文；把界面语言钉死在 zh，不受开发者机器 LANG 影响。
     test_i18n.py 自己会覆盖这个设置。"""

@@ -90,6 +90,16 @@ atm config restore.on-boot true
 atm install                  # フックを書き込む。次回 tmux server 起動時に有効
 ```
 
+**tpm を自分で管理している場合**、atm は永続化ブロックを書かないため `atm install` もフックを設定しません。
+その旨を表示し、自分のブロック内（`run '…/tpm'` より前）に貼れる行をそのまま提示します：
+
+```tmux
+set -g @resurrect-hook-post-restore-all '/path/to/atm restore --boot'
+```
+
+`atm doctor` は実行中の server でこのフックを確認し、無ければ設定を「有効だが実際には復元されない」と
+報告します。`restore.on-boot = true` が黙って何もしない状態にはなりません。
+
 起動時の実行は、何かする前に 3 点を確認し、1 つでも駄目なら見送ります：
 
 | 確認すること | 理由 |

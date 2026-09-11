@@ -61,6 +61,9 @@ class PersistPlan:
     user_manages_tpm: bool
     missing_plugins: tuple[str, ...]
     git_available: bool
+    # 开机恢复的钩子行，但**只有在 atm 不写块时**才有值 —— 那时钩子没人装，
+    # 用户得自己粘。None = 不需要（没开 on-boot，或者块由 atm 写、钩子已在里面）。
+    manual_hook_line: str | None = None
 
     @property
     def will_write_block(self) -> bool:
@@ -75,6 +78,15 @@ class PersistPlan:
                     "要恢复功能请自行加上 tmux-resurrect / tmux-continuum。"
                 ).format(self_conf_path=self.conf_path)
             )
+            # 开机恢复开着、块却不由 atm 写 —— 钩子没人装，这时**必须**把那行交出来。
+            # 以前这里什么都不说，用户配置里 restore.on-boot=true 却永远不生效。
+            if self.manual_hook_line:
+                lines.append("")
+                lines.append(
+                    _("⚠ restore.on-boot 开着，但钩子在你自己的块里，atm 不会去动。自己加这一行：")
+                )
+                lines.append(f"  {self.manual_hook_line}")
+                lines.append(_("  放在 `run '…/tpm'` 之前；下次起 tmux server 生效。"))
             return "\n".join(lines)
 
         lines.append(
@@ -146,13 +158,18 @@ def build_block(
         # resurrect 把布局搭回来之后调一次 atm（`atm config restore.on-boot`）。
         # 挂在 post-restore-all 而不是 @resurrect-processes：走 atm 自己的路径才有串行 +
         # cgroup 闸门 + 内存下限，而且格子里在跑东西时会跳过。闸门不齐时 atm 自己会让路。
-        from .install import resolve_atm_command
-
-        command = atm_command or resolve_atm_command()
         lines.append(_("# 开机恢复完布局后，把会话也填回空格子（atm config restore.on-boot）"))
-        lines.append(f"set -g @resurrect-hook-post-restore-all '{command} restore --boot'")
+        lines.append(boot_hook_line(atm_command))
     lines.append(f"run '{tpm}'")
     return f"{MARKER_BEGIN}\n" + "\n".join(lines) + f"\n{MARKER_END}"
+
+
+def boot_hook_line(atm_command: str | None = None) -> str:
+    """开机恢复那一行 tmux 配置。build_block 和「自己粘」的提示共用它，避免两处写法漂移。"""
+    from .install import resolve_atm_command
+
+    command = atm_command or resolve_atm_command()
+    return f"set -g @resurrect-hook-post-restore-all '{command} restore --boot'"
 
 
 def build_plan(
@@ -168,19 +185,23 @@ def build_plan(
     existing = _read(path)
     already = _has_marker(existing, MARKER_BEGIN)
     outside = _strip_block(existing, MARKER_BEGIN, MARKER_END) if already else existing
+    on_boot = bool(getattr(cfg, "restore_on_boot", False))
+    manages_tpm = _mentions_tpm(outside)
     return PersistPlan(
         conf_path=path,
         plugins_dir=pdir,
         block=build_block(
             pdir,
             save_interval=save_interval,
-            on_boot=bool(getattr(cfg, "restore_on_boot", False)),
+            on_boot=on_boot,
             atm_command=atm_command,
         ),
         already_installed=already,
-        user_manages_tpm=_mentions_tpm(outside),
+        user_manages_tpm=manages_tpm,
         missing_plugins=tuple(name for name in PLUGINS if not (pdir / name).is_dir()),
         git_available=shutil.which("git") is not None,
+        # 只在 atm 不写块、而 on-boot 又开着的时候才需要用户自己动手
+        manual_hook_line=boot_hook_line(atm_command) if (on_boot and manages_tpm) else None,
     )
 
 

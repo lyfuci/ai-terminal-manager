@@ -90,6 +90,16 @@ atm config restore.on-boot true
 atm install                  # 写钩子；下次起 tmux server 生效
 ```
 
+**如果 tpm 是你自己管的**，atm 不会写持久化块，`atm install` 也就不会装钩子 —— 它会把这件事说出来，
+并给出可直接粘贴的那一行，放进你自己的块里、`run '…/tpm'` 之前：
+
+```tmux
+set -g @resurrect-hook-post-restore-all '/path/to/atm restore --boot'
+```
+
+`atm doctor` 会去运行中的 server 上查这个钩子，不在就把这个设置标成「开着但不会真的恢复」——
+`restore.on-boot = true` 不会再悄悄什么都不做。
+
 开机那一次在动手之前先查三件事，任何一条不过就让路：
 
 | 查什么 | 为什么 |

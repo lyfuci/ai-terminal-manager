@@ -108,11 +108,20 @@ def _sync_persist(cfg: config_mod.Config, conf_path: Path | None) -> list[str]:
 
     path = conf_path or Path.home() / ".tmux.conf"
     try:
+        plan = persist.build_plan(conf_path=path, cfg=cfg)
         if not persist._has_marker(persist._read(path), persist.MARKER_BEGIN):
-            if cfg.restore_on_boot:
-                return [_("持久化块还没装；跑一次 `atm install` 才会挂上开机恢复的钩子")]
-            return []
-        result = persist.apply(persist.build_plan(conf_path=path, cfg=cfg))
+            if not cfg.restore_on_boot:
+                return []
+            # 分两种：你自己管 tpm（atm 永远不会写块，说「跑 install」是错的，
+            # 2026-09-12 真机上就这么误导过一次），和块只是还没装。
+            if plan.manual_hook_line:
+                return [
+                    _("你自己在管 tpm，atm 不写持久化块，所以钩子得你自己加这一行："),
+                    f"  {plan.manual_hook_line}",
+                    _("  放在 `run '…/tpm'` 之前；下次起 tmux server 生效。"),
+                ]
+            return [_("持久化块还没装；跑一次 `atm install` 才会挂上开机恢复的钩子")]
+        result = persist.apply(plan)
     except (OSError, RuntimeError) as exc:
         return [_("持久化块没更新：{exc}").format(exc=exc)]
     if not result.block_written:
