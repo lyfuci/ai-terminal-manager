@@ -1049,7 +1049,25 @@ def _cmd_install(args: argparse.Namespace) -> int:
         _apply_slice(cfg)
     if opts_plan.enabled or opts_plan.already_installed:
         _report_tmuxopts(_tmuxopts_mod().apply(opts_plan))
+    _report_boot_restore_hint(cfg)
     return EXIT_OK
+
+
+def _report_boot_restore_hint(cfg) -> None:
+    """装完提一句开机恢复。
+
+    它是 `atm config` 里的一个**值**，install 不替用户决定开关（"install = ACTIONS only"）。
+    但装完不提一句就等于没人知道有这个开关 —— 真机上的毛病一直是「发现不了」，不是默认值不对。
+    """
+    if not cfg.restore_on_boot:
+        print(
+            _(
+                "\n开机恢复: 关。打开后 resurrect 搭完布局，atm 会把会话串行填回空格子"
+                "（套内存闸门、在用的格子跳过）：atm config restore.on-boot true"
+            )
+        )
+        return
+    print(_("\n开机恢复: 开（atm config restore.on-boot）"))
 
 
 def _report_tmuxopts(result) -> None:
@@ -1562,9 +1580,31 @@ def _report_boot_restore() -> None:
             state=_("闸门通过") if gate.ok else gate.reason,
         )
     )
+    _report_boot_hook(cfg)
     log = restore.log_path()
     if log.exists():
         print(_("  开机恢复日志: {path}").format(path=log))
+
+
+def _report_boot_hook(cfg) -> None:
+    """配置说开着,钩子却不在 —— 必须报出来。
+
+    2026-09-12 真机上就是这样:`restore.on-boot = true` 在配置里,钩子既不在 ~/.tmux.conf
+    也不在活着的 server 上(用户自己管 tpm,atm 跳过整个块)。而 doctor 当时只报「开」,
+    用户以为它在工作。和 PR #32 同一类:不要声称没验证过的事。
+    """
+    persist = _persist_mod()
+    if not tmux.is_installed() or not tmux.has_server():
+        return  # server 没起来查不了，不猜
+    try:
+        live = tmux.run(["show-options", "-gqv", "@resurrect-hook-post-restore-all"]).strip()
+    except tmux.TmuxError:
+        return
+    if "restore --boot" in live:
+        print(_("  开机恢复的钩子: 已在运行中的 server 上"))
+        return
+    print(_("  开机恢复的钩子: ❌ 不在 —— 配置开着但不会真的恢复。加这一行到 ~/.tmux.conf："))
+    print(f"    {persist.boot_hook_line()}")
 
 
 def _report_root(name: str, root: Path, count: int) -> None:

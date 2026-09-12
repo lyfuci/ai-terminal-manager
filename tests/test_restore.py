@@ -504,3 +504,69 @@ def test_boot_mode_restores_and_leaves_a_finished_record(
     assert calls == ["%1"]
     assert restore.read_attempt(state).finished  # 下次开机才不会被当成「被杀了」
     assert "开机恢复：1 条" in log.read_text(encoding="utf-8")
+
+
+# ------------------------------------------------- on-boot 在自己管 tpm 的机器上会静默失效
+#
+# 2026-09-12 在真机上撞到：`restore.on-boot = true` 在配置里，但钩子既不在 ~/.tmux.conf
+# 也不在运行中的 server 上 —— 因为用户自己管 tpm，atm 跳过整个持久化块，钩子跟着一起没写。
+# 而当时 sync 打的提示是「跑一次 atm install 才会挂上钩子」，**那句是错的**：跑了也不会装。
+# 和 PR #32 修的是同一类毛病 —— atm 声称了它没验证过的事。
+
+
+def test_on_boot_hook_is_not_written_when_the_user_manages_tpm(tmp_path: Path) -> None:
+    from atm import persist
+
+    conf = tmp_path / "tmux.conf"
+    conf.write_text("run '~/.tmux/plugins/tpm/tpm'\n", encoding="utf-8")  # 用户自己的 tpm
+
+    plan = persist.build_plan(conf_path=conf, plugins_dir=tmp_path, cfg=cfg_on())
+
+    assert plan.user_manages_tpm and not plan.will_write_block
+    # 这是不变量：atm 不动用户自己的块。但它必须**说出来**钩子没装。
+    assert plan.manual_hook_line is not None
+    assert "@resurrect-hook-post-restore-all" in plan.manual_hook_line
+    assert "restore --boot" in plan.manual_hook_line
+
+
+def test_describe_hands_over_the_exact_line_instead_of_a_useless_instruction(
+    tmp_path: Path,
+) -> None:
+    """不能再说「跑一次 atm install」—— 那个动作在这里什么都不做。"""
+    from atm import persist
+
+    conf = tmp_path / "tmux.conf"
+    conf.write_text("set -g @plugin 'x'\n", encoding="utf-8")
+
+    text = persist.build_plan(conf_path=conf, plugins_dir=tmp_path, cfg=cfg_on()).describe()
+
+    assert "@resurrect-hook-post-restore-all" in text  # 给出可粘贴的那一行
+    assert "atm install" not in text  # 不再指向没用的动作
+
+
+def test_no_hook_line_offered_when_on_boot_is_off(tmp_path: Path) -> None:
+    from atm import persist
+
+    conf = tmp_path / "tmux.conf"
+    conf.write_text("run '~/.tmux/plugins/tpm/tpm'\n", encoding="utf-8")
+    plan = persist.build_plan(conf_path=conf, plugins_dir=tmp_path, cfg=config.Config())
+    assert plan.manual_hook_line is None
+    assert "@resurrect-hook" not in plan.describe()
+
+
+def test_doctor_flags_on_boot_that_is_configured_but_inert(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """配置说开着、钩子却不在 —— doctor 必须报出来，否则用户以为它在工作。"""
+    from atm import cli, config, tmux
+
+    monkeypatch.setattr(config, "load", lambda *a, **k: cfg_on())
+    monkeypatch.setattr(restore, "boot_gate", lambda cfg, **kw: restore.Gate(True, "ok"))
+    monkeypatch.setattr(tmux, "has_server", lambda: True)
+    monkeypatch.setattr(tmux, "run", lambda args, **kw: "")  # 钩子选项读出来是空
+
+    cli._report_boot_restore()
+
+    out = capsys.readouterr().out
+    assert "钩子" in out or "hook" in out.lower()
+    assert "@resurrect-hook-post-restore-all" in out  # 同样给出那一行

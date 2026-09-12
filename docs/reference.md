@@ -238,6 +238,24 @@ set -g @resurrect-hook-post-restore-all '<atm 的绝对路径> restore --boot'
 冻死机器的那条路（四个会话同时拉起，吃掉 87% 内存）。走 atm 自己的路径才有串行、cgroup 闸门、
 「格子里在跑东西就跳过」。
 
+**tpm 由用户自己管时,这一行 atm 不会写。** `persist.py` 检测到块外有 `@plugin` / `plugins/tpm/tpm`
+就整块不写（不动用户自己的内容），钩子跟着一起不写。2026-09-12 真机上因此踩过一次：
+配置里 `restore.on-boot = true`，钩子既不在 `~/.tmux.conf` 也不在活着的 server 上，
+而当时 sync 打的提示是「跑一次 `atm install` 才会挂上钩子」—— **那句是错的**，跑了也不会装。
+现在三处都改了：
+
+| 位置 | 行为 |
+|---|---|
+| `persist.build_plan` | `manual_hook_line` 只在「on-boot 开着 **且** 用户自己管 tpm」时有值 |
+| `atm config` 保存后（`sync.py`） | 区分「块还没装」和「你自己管 tpm」，后者直接给出要粘的那一行 |
+| `atm doctor` | 去运行中的 server 查 `@resurrect-hook-post-restore-all`，不在就标成「开着但不会真的恢复」 |
+
+钩子那一行由 `persist.boot_hook_line()` 统一产出，`build_block` 和「自己粘」的提示共用它 ——
+两处各写一遍迟早会漂移。
+
+`atm install` 结尾还会报一句开机恢复的当前状态。它是 `atm config` 里的**值**，install 不替用户
+决定开关（`AGENTS.md`：install = ACTIONS only），但装完不提一句就等于没人知道有这个开关。
+
 `--boot` 那次在动手前过一道闸门，任何一条不过就只写日志、不恢复：
 
 | 检查 | 拒绝的理由 |

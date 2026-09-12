@@ -93,6 +93,16 @@ atm config restore.on-boot true
 atm install                  # writes the hook; takes effect on the next tmux server start
 ```
 
+**If you manage tpm yourself**, atm never writes the persistence block, so `atm install` will not install the
+hook either — it says so, and hands you the exact line to paste into your own block, before `run '…/tpm'`:
+
+```tmux
+set -g @resurrect-hook-post-restore-all '/path/to/atm restore --boot'
+```
+
+`atm doctor` checks the running server for that hook and flags the setting as inert when it is missing, so
+`restore.on-boot = true` can never quietly do nothing.
+
 Before it restores anything, the boot run checks three things and stands down if any of them fails:
 
 | Check | Why |
