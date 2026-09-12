@@ -90,15 +90,17 @@ atm config restore.on-boot true
 atm install                  # 写钩子；下次起 tmux server 生效
 ```
 
-**如果 tpm 是你自己管的**，atm 不会写持久化块，`atm install` 也就不会装钩子 —— 它会把这件事说出来，
-并给出可直接粘贴的那一行，放进你自己的块里、`run '…/tpm'` 之前：
+钩子写在**自己的一对 marker** 里，放文件最前面，和持久化块无关：
 
 ```tmux
+# >>> atm restore (atm config restore.on-boot) >>>
 set -g @resurrect-hook-post-restore-all '/path/to/atm restore --boot'
+# <<< atm restore <<<
 ```
 
-`atm doctor` 会去运行中的 server 上查这个钩子，不在就把这个设置标成「开着但不会真的恢复」——
-`restore.on-boot = true` 不会再悄悄什么都不做。
+「无关」正是重点。持久化块在你自己管 tpm 时**整块不写**（atm 不动你写的东西），而钩子原来寄生在里面，
+于是那些机器上 `restore.on-boot = true` 永远不生效。现在不管 tpm 归谁管，这个设置都真的生效。
+改配置还会同时对运行中的 server 生效，不用等下次起 server。`atm doctor` 仍会去验证钩子确实设上了。
 
 开机那一次在动手之前先查三件事，任何一条不过就让路：
 

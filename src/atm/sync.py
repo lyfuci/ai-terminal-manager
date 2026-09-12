@@ -100,37 +100,34 @@ def _sync_keys(old: config_mod.Config, new: config_mod.Config, conf_path: Path |
 
 
 def _sync_persist(cfg: config_mod.Config, conf_path: Path | None) -> list[str]:
-    """`restore.on-boot` 改了：持久化块里那行 resurrect 钩子要跟着加 / 去。
+    """`restore.on-boot` 改了：写上/撤掉钩子块，并对活着的 server 立即生效。
 
-    块还没装就什么都不做 —— 值已经存进配置了，下次 `atm install` 自然会带上。
+    钩子有**自己的一对 marker**，和 tpm 插件块无关 —— 所以这里不再需要判断「块装没装」、
+    也不再有「你自己管 tpm 所以装不上」这种情况。之前钩子寄生在插件块里，导致
+    `restore.on-boot = true` 在自己管 tpm 的机器上永远不生效（2026-09-12 实测）。
     """
     from . import persist
 
-    path = conf_path or Path.home() / ".tmux.conf"
     try:
-        plan = persist.build_plan(conf_path=path, cfg=cfg)
-        if not persist._has_marker(persist._read(path), persist.MARKER_BEGIN):
-            if not cfg.restore_on_boot:
-                return []
-            # 分两种：你自己管 tpm（atm 永远不会写块，说「跑 install」是错的，
-            # 2026-09-12 真机上就这么误导过一次），和块只是还没装。
-            if plan.manual_hook_line:
-                return [
-                    _("你自己在管 tpm，atm 不写持久化块，所以钩子得你自己加这一行："),
-                    f"  {plan.manual_hook_line}",
-                    _("  放在 `run '…/tpm'` 之前；下次起 tmux server 生效。"),
-                ]
-            return [_("持久化块还没装；跑一次 `atm install` 才会挂上开机恢复的钩子")]
-        result = persist.apply(plan)
+        result = persist.apply_boot_hook(cfg, conf_path=conf_path)
     except (OSError, RuntimeError) as exc:
-        return [_("持久化块没更新：{exc}").format(exc=exc)]
-    if not result.block_written:
-        return []
-    if cfg.restore_on_boot:
-        return [
-            _("开机恢复的钩子已写进 {path}；下次起 tmux server 生效").format(path=result.conf_path)
-        ]
-    return [_("开机恢复的钩子已从 {path} 去掉").format(path=result.conf_path)]
+        return [_("开机恢复的钩子没写：{exc}").format(exc=exc)]
+    notes: list[str] = []
+    if result.written:
+        notes.append(
+            _("开机恢复的钩子已写进 {path}").format(path=result.conf_path)
+            if result.enabled
+            else _("开机恢复的钩子已从 {path} 去掉").format(path=result.conf_path)
+        )
+    if result.applied_live:
+        notes.append(
+            _("开机恢复已对运行中的 server 生效")
+            if result.enabled
+            else _("已从运行中的 server 上撤掉开机恢复")
+        )
+    elif result.live_error:
+        notes.append(_("开机恢复对运行中的 server 生效失败：{err}").format(err=result.live_error))
+    return notes
 
 
 def _sync_slice(cfg: config_mod.Config) -> list[str]:
