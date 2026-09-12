@@ -1009,6 +1009,15 @@ def _cmd_install(args: argparse.Namespace) -> int:
         print()
         print(opts_plan.describe())
 
+    if cfg.restore_on_boot:
+        print()
+        print(
+            _("将写入 {path} 最前面（开机恢复的钩子块）：").format(path=conf_path or "~/.tmux.conf")
+        )
+        print()
+        for line in persist.boot_hook_block().splitlines():
+            print(f"  {line}")
+
     if args.print:
         return EXIT_OK
 
@@ -1049,16 +1058,18 @@ def _cmd_install(args: argparse.Namespace) -> int:
         _apply_slice(cfg)
     if opts_plan.enabled or opts_plan.already_installed:
         _report_tmuxopts(_tmuxopts_mod().apply(opts_plan))
-    _report_boot_restore_hint(cfg)
+    _apply_boot_hook(cfg, conf_path)
     return EXIT_OK
 
 
-def _report_boot_restore_hint(cfg) -> None:
-    """装完提一句开机恢复。
-
-    它是 `atm config` 里的一个**值**，install 不替用户决定开关（"install = ACTIONS only"）。
-    但装完不提一句就等于没人知道有这个开关 —— 真机上的毛病一直是「发现不了」，不是默认值不对。
-    """
+def _apply_boot_hook(cfg, conf_path: Path | None) -> None:
+    """钩子块和 tpm 无关，所以这里无条件按配置落地（`--no-persist` 也不影响）。"""
+    persist = _persist_mod()
+    try:
+        result = persist.apply_boot_hook(cfg, conf_path=conf_path)
+    except (OSError, RuntimeError) as exc:
+        print(_("\n开机恢复的钩子没写：{exc}").format(exc=exc))
+        return
     if not cfg.restore_on_boot:
         print(
             _(
@@ -1067,7 +1078,15 @@ def _report_boot_restore_hint(cfg) -> None:
             )
         )
         return
-    print(_("\n开机恢复: 开（atm config restore.on-boot）"))
+    print(_("\n开机恢复: 开"))
+    if result.written:
+        print(_("已写钩子块 → {path}").format(path=result.conf_path))
+        if result.backup_path:
+            print(_("备份    {backup}").format(backup=result.backup_path))
+    if result.applied_live:
+        print(_("已对运行中的 server 生效"))
+    elif result.live_error:
+        print(_("对运行中的 server 生效失败：{err}").format(err=result.live_error))
 
 
 def _report_tmuxopts(result) -> None:
@@ -1358,6 +1377,7 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
 
     removed, backup = _install_mod().remove(conf_path)
     removed_persist, backup_persist = _persist_mod().remove(conf_path)
+    removed_hook, backup_hook = _persist_mod().remove_boot_hook(conf_path)
     removed_opts, backup_opts = _tmuxopts_mod().remove(conf_path)
     slice_name = cfg.memory_slice
     guard = _guard_mod()
@@ -1368,7 +1388,7 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
         # 单元文件已经删了，只是 daemon-reload 没成功。这不该让整条 uninstall 失败、
         # 也不该把上面「删了哪些块」的汇总吞掉 —— 照常汇总，末尾附一句实情。
         removed_slice, reload_note = True, str(exc)
-    if not (removed or removed_persist or removed_opts or removed_slice):
+    if not (removed or removed_persist or removed_opts or removed_slice or removed_hook):
         print(_("没找到 atm 写的任何东西（键位块 / 持久化块 / tmux 选项块 / slice），无需移除。"))
         return EXIT_OK
     if removed:
@@ -1384,6 +1404,10 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
         )
         if backup_persist:
             print(_("备份 {backup_persist}").format(backup_persist=backup_persist))
+    if removed_hook:
+        print(_("已从 {conf_path} 移除开机恢复的钩子块").format(conf_path=conf_path))
+        if backup_hook:
+            print(_("备份 {backup}").format(backup=backup_hook))
     if removed_opts:
         print(
             _(
@@ -1593,7 +1617,6 @@ def _report_boot_hook(cfg) -> None:
     也不在活着的 server 上(用户自己管 tpm,atm 跳过整个块)。而 doctor 当时只报「开」,
     用户以为它在工作。和 PR #32 同一类:不要声称没验证过的事。
     """
-    persist = _persist_mod()
     if not tmux.is_installed() or not tmux.has_server():
         return  # server 没起来查不了，不猜
     try:
@@ -1603,8 +1626,7 @@ def _report_boot_hook(cfg) -> None:
     if "restore --boot" in live:
         print(_("  开机恢复的钩子: 已在运行中的 server 上"))
         return
-    print(_("  开机恢复的钩子: ❌ 不在 —— 配置开着但不会真的恢复。加这一行到 ~/.tmux.conf："))
-    print(f"    {persist.boot_hook_line()}")
+    print(_("  开机恢复的钩子: ❌ 不在运行中的 server 上 —— 跑一次 `atm install` 补上"))
 
 
 def _report_root(name: str, root: Path, count: int) -> None:

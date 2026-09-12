@@ -238,23 +238,39 @@ set -g @resurrect-hook-post-restore-all '<atm 的绝对路径> restore --boot'
 冻死机器的那条路（四个会话同时拉起，吃掉 87% 内存）。走 atm 自己的路径才有串行、cgroup 闸门、
 「格子里在跑东西就跳过」。
 
-**tpm 由用户自己管时,这一行 atm 不会写。** `persist.py` 检测到块外有 `@plugin` / `plugins/tpm/tpm`
-就整块不写（不动用户自己的内容），钩子跟着一起不写。2026-09-12 真机上因此踩过一次：
-配置里 `restore.on-boot = true`，钩子既不在 `~/.tmux.conf` 也不在活着的 server 上，
-而当时 sync 打的提示是「跑一次 `atm install` 才会挂上钩子」—— **那句是错的**，跑了也不会装。
-现在三处都改了：
+**钩子有自己的一对 marker，放文件最前面，和持久化块无关：**
 
-| 位置 | 行为 |
+```tmux
+# >>> atm restore (atm config restore.on-boot) >>>
+set -g @resurrect-hook-post-restore-all '<atm 的绝对路径> restore --boot'
+# <<< atm restore <<<
+```
+
+这个独立性是 2026-09-12 换过来的，起因是一次真机故障。原来钩子写在**持久化块**里，而那个块在
+`persist.py` 检测到块外有 `@plugin` / `plugins/tpm/tpm` 时**整块不写**（不动用户自己的内容）——
+于是钩子跟着一起不写，配置里 `restore.on-boot = true` 在那些机器上永远不生效。
+
+第一版（v0.10.2）的修法是「把这件事报出来」：给出要手工粘的那一行。但那只是让坏状态**可见**，
+坏状态本身还在 —— 一个 `restore.*` 的配置项，生死被「tpm 归谁管」决定。v0.10.3 改成让它不可能出现。
+
+能独立出来的依据：resurrect 读这个选项的时机是**恢复真正发生时**（`helpers.sh` 的 `execute_hook`
+里才 `get_tmux_option`），不是配置加载时。所以它和 `run '…/tpm'` 没有先后要求；块放最前面，
+顺带把「万一有要求」也满足了。
+
+口径和 `tmuxopts.py` 那块一致：
+
+| 动作 | 行为 |
 |---|---|
-| `persist.build_plan` | `manual_hook_line` 只在「on-boot 开着 **且** 用户自己管 tpm」时有值 |
-| `atm config` 保存后（`sync.py`） | 区分「块还没装」和「你自己管 tpm」，后者直接给出要粘的那一行 |
-| `atm doctor` | 去运行中的 server 查 `@resurrect-hook-post-restore-all`，不在就标成「开着但不会真的恢复」 |
+| `restore.on-boot true` | 写块（最前面）+ 对活着的 server `set -g` 立即生效 |
+| `restore.on-boot false` | 整块删掉 + 对活着的 server `set -gu` 撤掉 |
+| 重复应用 | 内容没变就不写不备份 |
+| `atm uninstall` | 只删这一块；不对活着的 server 撤销（用户可能自己也设了同名选项） |
 
-钩子那一行由 `persist.boot_hook_line()` 统一产出，`build_block` 和「自己粘」的提示共用它 ——
-两处各写一遍迟早会漂移。
+`atm doctor` 仍然去运行中的 server 上查 `@resurrect-hook-post-restore-all` 在不在 —— 从「唯一的提示」
+降级成一道校验，能抓到手工改坏或被别的配置盖掉的情况。
 
-`atm install` 结尾还会报一句开机恢复的当前状态。它是 `atm config` 里的**值**，install 不替用户
-决定开关（`AGENTS.md`：install = ACTIONS only），但装完不提一句就等于没人知道有这个开关。
+`atm install` 结尾会报开机恢复的当前状态。它是 `atm config` 里的**值**，install 不替用户决定开关
+（`AGENTS.md`：install = ACTIONS only），但装完不提一句就等于没人知道有这个开关。
 
 `--boot` 那次在动手前过一道闸门，任何一条不过就只写日志、不恢复：
 

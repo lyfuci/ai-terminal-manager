@@ -35,6 +35,8 @@ from . import tmux
 from .i18n import _
 from .install import _backup, _has_marker, _read, _strip_block
 
+_HOOK_OPTION = "@resurrect-hook-post-restore-all"
+
 MARKER_BEGIN = "# >>> atm persist (tmux-resurrect + tmux-continuum) >>>"
 MARKER_END = "# <<< atm persist <<<"
 
@@ -61,9 +63,6 @@ class PersistPlan:
     user_manages_tpm: bool
     missing_plugins: tuple[str, ...]
     git_available: bool
-    # 开机恢复的钩子行，但**只有在 atm 不写块时**才有值 —— 那时钩子没人装，
-    # 用户得自己粘。None = 不需要（没开 on-boot，或者块由 atm 写、钩子已在里面）。
-    manual_hook_line: str | None = None
 
     @property
     def will_write_block(self) -> bool:
@@ -78,15 +77,6 @@ class PersistPlan:
                     "要恢复功能请自行加上 tmux-resurrect / tmux-continuum。"
                 ).format(self_conf_path=self.conf_path)
             )
-            # 开机恢复开着、块却不由 atm 写 —— 钩子没人装，这时**必须**把那行交出来。
-            # 以前这里什么都不说，用户配置里 restore.on-boot=true 却永远不生效。
-            if self.manual_hook_line:
-                lines.append("")
-                lines.append(
-                    _("⚠ restore.on-boot 开着，但钩子在你自己的块里，atm 不会去动。自己加这一行：")
-                )
-                lines.append(f"  {self.manual_hook_line}")
-                lines.append(_("  放在 `run '…/tpm'` 之前；下次起 tmux server 生效。"))
             return "\n".join(lines)
 
         lines.append(
@@ -141,7 +131,6 @@ def build_block(
     plugins_dir: Path,
     *,
     save_interval: int = DEFAULT_SAVE_INTERVAL,
-    on_boot: bool = False,
     atm_command: str | None = None,
 ) -> str:
     tpm = plugins_dir / "tpm" / "tpm"
@@ -154,22 +143,23 @@ def build_block(
         "set -g @continuum-restore 'on'",
         f"set -g @continuum-save-interval '{save_interval}'",
     ]
-    if on_boot:
-        # resurrect 把布局搭回来之后调一次 atm（`atm config restore.on-boot`）。
-        # 挂在 post-restore-all 而不是 @resurrect-processes：走 atm 自己的路径才有串行 +
-        # cgroup 闸门 + 内存下限，而且格子里在跑东西时会跳过。闸门不齐时 atm 自己会让路。
-        lines.append(_("# 开机恢复完布局后，把会话也填回空格子（atm config restore.on-boot）"))
-        lines.append(boot_hook_line(atm_command))
+    # 开机恢复的钩子**不在这个块里** —— 它有自己的一对 marker（见 HOOK_MARKER_BEGIN）。
+    # 原因：这个块在用户自己管 tpm 时整块不写，而钩子的开关是 `restore.on-boot`，
+    # 不该被 tpm 归谁管决定。2026-09-12 就是这么出现「开着但永远不生效」的。
     lines.append(f"run '{tpm}'")
     return f"{MARKER_BEGIN}\n" + "\n".join(lines) + f"\n{MARKER_END}"
 
 
-def boot_hook_line(atm_command: str | None = None) -> str:
-    """开机恢复那一行 tmux 配置。build_block 和「自己粘」的提示共用它，避免两处写法漂移。"""
+def boot_hook_command(atm_command: str | None = None) -> str:
+    """钩子的**值** —— resurrect 恢复完会 eval 的那条命令。"""
     from .install import resolve_atm_command
 
-    command = atm_command or resolve_atm_command()
-    return f"set -g @resurrect-hook-post-restore-all '{command} restore --boot'"
+    return f"{atm_command or resolve_atm_command()} restore --boot"
+
+
+def boot_hook_line(atm_command: str | None = None) -> str:
+    """写进 ~/.tmux.conf 的那一行。和对活着的 server 下的 set-option 共用同一个值。"""
+    return f"set -g {_HOOK_OPTION} '{boot_hook_command(atm_command)}'"
 
 
 def build_plan(
@@ -185,23 +175,15 @@ def build_plan(
     existing = _read(path)
     already = _has_marker(existing, MARKER_BEGIN)
     outside = _strip_block(existing, MARKER_BEGIN, MARKER_END) if already else existing
-    on_boot = bool(getattr(cfg, "restore_on_boot", False))
     manages_tpm = _mentions_tpm(outside)
     return PersistPlan(
         conf_path=path,
         plugins_dir=pdir,
-        block=build_block(
-            pdir,
-            save_interval=save_interval,
-            on_boot=on_boot,
-            atm_command=atm_command,
-        ),
+        block=build_block(pdir, save_interval=save_interval, atm_command=atm_command),
         already_installed=already,
         user_manages_tpm=manages_tpm,
         missing_plugins=tuple(name for name in PLUGINS if not (pdir / name).is_dir()),
         git_available=shutil.which("git") is not None,
-        # 只在 atm 不写块、而 on-boot 又开着的时候才需要用户自己动手
-        manual_hook_line=boot_hook_line(atm_command) if (on_boot and manages_tpm) else None,
     )
 
 
@@ -317,3 +299,96 @@ def _git_clone(name: str, dest: Path) -> None:
         raise RuntimeError(
             (result.stderr or result.stdout).strip() or _("git clone {name} 失败").format(name=name)
         )
+
+
+# ---------------------------------------------------------------- 开机恢复的钩子（独立一块）
+#
+# 为什么不放在上面那个插件块里：那个块在用户自己管 tpm 时**整块不写**（`_mentions_tpm`），
+# 而钩子的开关是 `atm config restore.on-boot`。把它塞在里面，等于让一个 restore.* 的配置项
+# 被「tpm 归谁管」决定生死 —— 2026-09-12 真机上就这么出现了「配置写着 true、钩子哪儿都没有」
+# 的状态，而且当时的提示还让用户去跑 `atm install`（那个动作在这种情况下什么都不做）。
+#
+# 能独立出来是因为 resurrect 读这个选项的时机是**恢复真正发生时**（`helpers.sh` 的
+# `execute_hook` 里才 `get_tmux_option`），不是配置加载时。所以它不需要和 `run '…/tpm'`
+# 有先后关系；块放文件最前面，顺带保证了即使有关系也满足。
+#
+# 口径和 tmuxopts.py 那块一致：只在开着时写、关掉就整块删、对活着的 server 立即生效。
+
+HOOK_MARKER_BEGIN = "# >>> atm restore (atm config restore.on-boot) >>>"
+HOOK_MARKER_END = "# <<< atm restore <<<"
+
+
+@dataclass(frozen=True, slots=True)
+class BootHookResult:
+    conf_path: Path
+    backup_path: Path | None
+    written: bool  # 文件有没有动
+    enabled: bool  # 这次是装上还是撤掉
+    applied_live: bool
+    live_error: str | None
+
+
+def boot_hook_block(atm_command: str | None = None) -> str:
+    body = "\n".join(
+        (
+            _("# resurrect 搭完布局后，把会话也填回空格子（串行、套内存闸门、在用的格子跳过）"),
+            boot_hook_line(atm_command),
+        )
+    )
+    return f"{HOOK_MARKER_BEGIN}\n{body}\n{HOOK_MARKER_END}"
+
+
+def apply_boot_hook(
+    cfg: object,
+    *,
+    conf_path: Path | None = None,
+    atm_command: str | None = None,
+    live: bool = True,
+) -> BootHookResult:
+    """按 `restore.on-boot` 写上/撤掉钩子块，并对活着的 server 立即生效。
+
+    文件没变化就不写不备份。撤掉时对运行中的 server `set -gu`，不然这次开机还留着。
+    """
+    path = conf_path or Path.home() / ".tmux.conf"
+    enabled = bool(getattr(cfg, "restore_on_boot", False))
+    existing = _read(path)
+    block = boot_hook_block(atm_command) if enabled else ""
+
+    # 开着：块内容不一致就重写（换了 atm 路径也算）。关着：有块才要删。
+    needs_write = block not in existing if enabled else _has_marker(existing, HOOK_MARKER_BEGIN)
+
+    backup: Path | None = None
+    if needs_write:
+        backup = _backup(path) if existing else None
+        rest = _strip_block(existing, HOOK_MARKER_BEGIN, HOOK_MARKER_END).lstrip("\n")
+        updated = f"{block}\n" + (f"\n{rest}" if rest else "") if enabled else rest
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(updated, encoding="utf-8")
+
+    applied_live = False
+    live_error: str | None = None
+    if live and tmux.has_server():
+        argv = (
+            ["set-option", "-g", _HOOK_OPTION, boot_hook_command(atm_command)]
+            if enabled
+            else ["set-option", "-gu", _HOOK_OPTION]  # 撤掉，不然这次开机还留着
+        )
+        try:
+            tmux.run(argv)
+            applied_live = True
+        except tmux.TmuxError as exc:
+            live_error = str(exc)
+    return BootHookResult(path, backup, needs_write, enabled, applied_live, live_error)
+
+
+def remove_boot_hook(conf_path: Path | None = None) -> tuple[bool, Path | None]:
+    """`atm uninstall`：只删钩子块。不对活着的 server 撤销 —— 用户可能自己也设了同名选项。"""
+    path = conf_path or Path.home() / ".tmux.conf"
+    existing = _read(path)
+    if not _has_marker(existing, HOOK_MARKER_BEGIN):
+        return False, None
+    backup = _backup(path)
+    path.write_text(
+        _strip_block(existing, HOOK_MARKER_BEGIN, HOOK_MARKER_END).lstrip("\n"), encoding="utf-8"
+    )
+    return True, backup

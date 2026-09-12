@@ -220,6 +220,14 @@ layout sync all evaporated. Since 2026-09-05, `atm install` installs resurrect +
      zero scopes even when three are live. And after `MemoryHigh=infinity`, `memory.high` reads the string `max`,
      not a number — parse it as an int and the **diagnostic** code crashes, which is the one thing it must never do.
 
+10. **A config value must not depend on a block that may never be written.** `restore.on-boot` wrote its resurrect
+    hook inside atm's persistence block. That block is skipped entirely when the user manages tpm themselves — atm
+    must not touch what they wrote — so on those machines the setting sat at `true` and did nothing, and the advice
+    the tool printed ("run `atm install`") was guaranteed not to help. Reporting the dead state was only half a fix;
+    the block had to become independent. It could, because resurrect reads the hook at restore time
+    (`helpers.sh:execute_hook` calls `get_tmux_option` then), not at config-load time, so it has no ordering
+    relationship with `run '…/tpm'`. Measured 2026-09-12.
+
 ## To be confirmed
 
 1. **Cross-device takeover or not** → decides Route A / B. **Still unanswered**, but no longer blocking: Route C has

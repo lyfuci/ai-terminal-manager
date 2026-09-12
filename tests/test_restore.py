@@ -426,44 +426,27 @@ def test_size_to_bytes() -> None:
 # ---------------------------------------------------------------- 开机的接线
 
 
-def test_persist_block_carries_the_hook_only_when_on_boot(tmp_path: Path) -> None:
-    from atm import persist
-
-    off = persist.build_block(tmp_path, on_boot=False)
-    on = persist.build_block(tmp_path, on_boot=True, atm_command="/opt/atm")
-
-    assert "@resurrect-hook-post-restore-all" not in off
-    assert "set -g @resurrect-hook-post-restore-all '/opt/atm restore --boot'" in on
-    # 钩子必须排在 run tpm 之前，否则 tpm 加载 continuum 时读不到它
-    assert on.index("@resurrect-hook") < on.index("run '")
-    # 这条禁令没变：resurrect 自己不许拉起 AI CLI
-    assert "set -g @resurrect-processes" not in on
-
-
-def test_toggling_on_boot_rewrites_the_installed_block(tmp_path: Path, monkeypatch) -> None:
+def test_toggling_on_boot_writes_the_hook_block_regardless_of_tpm(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """改一次配置就该生效 —— 而且不管持久化块装不装、tpm 归谁管。"""
     from atm import persist, sync
 
-    conf = tmp_path / "tmux.conf"
-    monkeypatch.setattr(persist, "resolve_atm_command", lambda: "/opt/atm", raising=False)
     monkeypatch.setattr("atm.install.resolve_atm_command", lambda: "/opt/atm")
-    persist.apply(persist.build_plan(conf_path=conf, plugins_dir=tmp_path, cfg=config.Config()))
-    assert "@resurrect-hook" not in conf.read_text(encoding="utf-8")
+    conf = tmp_path / "tmux.conf"
+    conf.write_text("run '~/.tmux/plugins/tpm/tpm'\n", encoding="utf-8")  # 用户自己的 tpm
 
     notes = sync.apply_changes(config.Config(), cfg_on(), conf_path=conf)
 
-    assert "@resurrect-hook-post-restore-all '/opt/atm restore --boot'" in conf.read_text(
-        encoding="utf-8"
-    )
-    assert any("开机恢复的钩子已写进" in n for n in notes)
+    text = conf.read_text(encoding="utf-8")
+    assert persist.HOOK_MARKER_BEGIN in text
+    assert "@resurrect-hook-post-restore-all '/opt/atm restore --boot'" in text
+    assert any("开机恢复" in n for n in notes)
+    assert not any("atm install" in n for n in notes)  # 不再指向那个没用的动作
 
-
-def test_toggling_on_boot_without_the_block_just_says_run_install(
-    tmp_path: Path, monkeypatch
-) -> None:
-    notes = __import__("atm.sync", fromlist=["sync"]).apply_changes(
-        config.Config(), cfg_on(), conf_path=tmp_path / "nothing.conf"
-    )
-    assert any("atm install" in n for n in notes)
+    back = sync.apply_changes(cfg_on(), config.Config(), conf_path=conf)
+    assert persist.HOOK_MARKER_BEGIN not in conf.read_text(encoding="utf-8")
+    assert any("开机恢复" in n for n in back)
 
 
 def test_boot_mode_stands_down_and_says_why(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -514,46 +497,6 @@ def test_boot_mode_restores_and_leaves_a_finished_record(
 # 和 PR #32 修的是同一类毛病 —— atm 声称了它没验证过的事。
 
 
-def test_on_boot_hook_is_not_written_when_the_user_manages_tpm(tmp_path: Path) -> None:
-    from atm import persist
-
-    conf = tmp_path / "tmux.conf"
-    conf.write_text("run '~/.tmux/plugins/tpm/tpm'\n", encoding="utf-8")  # 用户自己的 tpm
-
-    plan = persist.build_plan(conf_path=conf, plugins_dir=tmp_path, cfg=cfg_on())
-
-    assert plan.user_manages_tpm and not plan.will_write_block
-    # 这是不变量：atm 不动用户自己的块。但它必须**说出来**钩子没装。
-    assert plan.manual_hook_line is not None
-    assert "@resurrect-hook-post-restore-all" in plan.manual_hook_line
-    assert "restore --boot" in plan.manual_hook_line
-
-
-def test_describe_hands_over_the_exact_line_instead_of_a_useless_instruction(
-    tmp_path: Path,
-) -> None:
-    """不能再说「跑一次 atm install」—— 那个动作在这里什么都不做。"""
-    from atm import persist
-
-    conf = tmp_path / "tmux.conf"
-    conf.write_text("set -g @plugin 'x'\n", encoding="utf-8")
-
-    text = persist.build_plan(conf_path=conf, plugins_dir=tmp_path, cfg=cfg_on()).describe()
-
-    assert "@resurrect-hook-post-restore-all" in text  # 给出可粘贴的那一行
-    assert "atm install" not in text  # 不再指向没用的动作
-
-
-def test_no_hook_line_offered_when_on_boot_is_off(tmp_path: Path) -> None:
-    from atm import persist
-
-    conf = tmp_path / "tmux.conf"
-    conf.write_text("run '~/.tmux/plugins/tpm/tpm'\n", encoding="utf-8")
-    plan = persist.build_plan(conf_path=conf, plugins_dir=tmp_path, cfg=config.Config())
-    assert plan.manual_hook_line is None
-    assert "@resurrect-hook" not in plan.describe()
-
-
 def test_doctor_flags_on_boot_that_is_configured_but_inert(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
@@ -568,5 +511,132 @@ def test_doctor_flags_on_boot_that_is_configured_but_inert(
     cli._report_boot_restore()
 
     out = capsys.readouterr().out
-    assert "钩子" in out or "hook" in out.lower()
-    assert "@resurrect-hook-post-restore-all" in out  # 同样给出那一行
+    assert "钩子" in out
+    # 钩子现在由 atm 自己写，所以指的是「跑 install」，不再让用户手工粘
+    assert "atm install" in out
+
+
+# ----------------------------------------- 钩子有自己的块，不再受「谁管 tpm」影响
+#
+# 2026-09-12 的结构性修法。在此之前钩子写在**持久化块**里，而那个块在用户自己管 tpm 时
+# 整块不写 —— 于是一个 restore.* 的配置项，命运被一个 tpm 的判断绑住，出现了
+# 「restore.on-boot = true 但永远不生效」这个状态。#39 只是把它报出来；这里让它不可能出现。
+#
+# 能这么改是因为 resurrect 读这个选项的时机是**恢复发生时**（helpers.sh 的 execute_hook
+# 里才 get_tmux_option），不是配置加载时。所以它不需要待在插件块里，放文件最前面就行。
+
+
+def hook_conf(tmp_path: Path, body: str = "") -> Path:
+    p = tmp_path / "tmux.conf"
+    p.write_text(body, encoding="utf-8")
+    return p
+
+
+def test_hook_block_is_written_even_when_the_user_manages_tpm(tmp_path: Path, monkeypatch) -> None:
+    """这就是整个修法的目的：tpm 归谁管，和 on-boot 生不生效无关。"""
+    from atm import persist
+
+    monkeypatch.setattr("atm.install.resolve_atm_command", lambda: "/opt/atm")
+    conf = hook_conf(tmp_path, "run '~/.tmux/plugins/tpm/tpm'\n")  # 用户自己的 tpm
+
+    result = persist.apply_boot_hook(cfg_on(), conf_path=conf, live=False)
+
+    text = conf.read_text(encoding="utf-8")
+    assert result.written
+    assert text.startswith(persist.HOOK_MARKER_BEGIN)  # 放最前面，一定在 run tpm 之前
+    assert "@resurrect-hook-post-restore-all '/opt/atm restore --boot'" in text
+    assert "run '~/.tmux/plugins/tpm/tpm'" in text  # 用户自己的行一个字没动
+
+
+def test_turning_it_off_removes_only_that_block(tmp_path: Path, monkeypatch) -> None:
+    from atm import persist
+
+    monkeypatch.setattr("atm.install.resolve_atm_command", lambda: "/opt/atm")
+    user = "# mine\nrun '~/.tmux/plugins/tpm/tpm'\n"
+    conf = hook_conf(tmp_path, user)
+    persist.apply_boot_hook(cfg_on(), conf_path=conf, live=False)
+
+    persist.apply_boot_hook(config.Config(), conf_path=conf, live=False)
+
+    assert conf.read_text(encoding="utf-8") == user  # 干净回到原样
+
+
+def test_reapply_is_idempotent(tmp_path: Path, monkeypatch) -> None:
+    from atm import persist
+
+    monkeypatch.setattr("atm.install.resolve_atm_command", lambda: "/opt/atm")
+    conf = hook_conf(tmp_path, "# mine\n")
+    persist.apply_boot_hook(cfg_on(), conf_path=conf, live=False)
+
+    second = persist.apply_boot_hook(cfg_on(), conf_path=conf, live=False)
+
+    assert not second.written  # 没变化就不写不备份
+    assert conf.read_text(encoding="utf-8").count(persist.HOOK_MARKER_BEGIN) == 1
+
+
+def test_the_plugin_block_no_longer_carries_the_hook(tmp_path: Path) -> None:
+    """钩子搬走之后插件块里不能再有一份，否则两处各写一遍会打架。"""
+    from atm import persist
+
+    block = persist.build_block(tmp_path, atm_command="/opt/atm")
+    assert "@resurrect-hook-post-restore-all" not in block
+
+
+def test_it_takes_effect_on_the_running_server_too(tmp_path: Path, monkeypatch) -> None:
+    """不能只等下次起 server —— 改完配置这次就该生效。"""
+    from atm import persist, tmux
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr("atm.install.resolve_atm_command", lambda: "/opt/atm")
+    monkeypatch.setattr(tmux, "has_server", lambda: True)
+    monkeypatch.setattr(tmux, "run", lambda args, **kw: calls.append(list(args)) or "")
+
+    persist.apply_boot_hook(cfg_on(), conf_path=hook_conf(tmp_path))
+
+    assert calls == [
+        ["set-option", "-g", "@resurrect-hook-post-restore-all", "/opt/atm restore --boot"]
+    ]
+
+
+def test_turning_it_off_unsets_it_on_the_running_server(tmp_path: Path, monkeypatch) -> None:
+    from atm import persist, tmux
+
+    monkeypatch.setattr("atm.install.resolve_atm_command", lambda: "/opt/atm")
+    conf = hook_conf(tmp_path)
+    persist.apply_boot_hook(cfg_on(), conf_path=conf, live=False)
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(tmux, "has_server", lambda: True)
+    monkeypatch.setattr(tmux, "run", lambda args, **kw: calls.append(list(args)) or "")
+    persist.apply_boot_hook(config.Config(), conf_path=conf)
+
+    assert calls == [["set-option", "-gu", "@resurrect-hook-post-restore-all"]]
+
+
+def test_live_failure_is_reported_not_raised(tmp_path: Path, monkeypatch) -> None:
+    from atm import persist, tmux
+
+    monkeypatch.setattr("atm.install.resolve_atm_command", lambda: "/opt/atm")
+    monkeypatch.setattr(tmux, "has_server", lambda: True)
+
+    def boom(args, **kw):
+        raise tmux.TmuxError("server gone")
+
+    monkeypatch.setattr(tmux, "run", boom)
+    result = persist.apply_boot_hook(cfg_on(), conf_path=hook_conf(tmp_path))
+    assert result.written and "server gone" in (result.live_error or "")
+
+
+def test_uninstall_removes_the_hook_block(tmp_path: Path, monkeypatch) -> None:
+    from atm import persist
+
+    monkeypatch.setattr("atm.install.resolve_atm_command", lambda: "/opt/atm")
+    user = "# mine\n"
+    conf = hook_conf(tmp_path, user)
+    persist.apply_boot_hook(cfg_on(), conf_path=conf, live=False)
+
+    removed, backup = persist.remove_boot_hook(conf)
+
+    assert removed and backup is not None
+    assert conf.read_text(encoding="utf-8") == user
+    assert persist.remove_boot_hook(conf) == (False, None)  # 第二次没得删

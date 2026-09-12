@@ -16,6 +16,9 @@ src/atm/            product code (src layout, zero runtime deps, Python >= 3.11)
   restore.py        resurrect save file -> restore plan; the boot-restore gate (never overwrites a busy pane)
   tmux.py           every tmux interaction; public CLI only
   install.py / persist.py / guard.py   ~/.tmux.conf key block / resurrect+continuum block / aggregate slice
+                    persist.py also owns a SEPARATE boot-restore hook block, deliberately independent of the
+                    plugin block, because that block is skipped when the user manages tpm and restore.on-boot must
+                    still take effect there
   tmuxopts.py       ~/.tmux.conf common-options block (atm config tmux.*)
   conflicts.py      finds lines OUTSIDE atm's blocks that set the same options; atm reports, never edits them
   config.py         ~/.config/atm/config.toml: every tunable VALUE (memory.*, keys.*, tmux.*, restore.*); `atm claude|codex|pi`
@@ -85,4 +88,5 @@ cgroup path hierarchy. Every one was measured.
 A resident daemon / GUI (architecture forks A/B are undecided, not rejected); tmux wire protocol; uploading session
 data; putting claude/codex into `@resurrect-processes` (mass simultaneous relaunch ate all memory — the 2026-08-12
 incident). `atm restore` refills panes instead: serial, memory-gated, never over a busy pane; its opt-in
-`restore.on-boot` hangs off resurrect's post-restore hook and stands down when the gate or free memory is missing.
+`restore.on-boot` hangs off resurrect's post-restore hook (its own marker block, so it works whoever owns tpm) and
+stands down when the gate or free memory is missing.
