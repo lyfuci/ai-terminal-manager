@@ -9,6 +9,6 @@
 
 from .model import IndexStats, SessionEntry, SessionIndex, Source
 
-__version__ = "0.10.2"
+__version__ = "0.10.3"
 
 __all__ = ["IndexStats", "SessionEntry", "SessionIndex", "Source", "__version__"]
