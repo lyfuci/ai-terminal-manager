@@ -40,6 +40,7 @@ def make_entry(
     source: Source = Source.CLAUDE,
     *,
     name: str | None = None,
+    raw_name: str | None = None,  # 不给就和 name 一样（真实会话里绝大多数名字清洗前后不变）
     cwd: str = "/tmp",
     day: int = 10,
 ) -> SessionEntry:
@@ -53,6 +54,7 @@ def make_entry(
         path="/tmp/x.jsonl",
         size_bytes=10,
         name=name,
+        raw_name=name if raw_name is None else raw_name,
     )
 
 
@@ -294,20 +296,26 @@ def test_a_name_with_spaces_matches_the_whole_tail() -> None:
     assert (saved.session_id, saved.ref_tail) == ("my", "my project --verbose")
     short = make_entry("a", name="my")
     full = make_entry("b", name="my project")
-    assert restore.resolve(saved, _by_id(short, full)) == (full,)
+    # 分不清是 `my` + prompt 还是名字 `my project`：两个都不认，报 unclear
+    assert restore.resolve(saved, _by_id(short, full)) == ()
+    (item,) = restore.build_plan((saved,), (make_pane(),), _by_id(short, full))
+    assert item.state == "unclear" and not item.ready
+    assert "分不清会话名到哪为止" in restore.describe((item,))
 
 
 @pytest.mark.parametrize(
     "full,names,expected",
     [
-        # `project` 可能是名字的一半，也可能是 prompt —— 分不清就不拿 `my` 去配（codex 复核 P1）
-        ("claude -r my project", ["my"], None),
-        # 名字到第一个选项为止：`--verbose` 不是名字的一部分
-        ("claude -r github --verbose", ["github", "github --verbose"], "github"),
-        ("claude -r github -- extra", ["github", "github -- extra"], "github"),
+        # 后面还跟着东西就分不清名字到哪为止 —— 一个都不认（codex 复核的反例）
+        ("claude -r my project", ["my", "my project"], None),
+        ("claude -r github --verbose", ["github", "github --verbose"], None),
+        ("claude -r github -- extra", ["github"], None),
+        ("claude -r my  project", ["my project"], None),  # 连续空格在存档里被合并过
+        # 名字是最后一个词才认；恢复参数**之前**的选项不影响
+        ("claude --dangerously-skip-permissions -r github", ["github"], "github"),
     ],
 )
-def test_the_name_is_the_whole_segment_before_the_first_option(
+def test_only_a_name_that_ends_the_command_line_is_an_identity(
     full: str, names: list[str], expected: str | None
 ) -> None:
     (saved,) = restore.parse_save(save_line(full=full))
@@ -322,8 +330,17 @@ def test_a_name_the_index_had_to_truncate_is_never_treated_as_an_identity() -> N
     long_name = "a-very-long-session-name-that-goes-past-forty-columns-one"
     other_long = "a-very-long-session-name-that-goes-past-forty-columns-two"
     (saved,) = restore.parse_save(save_line(full=f"claude -r {long_name}"))
-    truncated_other = make_entry(name=clean_title(other_long, limit=40))
-    assert restore.resolve(saved, _by_id(truncated_other)) == ()
+    other = make_entry(name=clean_title(other_long, limit=40), raw_name=other_long)
+    assert restore.resolve(saved, _by_id(other)) == ()
+    itself = make_entry("self", name=clean_title(long_name, limit=40), raw_name=long_name)
+    assert restore.resolve(saved, _by_id(other, itself)) == (itself,)
+
+
+def test_a_name_that_only_matches_after_cleaning_is_not_an_identity() -> None:
+    """原文 `# github` 在索引里显示成 `github`：`claude -r github` 指的不是它。"""
+    (saved,) = restore.parse_save(save_line(full="claude -r github"))
+    heading = make_entry(name="github", raw_name="# github")
+    assert restore.resolve(saved, _by_id(heading)) == ()
 
 
 def test_names_only_match_in_the_same_directory() -> None:

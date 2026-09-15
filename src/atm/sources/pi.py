@@ -71,6 +71,7 @@ def parse(ref: FileRef) -> SessionEntry | None:
     cwd = ""
     title = ""
     name = ""
+    raw_name = ""
     saw_any = False
 
     for index, record in enumerate(iter_head_records(ref.path)):
@@ -89,6 +90,7 @@ def parse(ref: FileRef) -> SessionEntry | None:
             candidate = record.get("name")
             if isinstance(candidate, str) and candidate.strip():
                 name = clean_title(candidate, limit=40)  # 后写的覆盖先写的 = 最后一次改名
+                raw_name = candidate  # 原文另存：atm restore 认身份比原文，name 只用来显示
 
         elif not title and record_type == "message":
             text = _user_text(record)
@@ -103,8 +105,9 @@ def parse(ref: FileRef) -> SessionEntry | None:
 
     # 改名可以发生在会话任何时刻，头部窗口未必覆盖 —— 尾部再扫一遍取最后一个 name。
     # （claude.py 踩过这个坑：14 个命名会话里 4 个的改名在头部窗口之外。）
-    tail_name = _scan_tail_name(ref.path)
-    name = tail_name or name
+    tail_name, tail_raw_name = _scan_tail_name(ref.path)
+    if tail_name:
+        name, raw_name = tail_name, tail_raw_name
 
     path = Path(ref.path)
     if not session_id:
@@ -124,18 +127,22 @@ def parse(ref: FileRef) -> SessionEntry | None:
         path=ref.path,
         size_bytes=ref.size_bytes,
         name=name or None,
+        raw_name=raw_name or None,
     )
 
 
-def _scan_tail_name(path: str) -> str:
+def _scan_tail_name(path: str) -> tuple[str, str]:
+    """尾部最后一次改名：(清洗后, 原文)，没有就是空串。"""
     name = ""
+    raw_name = ""
     for record in iter_tail_records(path):
         if record.get("type") != "session_info":
             continue
         candidate = record.get("name")
         if isinstance(candidate, str) and candidate.strip():
             name = clean_title(candidate, limit=40)
-    return name
+            raw_name = candidate
+    return name, raw_name
 
 
 def _user_text(record: dict) -> str:

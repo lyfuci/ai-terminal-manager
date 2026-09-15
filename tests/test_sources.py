@@ -322,7 +322,22 @@ def test_claude_reads_custom_title_as_name(claude_root: Path) -> None:
     entry = claude.parse(FileRef.from_path(path))
     assert entry is not None
     assert entry.name == "sample-project"
+    assert entry.raw_name == "sample-project"
     assert entry.title == "推断出来的标题"  # 名字不覆盖标题，两者并存
+
+
+def test_claude_keeps_the_raw_name_next_to_the_cleaned_one(claude_root: Path) -> None:
+    """name 是清洗过给人看的；atm restore 认身份要比原文（`# github` 不等于 `github`）。"""
+    path = write_jsonl(
+        claude_root / "-home-user-demo" / "33334444-0000-0000-0000-000000000000.jsonl",
+        [
+            {"type": "custom-title", "customTitle": "# github", "sessionId": "33334444"},
+            {"type": "user", "cwd": "/home/user/demo", "message": {"content": "随便问点什么"}},
+        ],
+    )
+    entry = claude.parse(FileRef.from_path(path))
+    assert entry is not None
+    assert (entry.name, entry.raw_name) == ("github", "# github")
 
 
 def test_claude_name_is_none_when_unnamed(claude_session: Path) -> None:
@@ -476,6 +491,7 @@ def test_pi_session_info_becomes_name(pi_root: Path) -> None:
 
     assert entry is not None
     assert entry.name == "Refactor auth module"
+    assert entry.raw_name == "Refactor auth module"
 
 
 def test_pi_takes_latest_rename(pi_root: Path) -> None:
@@ -493,6 +509,7 @@ def test_pi_takes_latest_rename(pi_root: Path) -> None:
 
     assert entry is not None
     assert entry.name == "新名字"
+    assert entry.raw_name == "新名字"  # 原文和清洗后的名字必须来自同一次改名
 
 
 def test_pi_tolerates_corrupt_lines(pi_root: Path) -> None:

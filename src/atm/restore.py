@@ -46,7 +46,6 @@ from . import tmux
 from .dispatch import RESUME_PROGRAMS, DispatchError, DispatchTarget, MemoryLimit, dispatch
 from .i18n import _
 from .model import SessionEntry, Source
-from .text import clean_title
 from .tmux import Pane
 
 _BOOT_ID = Path("/proc/sys/kernel/random/boot_id")
@@ -81,9 +80,8 @@ class SavedPane:
     source: Source
     # 恢复参数后面那个词：atm 投递的是 id，手敲的常常是会话名（`claude -r github`）
     session_id: str
-    # 恢复参数后面的**整段**。存档里引号已经丢了：
-    # `claude -r "my project"` 记下来是 `-r my project`，按名字回查时要拿整段去比，
-    # 只看第一个词会查成 `my`。
+    # 恢复参数后面的**整段**。存档里引号已经丢了（`claude -r "my project"` 记成 `-r my project`），
+    # 所以只凭第一个词判断不了名字到哪为止 —— `name_reference` 靠它判断后面还有没有别的词。
     ref_tail: str = ""
 
 
@@ -94,7 +92,7 @@ class Item:
     saved: SavedPane
     pane_id: str | None  # 对应的活格子；None = 布局里已经没有这一格
     entry: SessionEntry | None  # 认准的那条会话；None = 没找到或认不准
-    state: str  # ready / occupied / no-pane / no-session / ambiguous
+    state: str  # ready / occupied / no-pane / no-session / ambiguous / unclear
     # 同名会话不止一条时的全部候选（state == "ambiguous"），列给人自己挑
     candidates: tuple[SessionEntry, ...] = ()
 
@@ -117,7 +115,7 @@ def _pane_columns(fields: list[str]) -> tuple[str, str, str] | None:
 
     后一种是真机语料（resurrect 3.4）：空标题那列没了，程序后面多出一列 pid，总列数不变。
     平时没有标题的空 shell 格子就是这样；2026-09-15 server 退出途中写的存档里连 claude 格子也是
-    （进程正在退，标题已被清空）。按整组结构判断，而不是只看某一列的前缀。
+    （推测是进程正在退、标题已被清空，没有单独验证）。按整组结构判断，而不是只看某一列的前缀。
     """
     if len(fields) < _MIN_FIELDS or not fields[_COMMAND_FIELD].startswith(":"):
         return None
@@ -258,8 +256,9 @@ def resolve(saved: SavedPane, entries: dict[str, SessionEntry]) -> tuple[Session
     """存档里的会话引用 → 索引里的会话。空 = 没找到；一条 = 认准了；多条 = 同名认不准。
 
     1. **当 id 查**，来源必须一致：claude 的引用不能落到恰好同 id 的别家条目上。
-    2. **当会话名查**（`/rename`、`claude -n` 起的）：名字取 `_name_segment`，必须和索引里的名字
-       **完全相等**；只在同一来源、**同一个 cwd** 里找 ——
+    2. **当会话名查**（`/rename`、`claude -n` 起的）：引用见 `name_reference`，
+       必须和索引里**原样**的名字（`raw_name`，没经过清洗截断）完全相等；
+       只在同一来源、**同一个 cwd** 里找 ——
        `claude -r <名字>` 自己就只在当前项目目录里找。
     3. **同名不止一条就全部交回**，由调用方报「认不准」。不按更新时间挑：那比的是**现在**的
        更新时间，存档之后才动过的另一个同名会话会被错选（2026-09-15 codex 复核指出）。
@@ -270,35 +269,32 @@ def resolve(saved: SavedPane, entries: dict[str, SessionEntry]) -> tuple[Session
     by_id = entries.get(saved.session_id)
     if by_id is not None and by_id.source is saved.source:
         return (by_id,)
-    name = _name_segment(saved.ref_tail or saved.session_id)
+    name = name_reference(saved)
     if name is None or not saved.cwd:
         return ()
     cwd = os.path.normpath(saved.cwd)
     return tuple(
         e
         for e in entries.values()
-        if e.source is saved.source and e.name == name and os.path.normpath(e.cwd) == cwd
+        if e.source is saved.source and e.raw_name == name and os.path.normpath(e.cwd) == cwd
     )
 
 
-def _name_segment(tail: str) -> str | None:
-    """恢复参数后面、到第一个选项（`-x` / `--`）之前的**整段**，当作会话名。认不准就是 None。
+def name_reference(saved: SavedPane) -> str | None:
+    """能拿去当会话名比对的引用：恢复参数后面**只有这一个词**时才算，否则 None。
 
-    - **整段相等才算**：存档里引号丢了，`claude -r my project` 里的 `project` 可能是名字的一半，
-      也可能是传给 claude 的 prompt。分不清，所以既不拿 `my` 去配，也不拿更长的前缀去配。
-    - **清洗会改动它就不认**：索引里的名字过了 `clean_title(limit=40)`
-      （超宽截断补「…」、合并空白），两个只在第 40 列之后不同的名字截断后相等 ——
-      拿截断过的名字当身份会恢复错会话。
+    存档里的命令行已经丢了参数边界（引号没了，连续空格也被合并），所以 `-r` 后面只要还跟着
+    别的东西，就分不清名字到哪为止（2026-09-15 codex 复核，前两版修法都被它举出反例）：
+
+    - `claude -r my project`：可能是名字 `my` 加 prompt `project`，也可能是名字 `my project`；
+    - `claude -r github --verbose`：`--verbose` 可能是选项，
+      也可能是名字 `"github --verbose"` 的一部分。
+
+    认错的代价是把别的会话投进格子（开机模式没人确认），认不出的代价只是让人手动指定一次。
+    所以带空格的名字、后面还跟着参数的名字一律不自动认，由调用方报 `unclear`。
     """
-    words: list[str] = []
-    for word in tail.split():
-        if word.startswith("-"):
-            break
-        words.append(word)
-    segment = " ".join(words)
-    if not segment or clean_title(segment, limit=40) != segment:
-        return None
-    return segment
+    words = saved.ref_tail.split() if saved.ref_tail else [saved.session_id]
+    return words[0] if len(words) == 1 else None
 
 
 def build_plan(
@@ -321,6 +317,8 @@ def build_plan(
             state = "no-pane"
         elif len(found) > 1:
             state = "ambiguous"  # 同名不止一条：不替用户挑
+        elif session is None and name_reference(entry_saved) is None:
+            state = "unclear"  # 参数边界丢了，分不清会话名到哪为止
         elif session is None:
             state = "no-session"
         elif not pane.is_idle_shell:
@@ -348,6 +346,10 @@ def describe(items: tuple[Item, ...]) -> str:
         "no-pane": _("跳过：布局里没有这一格了"),
         "no-session": _("跳过：索引里找不到这条会话（按 id 和会话名都查过）"),
         "ambiguous": _("跳过：同名会话不止一条，认不准是哪条 —— 用 atm resume <id> 指定："),
+        "unclear": _(
+            "跳过：恢复参数后面还跟着别的词，存档里的引号已经丢了，分不清会话名到哪为止 —— "
+            "用 atm resume <id> 指定"
+        ),
     }
     ready = [i for i in items if i.ready]
     lines = [_("将恢复 {n} 条会话：").format(n=len(ready))] if ready else []

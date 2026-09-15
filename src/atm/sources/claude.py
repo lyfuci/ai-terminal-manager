@@ -64,6 +64,7 @@ def parse(ref: FileRef) -> SessionEntry | None:
     session_id = ""
     title = ""
     name = ""
+    raw_name = ""
     cwd = ""
     git_branch: str | None = None
     saw_any = False
@@ -101,6 +102,7 @@ def parse(ref: FileRef) -> SessionEntry | None:
             candidate = record.get("customTitle")
             if isinstance(candidate, str) and candidate.strip():
                 name = clean_title(candidate, limit=40)  # 后写的覆盖先写的 = 取最后一次改名
+                raw_name = candidate  # 原文另存：atm restore 认身份比原文，name 只用来显示
 
         # ai-title 是 CLI 自己生成的标题，质量最高（后写的比先写的更贴合会话最终内容）。
         elif record_type == "ai-title":
@@ -138,8 +140,9 @@ def parse(ref: FileRef) -> SessionEntry | None:
     # 两者都取**最后一条**。
     # 头窗口没覆盖全文时才需要额外读尾部。
     if not head_covers_all:
-        tail_name, tail_title = _scan_tail(ref.path)
-        name = tail_name or name
+        tail_name, tail_raw_name, tail_title = _scan_tail(ref.path)
+        if tail_name:
+            name, raw_name = tail_name, tail_raw_name
         title = tail_title or title
 
     path = Path(ref.path)
@@ -158,12 +161,14 @@ def parse(ref: FileRef) -> SessionEntry | None:
         path=ref.path,
         size_bytes=ref.size_bytes,
         name=name or None,
+        raw_name=raw_name or None,
     )
 
 
-def _scan_tail(path: str) -> tuple[str, str]:
-    """扫文件尾部，返回 (最后的 custom-title, 最后的 ai-title)，没有就是空串。"""
+def _scan_tail(path: str) -> tuple[str, str, str]:
+    """扫文件尾部，返回 (最后的 custom-title 清洗后, 它的原文, 最后的 ai-title)，没有就是空串。"""
     name = ""
+    raw_name = ""
     title = ""
     for record in iter_tail_records(path):
         record_type = record.get("type")
@@ -171,11 +176,12 @@ def _scan_tail(path: str) -> tuple[str, str]:
             candidate = record.get("customTitle")
             if isinstance(candidate, str) and candidate.strip():
                 name = clean_title(candidate, limit=40)
+                raw_name = candidate
         elif record_type == "ai-title":
             candidate = record.get("aiTitle")
             if isinstance(candidate, str) and candidate.strip():
                 title = clean_title(candidate)
-    return name, title
+    return name, raw_name, title
 
 
 def _user_text(record: dict) -> str:

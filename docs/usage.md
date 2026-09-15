@@ -84,7 +84,8 @@ Leaving these 2 alone:
 **Which panes it can fill.** Any pane whose saved command line names a session: atm's own `claude --resume <id>`,
 or what you typed yourself, such as `claude -r github` — a short flag followed by a session name set with `/rename` or
 `claude -n`. Names are looked up in the index, within the same CLI and the same directory — the scope `claude -r`
-itself searches — and the whole argument has to equal the name exactly. If more than one session has that name, atm
+itself searches — and only when that name is the last thing on the command line. A name followed by more words is shown as unclear
+instead: the save file has lost the quotes, so atm cannot tell where the name ends. If more than one session has that name, atm
 does not pick one: the plan lists the candidates so you can `atm resume <id>` the right one. A pane started as a plain `claude` carries nothing to resume, so it stays empty —
 `atm doctor` says so when the latest save has AI panes atm cannot restore.
 
