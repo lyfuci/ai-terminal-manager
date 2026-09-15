@@ -256,6 +256,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--no-mem-limit", action="store_true", help=_("不给会话套 cgroup 内存闸门（默认套）")
     )
     p_restore.add_argument(
+        "--save-file",
+        metavar="PATH",
+        help=_("从这份 resurrect 存档恢复，而不是 last（重启后的自动存档可能已经覆盖了 last）"),
+    )
+    p_restore.add_argument(
         "--boot",
         action="store_true",
         help=_("开机模式：resurrect 的钩子调的，先过闸门再全量恢复，过程写进日志"),
@@ -505,15 +510,21 @@ def _cmd_resume(args: argparse.Namespace) -> int:
 def _cmd_restore(args: argparse.Namespace) -> int:
     """把 resurrect 存档里记着的会话，填回现在空着的格子里。"""
     restore = _restore_mod()
+    if args.boot and args.save_file:
+        # 开机模式读的是 resurrect 刚用过的 last；接受了路径却去恢复另一份，比直接拒绝更糟
+        print(_("--boot 和 --save-file 不能一起用：开机模式只读 resurrect 刚恢复用的那份 last。"))
+        return EXIT_ERROR
     if args.boot:
         return _cmd_restore_boot(restore)
     if not tmux.has_server():
         print(_("没有正在跑的 tmux server，没有格子可以填。"))
         return EXIT_ERROR
 
-    path = restore.save_path()
+    path = Path(args.save_file).expanduser() if args.save_file else restore.save_path()
     try:
-        text = path.read_text(encoding="utf-8")
+        # 存档可能在 server 退出途中写坏：坏字节替换掉，认不出的行 parse_save 自己会跳过
+        text = path.read_text(encoding="utf-8", errors="replace")
+        when = datetime.fromtimestamp(path.stat().st_mtime)
     except OSError as exc:
         print(_("读不到 resurrect 存档 {path}：{exc}").format(path=path, exc=exc))
         return EXIT_ERROR
@@ -521,7 +532,17 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     saved = restore.parse_save(text)
     if not saved:
         print(_("{path} 里没有可恢复的会话记录。").format(path=path))
+        older = None if args.save_file else restore.newest_restorable_save(path.parent, skip=path)
+        if older is not None:
+            # 重启后格子还空着时，下一次自动存档就把 last 换成了空的；重启前那份还在目录里。
+            print(
+                _(
+                    "更早的存档里有会话：{older}（{when:%Y-%m-%d %H:%M}）。"
+                    "从它恢复：atm restore --save-file {older}"
+                ).format(older=older, when=datetime.fromtimestamp(older.stat().st_mtime))
+            )
         return EXIT_OK
+    print(_("存档：{path}（{when:%Y-%m-%d %H:%M}）").format(path=path.resolve(), when=when))
 
     target = None
     if not args.all_sessions:
@@ -563,7 +584,7 @@ def _cmd_restore_boot(restore) -> int:
 
     path = restore.save_path()
     try:
-        saved = restore.parse_save(path.read_text(encoding="utf-8"))
+        saved = restore.parse_save(path.read_text(encoding="utf-8", errors="replace"))
     except OSError as exc:
         restore.append_log([_("读不到 resurrect 存档 {path}：{exc}").format(path=path, exc=exc)])
         return EXIT_OK
@@ -571,8 +592,10 @@ def _cmd_restore_boot(restore) -> int:
     entries = {e.id: e for e in index_mod.build().entries}
     items = restore.build_plan(saved, tmux.list_panes(), entries, target=None)
     ready = tuple(i for i in items if i.ready)
+    # 计划原样进日志：没人看着，跳过的每一条（尤其同名认不准的候选）只能事后在这里查
+    plan = restore.describe(items).splitlines()
     if not ready:
-        restore.append_log([_("开机恢复：没有空格子要填。")])
+        restore.append_log([_("开机恢复：没有能直接恢复的会话。"), *plan])
         return EXIT_OK
 
     attempt = restore.Attempt(
@@ -582,7 +605,7 @@ def _cmd_restore_boot(restore) -> int:
         done=0,
     )
     restore.write_attempt(attempt)
-    lines = [_("开机恢复：{n} 条。").format(n=len(ready))]
+    lines = [_("开机恢复：{n} 条。").format(n=len(ready)), *plan]
     lines += restore.execute(
         ready,
         memory=cfg.memory_limit(),
@@ -1581,9 +1604,38 @@ def _report_persist(st) -> None:
 
         when = _dt.datetime.fromtimestamp(st.last_save.resolve().stat().st_mtime)
         print(_("  最近存档: {when:%Y-%m-%d %H:%M}").format(when=when))
+        _report_save_contents(st.last_save)
     else:
         print(_("  最近存档: 还没有"))
     _report_boot_restore()
+
+
+def _report_save_contents(path: Path) -> None:
+    """存档里有 AI CLI 在跑、`atm restore` 却一条都认不出 —— 那恢复就是个空操作，必须报出来。
+
+    2026-09-15 真机：格子里全是 `claude -r github` 这类短参数 + 会话名，atm 只认 `--resume <id>`，
+    每份存档都解析出 0 条，而 doctor 只报了「最近存档: 12:04」，看上去一切正常。
+    """
+    restore = _restore_mod()
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    running = restore.count_ai_panes(text)
+    if not running:
+        return
+    usable = len(restore.parse_save(text))
+    # 只说「命令行里有没有会话引用」：带了引用也不保证索引里能唯一对上，那要到 restore 的计划里看
+    if usable >= running:
+        print(_("  存档里的 AI 会话: {n} 个格子，命令行里都带着会话 id / 会话名").format(n=running))
+        return
+    print(
+        _(
+            "  存档里的 AI 会话: ❌ {n} 个格子只有 {usable} 个的命令行里带会话 id / 会话名 —— "
+            "其余没带恢复参数（比如直接敲 claude），"
+            "或者存档里的命令行已经损坏，atm restore 恢复不了"
+        ).format(n=running, usable=usable)
+    )
 
 
 def _report_boot_restore() -> None:

@@ -63,6 +63,7 @@ atm restore -t work          # 换一个会话；`-t work:1` 只填那个 window
 atm restore --all            # 存档里所有会话
 atm restore --print          # 只看计划
 atm restore -y               # 不问直接填
+atm restore --save-file PATH # 从指定存档恢复，而不是 last
 ```
 
 计划会把每一条的去向都说清楚，包括**不动**的那些：
@@ -76,6 +77,16 @@ atm restore -y               # 不问直接填
   main:1.2  * github  —— 跳过：这个格子里已经在跑东西了
   main:2.1  旧的活    —— 跳过：布局里没有这一格了
 ```
+
+**能填回哪些格子。** 存档里命令行指明了会话的都行：atm 自己投递的 `claude --resume <id>`，
+或者你手敲的 `claude -r github` —— 短参数加上 `/rename` / `claude -n` 起的会话名。名字在索引里查，
+只查同一个 CLI、同一个目录（和 `claude -r` 自己的查找范围一样），而且参数后面那一整段要和名字完全相等。
+同名的会话不止一条时 atm 不替你挑：计划里会列出候选，用 `atm resume <id>` 指定。
+直接敲 `claude` 开的格子没有可以恢复的线索，会保持空着 —— 最近的存档里有这种 AI 格子时 `atm doctor` 会报出来。
+
+**如果 `last` 已经被覆盖了。** tmux 回来之后的下一次自动存档会替换 `last`，要是那时格子还是空 shell，
+这份存档里就没有会话了。`atm restore` 会发现这一点，指出最近一份还有会话的历史存档：
+`atm restore --save-file <那份>`。
 
 **在跑东西的格子绝不会被覆盖** —— 这是整个命令围着转的那条不变量。
 投递是**串行**的（三个 CLI 同时各读一份 20MB+ 的转录是实实在在的尖峰），走 atm 正常的投递路径，
