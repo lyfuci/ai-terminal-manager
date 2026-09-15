@@ -127,7 +127,9 @@ def loads_or_none(line: bytes | str) -> object | None:
         if isinstance(line, bytes):
             line = line.decode("utf-8", errors="replace")
         return json.loads(line)
-    except (ValueError, UnicodeDecodeError):
+    # RecursionError：嵌套上万层的一行合法 JSON 会让 json.loads 递归爆栈。这不是 ValueError，
+    # 之前没兜住，一行就能让整次 atm restore 中止（2026-09-15 codex 复核第六轮实测）。
+    except (ValueError, UnicodeDecodeError, RecursionError):
         return None
 
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-from ..jsonl import DEFAULT_HEAD_BYTES, iter_head_records, iter_tail_records
+from ..jsonl import DEFAULT_HEAD_BYTES, iter_head_records, iter_tail_records, loads_or_none
 from ..model import UNTITLED, FileRef, SessionEntry, Source
 from ..text import clean_title, is_junk_prompt
 
@@ -64,6 +64,7 @@ def parse(ref: FileRef) -> SessionEntry | None:
     session_id = ""
     title = ""
     name = ""
+    raw_name = ""
     cwd = ""
     git_branch: str | None = None
     saw_any = False
@@ -101,6 +102,7 @@ def parse(ref: FileRef) -> SessionEntry | None:
             candidate = record.get("customTitle")
             if isinstance(candidate, str) and candidate.strip():
                 name = clean_title(candidate, limit=40)  # 后写的覆盖先写的 = 取最后一次改名
+                raw_name = candidate  # 原文另存：atm restore 认身份比原文，name 只用来显示
 
         # ai-title 是 CLI 自己生成的标题，质量最高（后写的比先写的更贴合会话最终内容）。
         elif record_type == "ai-title":
@@ -138,8 +140,9 @@ def parse(ref: FileRef) -> SessionEntry | None:
     # 两者都取**最后一条**。
     # 头窗口没覆盖全文时才需要额外读尾部。
     if not head_covers_all:
-        tail_name, tail_title = _scan_tail(ref.path)
-        name = tail_name or name
+        tail_name, tail_raw_name, tail_title = _scan_tail(ref.path)
+        if tail_name:
+            name, raw_name = tail_name, tail_raw_name
         title = tail_title or title
 
     path = Path(ref.path)
@@ -158,12 +161,14 @@ def parse(ref: FileRef) -> SessionEntry | None:
         path=ref.path,
         size_bytes=ref.size_bytes,
         name=name or None,
+        raw_name=raw_name or None,
     )
 
 
-def _scan_tail(path: str) -> tuple[str, str]:
-    """扫文件尾部，返回 (最后的 custom-title, 最后的 ai-title)，没有就是空串。"""
+def _scan_tail(path: str) -> tuple[str, str, str]:
+    """扫文件尾部，返回 (最后的 custom-title 清洗后, 它的原文, 最后的 ai-title)，没有就是空串。"""
     name = ""
+    raw_name = ""
     title = ""
     for record in iter_tail_records(path):
         record_type = record.get("type")
@@ -171,11 +176,39 @@ def _scan_tail(path: str) -> tuple[str, str]:
             candidate = record.get("customTitle")
             if isinstance(candidate, str) and candidate.strip():
                 name = clean_title(candidate, limit=40)
+                raw_name = candidate
         elif record_type == "ai-title":
             candidate = record.get("aiTitle")
             if isinstance(candidate, str) and candidate.strip():
                 title = clean_title(candidate)
-    return name, title
+    return name, raw_name, title
+
+
+def latest_raw_name(path: str) -> str | None:
+    """整份文件里**最后一次**改名（`custom-title`）的原文。没改过名、或文件读不到，就是 None。
+
+    不走头尾窗口：中间发生的改名只有整份扫才看得见。atm restore 按名字认会话时拿它确认
+    索引里的名字没过期 —— 只对候选调用，不在建索引时用。
+    逐行流式读，先做一道**不会漏行**的字节预过滤再解析 JSON：会话文件可能很大。
+    """
+    name: str | None = None
+    try:
+        with open(path, "rb") as fh:  # noqa: PTH123 — 和 jsonl.py 一致，逐行流式读
+            for line in fh:
+                # "custom-title" 不含引号、反斜杠、控制字符，JSON 里它只可能原样出现，
+                # 或者用 \uXXXX 转义（`"custom-title"` 是合法的）。两样都没有的行才能跳过 ——
+                # 只找原样会漏掉转义写法，拿过期名字认身份（2026-09-15 codex 复核第五轮）。
+                if b'"custom-title"' not in line and b"\\u" not in line:
+                    continue
+                record = loads_or_none(line)
+                if not isinstance(record, dict) or record.get("type") != "custom-title":
+                    continue
+                candidate = record.get("customTitle")
+                if isinstance(candidate, str) and candidate.strip():
+                    name = candidate
+    except OSError:
+        return None
+    return name
 
 
 def _user_text(record: dict) -> str:

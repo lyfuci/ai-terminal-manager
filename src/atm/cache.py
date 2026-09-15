@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .model import SessionEntry
 
-CACHE_VERSION = 3  # v3: 缓存可以记住「解析不出会话」的负结果
+CACHE_VERSION = 4  # v3: 缓存可以记住「解析不出会话」的负结果；v4: 条目多存会话名原文 rawName
 
 
 def default_cache_path() -> Path:

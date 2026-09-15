@@ -88,6 +88,10 @@ class SessionEntry:
     # 与 title 的区别：title 是**推断**出来的（ai-title / 首条消息），name 是**人取**的，
     # 所以在列表里要单独、显眼地展示，不能和推断标题混在一起。
     name: str | None = None
+    # 同一个名字的**原文**，不经 clean_title（不截断、不去 `#`、不合并空白）。
+    # name 是给人看的，截到 40 列之后两个不同的名字可能相等 —— atm restore 拿名字认会话身份时
+    # 必须比原文，否则会把别的会话投进格子（2026-09-15 codex 复核）。
+    raw_name: str | None = None
 
     @property
     def project_name(self) -> str:
@@ -114,6 +118,7 @@ class SessionEntry:
             "path": self.path,
             "sizeBytes": self.size_bytes,
             "name": self.name,
+            "rawName": self.raw_name,
         }
 
     @classmethod
@@ -128,6 +133,7 @@ class SessionEntry:
             path=data["path"],
             size_bytes=int(data.get("sizeBytes", 0)),
             name=data.get("name"),
+            raw_name=data.get("rawName"),
         )
 
 

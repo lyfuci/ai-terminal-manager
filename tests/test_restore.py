@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,6 +19,15 @@ from atm.tmux import Pane
 
 CLAUDE_ID = "1b21e2f4-518e-492a-b1ad-61fbbeb27dec"
 CODEX_ID = "0199c0de-1111-2222-3333-444455556666"
+
+# 真去读会话文件的那个版本。下面的 autouse 夹具默认把它换成「信索引里的 raw_name」，
+# 这样大多数用例不用造真文件；专门测它的用例再换回来。
+_REAL_LATEST_RAW_NAME = restore.latest_raw_name
+
+
+@pytest.fixture(autouse=True)
+def _trust_index_names(monkeypatch):
+    monkeypatch.setattr(restore, "latest_raw_name", lambda entry: entry.raw_name)
 
 
 def save_line(
@@ -35,16 +46,26 @@ def save_line(
     )
 
 
-def make_entry(session_id: str = CLAUDE_ID, source: Source = Source.CLAUDE) -> SessionEntry:
+def make_entry(
+    session_id: str = CLAUDE_ID,
+    source: Source = Source.CLAUDE,
+    *,
+    name: str | None = None,
+    raw_name: str | None = None,  # 不给就和 name 一样（真实会话里绝大多数名字清洗前后不变）
+    cwd: str = "/tmp",
+    day: int = 10,
+) -> SessionEntry:
     return SessionEntry(
         id=session_id,
         title="把索引层的缓存加上",
         source=source,
-        cwd="/tmp",
+        cwd=cwd,
         git_branch=None,
-        updated_at=datetime(2026, 9, 10, tzinfo=UTC),
+        updated_at=datetime(2026, 9, day, tzinfo=UTC),
         path="/tmp/x.jsonl",
         size_bytes=10,
+        name=name,
+        raw_name=name if raw_name is None else raw_name,
     )
 
 
@@ -111,6 +132,8 @@ def test_parses_every_source_resume_spelling() -> None:
         ("列数不够", "pane\tmain\t1"),
         ("认不出的程序", save_line(command="vim", full="/usr/bin/vim /tmp/a.txt")),
         ("有程序名但没 id", save_line(full="/home/user/.local/bin/claude --resume")),
+        ("-r 没带值、后面是别的参数", save_line(full="claude -r --verbose")),
+        ("没有恢复参数的新会话", save_line(full="/home/user/.local/bin/claude agents")),
         ("空行", ""),
     ],
 )
@@ -122,6 +145,97 @@ def test_one_bad_line_does_not_lose_the_good_ones() -> None:
     """硬规则第 4 条：格式是逆向的，一行坏数据不能带走整次恢复。"""
     text = "\n".join(["pane\t坏了", save_line(), "pane\tmain\t1"])
     assert [s.target for s in restore.parse_save(text)] == ["main:1.1"]
+
+
+def test_parses_the_short_resume_flag_with_a_session_name() -> None:
+    """2026-09-15 真机：格子里全是手敲的 `claude -r github`。
+
+    atm 当时只认 `--resume <id>`，每份存档都解析出 0 条。
+    """
+    lines = "\n".join(
+        [
+            save_line(pane="1", full="claude -r github"),
+            save_line(pane="2", command="gemini", full=f"gemini -r {CLAUDE_ID}"),
+            save_line(pane="3", command="opencode", full="opencode -s ses_abc"),
+        ]
+    )
+    found = {s.source: s.session_id for s in restore.parse_save(lines)}
+    assert found == {Source.CLAUDE: "github", Source.GEMINI: CLAUDE_ID, Source.OPENCODE: "ses_abc"}
+
+
+@pytest.mark.parametrize(
+    "full,expected",
+    [
+        ("claude --resume=abc", [("abc", "abc")]),
+        ("claude --verbose -- --resume github", []),  # `--` 之后是位置参数
+        ("claude -r github -- extra", [("github", "github -- extra")]),
+    ],
+)
+def test_resume_argument_edge_cases(full: str, expected: list[tuple[str, str]]) -> None:
+    found = restore.parse_save(save_line(full=full))
+    assert [(s.session_id, s.ref_tail) for s in found] == expected
+
+
+def test_a_title_that_starts_with_a_colon_is_not_mistaken_for_the_shifted_layout() -> None:
+    (saved,) = restore.parse_save(save_line(title=":weird", cwd="/tmp"))
+    assert (saved.title, saved.cwd) == (":weird", "/tmp")
+
+
+def test_a_line_whose_empty_title_shifted_the_columns_keeps_its_cwd() -> None:
+    """标题为空时从第 6 列起整体左移一格（真机语料：server 退出途中写的存档）。"""
+    line = "\t".join(
+        [
+            "pane",
+            "main",
+            "1",
+            "1",
+            ":*",
+            "1",
+            ":/home/user/workdir",
+            "0",
+            "claude",
+            "1946",
+            ":claude -r github",
+        ]
+    )
+    (saved,) = restore.parse_save(line)
+    assert (saved.cwd, saved.title, saved.session_id) == ("/home/user/workdir", "", "github")
+
+
+def test_counts_ai_panes_whether_or_not_they_are_restorable() -> None:
+    # 真机语料：server 退出途中写的存档，这格的命令行被挤成了单独一行，程序列还是 claude
+    lost_command = "\t".join(
+        ["pane", "main", "1", "1", ":*", "4", ":/home/user/workdir", "1", "claude", "2549", ":"]
+    )
+    text = "\n".join(
+        [
+            save_line(pane="1", full="claude -r github"),
+            save_line(pane="2", full="/home/user/.local/bin/claude agents"),
+            save_line(pane="3", command="bash", full=""),
+            lost_command,
+            "window\tmain\t1\t:win\t1\t:*\tlayout\t:",
+        ]
+    )
+    assert restore.count_ai_panes(text) == 3
+    assert len(restore.parse_save(text)) == 1
+
+
+def test_newest_restorable_save_skips_last_and_saves_without_sessions(tmp_path: Path) -> None:
+    """重启后格子还空着时自动存档把 last 换成了空的，重启前那份要能被找出来。"""
+    before = tmp_path / "tmux_resurrect_20260914T225445.txt"
+    before.write_text(save_line(full="claude -r github"), encoding="utf-8")
+    older = tmp_path / "tmux_resurrect_20260913T100000.txt"
+    older.write_text(save_line(full="claude -r wsl"), encoding="utf-8")
+    empty = tmp_path / "tmux_resurrect_20260915T094159.txt"
+    empty.write_text(save_line(command="bash", full=""), encoding="utf-8")
+    last = tmp_path / "last"
+    last.symlink_to(empty.name)
+
+    assert restore.newest_restorable_save(tmp_path, skip=last) == before
+
+    last.unlink()
+    last.symlink_to(before.name)  # last 本身就有会话时不该把它自己指回去
+    assert restore.newest_restorable_save(tmp_path, skip=last) == older
 
 
 # ---------------------------------------------------------------- -t 过滤
@@ -148,7 +262,7 @@ def test_target_filter(target: str | None, expected: bool) -> None:
 
 def test_ready_when_the_pane_is_an_idle_shell() -> None:
     saved = restore.parse_save(save_line())
-    (item,) = restore.build_plan(saved, (make_pane(),), {CLAUDE_ID: make_entry()})
+    (item,) = restore.build_plan(saved, (make_pane(),), (make_entry(),))
     assert item.ready and item.pane_id == "%1"
 
 
@@ -156,27 +270,219 @@ def test_never_overwrites_a_pane_that_is_running_something() -> None:
     """这是整个功能最重要的一条：正在用的会话不能被顶掉。"""
     saved = restore.parse_save(save_line())
     panes = (make_pane(command="claude"),)
-    (item,) = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    (item,) = restore.build_plan(saved, panes, (make_entry(),))
     assert item.state == "occupied" and not item.ready
 
 
 def test_reports_a_pane_that_no_longer_exists() -> None:
     saved = restore.parse_save(save_line(window="9", pane="9"))
-    (item,) = restore.build_plan(saved, (make_pane(),), {CLAUDE_ID: make_entry()})
+    (item,) = restore.build_plan(saved, (make_pane(),), (make_entry(),))
     assert item.state == "no-pane" and item.pane_id is None
 
 
 def test_reports_a_session_that_is_gone_from_the_index() -> None:
     saved = restore.parse_save(save_line())
-    (item,) = restore.build_plan(saved, (make_pane(),), {})
+    (item,) = restore.build_plan(saved, (make_pane(),), ())
     assert item.state == "no-session"
+
+
+def _entries(*entries: SessionEntry) -> tuple[SessionEntry, ...]:
+    return entries
+
+
+def test_a_session_name_is_looked_up_in_the_index() -> None:
+    (saved,) = restore.parse_save(save_line(full="claude -r github"))
+    wanted = make_entry(name="github")
+    other = make_entry("other-id", name="wsl")
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(wanted, other))
+    assert item.ready and item.entry is wanted
+
+
+def test_a_name_with_spaces_matches_the_whole_tail() -> None:
+    """存档里引号丢了：`claude -r "my project"` 记下来是 `-r my project`。
+
+    只看第一个词会查成 `my`。
+    """
+    (saved,) = restore.parse_save(save_line(full="claude -r my project --verbose"))
+    assert (saved.session_id, saved.ref_tail) == ("my", "my project --verbose")
+    short = make_entry("a", name="my")
+    full = make_entry("b", name="my project")
+    # 分不清是 `my` + prompt 还是名字 `my project`：两个都不认，报 unclear
+    assert restore.resolve(saved, _entries(short, full)) == ()
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(short, full))
+    assert item.state == "unclear" and not item.ready
+    assert "分不清会话名到哪为止" in restore.describe((item,))
+
+
+@pytest.mark.parametrize(
+    "full,names,expected",
+    [
+        # 后面还跟着东西就分不清名字到哪为止 —— 一个都不认（codex 复核的反例）
+        ("claude -r my project", ["my", "my project"], None),
+        ("claude -r github --verbose", ["github", "github --verbose"], None),
+        ("claude -r github -- extra", ["github"], None),
+        ("claude -r my  project", ["my project"], None),  # 连续空格在存档里被合并过
+        # 名字是最后一个词才认；恢复参数**之前**的选项不影响
+        ("claude --dangerously-skip-permissions -r github", ["github"], "github"),
+    ],
+)
+def test_only_a_name_that_ends_the_command_line_is_an_identity(
+    full: str, names: list[str], expected: str | None
+) -> None:
+    (saved,) = restore.parse_save(save_line(full=full))
+    entries = _entries(*(make_entry(f"id-{i}", name=n) for i, n in enumerate(names)))
+    assert [e.name for e in restore.resolve(saved, entries)] == ([expected] if expected else [])
+
+
+def test_a_name_the_index_had_to_truncate_is_never_treated_as_an_identity() -> None:
+    """索引里的名字截到 40 列补「…」，只在 40 列之后不同的两个名字截断后相等 —— 不能拿来认身份。"""
+    from atm.text import clean_title
+
+    long_name = "a-very-long-session-name-that-goes-past-forty-columns-one"
+    other_long = "a-very-long-session-name-that-goes-past-forty-columns-two"
+    (saved,) = restore.parse_save(save_line(full=f"claude -r {long_name}"))
+    other = make_entry(name=clean_title(other_long, limit=40), raw_name=other_long)
+    assert restore.resolve(saved, _entries(other)) == ()
+    itself = make_entry("self", name=clean_title(long_name, limit=40), raw_name=long_name)
+    assert restore.resolve(saved, _entries(other, itself)) == (itself,)
+
+
+def test_a_name_that_only_matches_after_cleaning_is_not_an_identity() -> None:
+    """原文 `# github` 在索引里显示成 `github`：`claude -r github` 指的不是它。"""
+    (saved,) = restore.parse_save(save_line(full="claude -r github"))
+    heading = make_entry(name="github", raw_name="# github")
+    assert restore.resolve(saved, _entries(heading)) == ()
+
+
+def test_names_are_checked_against_each_files_latest_rename(tmp_path: Path, monkeypatch) -> None:
+    """比的是整份文件里最后一次改名，不是索引里的名字 —— 索引只读头尾，中间的改名看不见。
+
+    两个方向都出过错（2026-09-15 codex 复核第四、五轮）：过期的旧名会把已经改走名字的会话
+    认成它；改成这个名字的会话在索引里还是旧名，会被漏掉，让同名冲突看上去唯一。
+    """
+    monkeypatch.setattr(restore, "latest_raw_name", _REAL_LATEST_RAW_NAME)
+
+    def session(stem: str, index_name: str, *renames: str) -> SessionEntry:
+        path = tmp_path / f"{stem}.jsonl"
+        records = [{"type": "custom-title", "customTitle": n} for n in renames]
+        path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+        return replace(make_entry(stem, name=index_name), path=str(path))
+
+    (saved,) = restore.parse_save(save_line(full="claude -r github"))
+
+    # 互换过名字：A 现在叫 wsl、B 现在叫 github，索引里还是反的
+    swapped_a = session("a", "github", "github", "wsl")
+    swapped_b = session("b", "wsl", "wsl", "github")
+    assert restore.resolve(saved, _entries(swapped_a, swapped_b)) == (swapped_b,)
+
+    # C 一直叫 github，D 后来也改成了 github：这是同名冲突，不能因为索引过期就当成唯一
+    always = session("c", "github", "github")
+    renamed_to = session("d", "wsl", "wsl", "github")
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(always, renamed_to))
+    assert item.state == "ambiguous"
+    assert {e.id for e in item.candidates} == {"c", "d"}
+
+    # 文件读不到的不算
+    gone = replace(make_entry("e", name="github"), path=str(tmp_path / "gone.jsonl"))
+    assert restore.resolve(saved, _entries(gone)) == ()
+
+
+def test_names_only_match_in_the_same_directory() -> None:
+    """`claude -r <名字>` 自己就只在当前项目目录里找，跨目录匹配等于替它猜。"""
+    (saved,) = restore.parse_save(save_line(cwd="/work", full="claude -r video"))
+    assert restore.resolve(saved, _entries(make_entry(name="video", cwd="/elsewhere"))) == ()
+
+
+def test_duplicate_names_are_reported_with_candidates_not_guessed() -> None:
+    """本机就有两个 ⟨video⟩。按更新时间挑会选错。
+
+    比的是**现在**的更新时间，存档之后才动过的另一个同名会话会被选中（2026-09-15 codex 复核）。
+    """
+    (saved,) = restore.parse_save(save_line(cwd="/work", full="claude -r video"))
+    older = make_entry("a", name="video", cwd="/work", day=12)
+    newer = make_entry("b", name="video", cwd="/work", day=13)
+
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(older, newer))
+
+    assert item.state == "ambiguous" and item.entry is None and not item.ready
+    assert {e.id for e in item.candidates} == {"a", "b"}
+    text = restore.describe((item,))
+    assert "atm resume" in text
+    assert "a  09-12 00:00" in text and "b  09-13 00:00" in text
+
+
+def test_an_id_match_wins_over_a_name_match() -> None:
+    (saved,) = restore.parse_save(save_line(full=f"claude --resume {CLAUDE_ID}"))
+    by_id = make_entry()
+    named_like_the_id = make_entry("other-id", name=CLAUDE_ID, day=20)
+    assert restore.resolve(saved, _entries(by_id, named_like_the_id)) == (by_id,)
+
+
+def test_an_id_from_another_source_does_not_match() -> None:
+    """claude 的引用不能落到恰好同 id 的 codex 条目上。"""
+    (saved,) = restore.parse_save(save_line(full=f"claude --resume {CODEX_ID}"))
+    assert restore.resolve(saved, _entries(make_entry(CODEX_ID, source=Source.CODEX))) == ()
+
+
+def test_the_same_id_in_another_source_does_not_hide_a_duplicate_name() -> None:
+    """条目身份是 (来源, id)。之前 CLI 按 id 建字典，同 id 的 codex 条目把 claude 的 B 覆盖掉，
+    两个都叫 github 的冲突看上去只剩 A（2026-09-15 codex 复核第六轮）。
+    """
+    (saved,) = restore.parse_save(save_line(full="claude -r github"))
+    a = make_entry("a", name="github")
+    b = make_entry("b", name="github")
+    codex_b = make_entry("b", source=Source.CODEX)
+    (item,) = restore.build_plan((saved,), (make_pane(),), (a, b, codex_b))
+    assert item.state == "ambiguous"
+    assert {(e.source, e.id) for e in item.candidates} == {
+        (Source.CLAUDE, "a"),
+        (Source.CLAUDE, "b"),
+    }
+
+
+def test_the_cli_hands_every_index_entry_to_the_plan(tmp_path: Path, monkeypatch, capsys) -> None:
+    """同一件事在 CLI 这一层：不能在交给 build_plan 之前按 id 去重。"""
+    from atm import cli, tmux
+    from atm import index as index_mod
+
+    save = tmp_path / "last"
+    save.write_text(save_line(full="claude -r github"), encoding="utf-8")
+    monkeypatch.setattr(restore, "save_path", lambda: save)
+    monkeypatch.setattr(tmux, "has_server", lambda: True)
+    monkeypatch.setattr(tmux, "list_panes", lambda: (make_pane(),))
+    monkeypatch.setattr(restore, "current_session", lambda: "main")
+    twins = (
+        make_entry("a", name="github"),
+        make_entry("b", name="github"),
+        make_entry("b", source=Source.CODEX),
+    )
+    monkeypatch.setattr(index_mod, "build", lambda **kw: index_mod.SessionIndex(twins, None))
+    monkeypatch.setattr(restore, "dispatch", lambda *a, **k: pytest.fail("认不准不该投递"))
+
+    assert cli.main(["restore", "--print"]) == cli.EXIT_OK
+    assert "atm resume" in capsys.readouterr().out
+
+
+def test_names_are_only_matched_within_the_same_source() -> None:
+    (saved,) = restore.parse_save(save_line(full="claude -r github"))
+    codex_named_github = make_entry(CODEX_ID, source=Source.CODEX, name="github")
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(codex_named_github))
+    assert item.state == "no-session"
+
+
+def test_a_search_term_that_is_not_a_session_name_is_reported_not_guessed() -> None:
+    """`claude -r foo` 在 claude 里是「带搜索词开选择器」，不是精确名字 —— atm 不猜，报出来。"""
+    (saved,) = restore.parse_save(save_line(full="claude -r git"))
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(make_entry(name="github")))
+    assert item.state == "no-session"
+    assert "会话名" in restore.describe((item,))
 
 
 def test_plan_honours_the_target_filter() -> None:
     text = "\n".join([save_line(session="main"), save_line(session="work")])
     saved = restore.parse_save(text)
     panes = (make_pane(session="main"), make_pane(pane_id="%9", session="work"))
-    entries = {CLAUDE_ID: make_entry()}
+    entries = (make_entry(),)
     assert len(restore.build_plan(saved, panes, entries, target="main")) == 1
     assert len(restore.build_plan(saved, panes, entries, target=None)) == 2
 
@@ -188,7 +494,7 @@ def test_describe_says_why_each_skipped_one_is_skipped() -> None:
     text = "\n".join([save_line(pane="1"), save_line(pane="2"), save_line(pane="3", window="9")])
     saved = restore.parse_save(text)
     panes = (make_pane("%1", pane=1), make_pane("%2", pane=2, command="claude"))
-    items = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    items = restore.build_plan(saved, panes, (make_entry(),))
 
     text_out = restore.describe(items)
 
@@ -212,7 +518,7 @@ def test_executes_only_ready_items_and_never_steals_focus(monkeypatch) -> None:
     text = "\n".join([save_line(pane="1"), save_line(pane="2")])
     saved = restore.parse_save(text)
     panes = (make_pane("%1", pane=1), make_pane("%2", pane=2, command="claude"))
-    items = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    items = restore.build_plan(saved, panes, (make_entry(),))
 
     notes = restore.execute(items)
 
@@ -237,7 +543,7 @@ def test_one_failure_does_not_stop_the_rest(monkeypatch) -> None:
     text = "\n".join([save_line(pane="1"), save_line(pane="2")])
     saved = restore.parse_save(text)
     panes = (make_pane("%1", pane=1), make_pane("%2", pane=2))
-    items = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    items = restore.build_plan(saved, panes, (make_entry(),))
 
     notes = restore.execute(items)
 
@@ -296,6 +602,85 @@ def test_missing_save_file_is_a_clear_error(tmp_path: Path, monkeypatch, capsys)
     monkeypatch.setattr(restore, "save_path", lambda: tmp_path / "nope")
     assert cli.main(["restore"]) == cli.EXIT_ERROR
     assert "读不到" in capsys.readouterr().out
+
+
+def test_save_file_option_reads_that_file_and_says_which(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    from atm import cli, tmux
+    from atm import index as index_mod
+
+    chosen = tmp_path / "tmux_resurrect_20260914T225445.txt"
+    chosen.write_text(save_line(), encoding="utf-8")
+    monkeypatch.setattr(restore, "save_path", lambda: pytest.fail("给了 --save-file 就不该读 last"))
+    monkeypatch.setattr(tmux, "has_server", lambda: True)
+    monkeypatch.setattr(tmux, "list_panes", lambda: (make_pane(),))
+    monkeypatch.setattr(restore, "current_session", lambda: "main")
+    monkeypatch.setattr(
+        index_mod, "build", lambda **kw: index_mod.SessionIndex((make_entry(),), None)
+    )
+    monkeypatch.setattr(restore, "dispatch", lambda *a, **k: pytest.fail("--print 不该投递"))
+
+    assert cli.main(["restore", "--print", "--save-file", str(chosen)]) == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert str(chosen) in out and "将恢复 1 条" in out
+
+
+def test_an_empty_last_points_at_the_newest_older_save_with_sessions(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    from atm import cli, tmux
+
+    before = tmp_path / "tmux_resurrect_20260914T225445.txt"
+    before.write_text(save_line(full="claude -r github"), encoding="utf-8")
+    after = tmp_path / "tmux_resurrect_20260915T094159.txt"
+    after.write_text(save_line(command="bash", full=""), encoding="utf-8")
+    last = tmp_path / "last"
+    last.symlink_to(after.name)
+    monkeypatch.setattr(restore, "save_path", lambda: last)
+    monkeypatch.setattr(tmux, "has_server", lambda: True)
+
+    assert cli.main(["restore"]) == cli.EXIT_OK
+    assert f"atm restore --save-file {before}" in capsys.readouterr().out
+
+
+def test_boot_mode_refuses_a_save_file_instead_of_silently_ignoring_it(monkeypatch, capsys) -> None:
+    from atm import cli
+
+    monkeypatch.setattr(restore, "dispatch", lambda *a, **k: pytest.fail("不该投递"))
+    assert cli.main(["restore", "--boot", "--save-file", "/tmp/x"]) == cli.EXIT_ERROR
+    assert "--save-file" in capsys.readouterr().out
+
+
+def test_a_corrupt_older_save_does_not_stop_the_search(tmp_path: Path) -> None:
+    """非法 UTF-8 曾经抛 UnicodeDecodeError，后面正常的存档就不再检查了（codex 复核 P2）。"""
+    good = tmp_path / "tmux_resurrect_20260913T100000.txt"
+    good.write_text(save_line(full="claude -r wsl"), encoding="utf-8")
+    corrupt = tmp_path / "tmux_resurrect_20260914T225445.txt"
+    corrupt.write_bytes(b"pane\t\xff\xfe broken\n")
+    assert restore.newest_restorable_save(tmp_path) == good
+
+
+def test_boot_mode_logs_why_nothing_was_restored(tmp_path: Path, monkeypatch) -> None:
+    """开机没人看着：同名认不准时，候选只能在日志里查到。"""
+    from atm import cli, tmux
+    from atm import index as index_mod
+
+    save = tmp_path / "last"
+    save.write_text(save_line(full="claude -r video"), encoding="utf-8")
+    log = tmp_path / "restore.log"
+    monkeypatch.setattr(restore, "save_path", lambda: save)
+    monkeypatch.setattr(restore, "log_path", lambda: log)
+    monkeypatch.setattr(tmux, "list_panes", lambda: (make_pane(),))
+    twins = (make_entry("a", name="video"), make_entry("b", name="video", day=11))
+    monkeypatch.setattr(index_mod, "build", lambda **kw: index_mod.SessionIndex(twins, None))
+    monkeypatch.setattr(restore, "boot_gate", lambda cfg, **kw: restore.Gate(True, "ok"))
+    monkeypatch.setattr("atm.config.load", lambda *a, **k: cfg_on())
+    monkeypatch.setattr(restore, "dispatch", lambda *a, **k: pytest.fail("认不准不该投递"))
+
+    assert cli.main(["restore", "--boot"]) == cli.EXIT_OK
+    text = log.read_text(encoding="utf-8")
+    assert "atm resume" in text and "a  09-10" in text and "b  09-11" in text
 
 
 # ---------------------------------------------------------------- 开机恢复的闸门
@@ -386,7 +771,7 @@ def test_execute_stops_when_memory_drops_below_the_floor(tmp_path: Path, monkeyp
     text = "\n".join([save_line(pane="1"), save_line(pane="2"), save_line(pane="3")])
     saved = restore.parse_save(text)
     panes = tuple(make_pane(f"%{i}", pane=i) for i in (1, 2, 3))
-    items = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    items = restore.build_plan(saved, panes, (make_entry(),))
 
     # 第一条之前还够，投完就跌破下限
     sizes = iter([10**8, 1_000, 1_000])
@@ -407,7 +792,7 @@ def test_progress_counts_failures_too(monkeypatch) -> None:
     )
     saved = restore.parse_save("\n".join([save_line(pane="1"), save_line(pane="2")]))
     panes = (make_pane("%1", pane=1), make_pane("%2", pane=2))
-    items = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    items = restore.build_plan(saved, panes, (make_entry(),))
 
     seen: list[int] = []
     restore.execute(items, on_done=seen.append)
@@ -514,6 +899,32 @@ def test_doctor_flags_on_boot_that_is_configured_but_inert(
     assert "钩子" in out
     # 钩子现在由 atm 自己写，所以指的是「跑 install」，不再让用户手工粘
     assert "atm install" in out
+
+
+def test_doctor_flags_a_save_whose_ai_panes_atm_cannot_restore(tmp_path: Path, capsys) -> None:
+    """2026-09-15：存档里 4 个 claude 格子，atm 一条都认不出，doctor 却只报了存档时间。"""
+    from atm import cli
+
+    save = tmp_path / "last"
+    save.write_text(
+        "\n".join(
+            [
+                save_line(pane="1", full="claude -r github"),
+                save_line(pane="2", full="/home/user/.local/bin/claude agents"),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    cli._report_save_contents(save)
+    assert "❌ 2 个格子只有 1 个" in capsys.readouterr().out
+
+    save.write_text(save_line(full="claude -r github"), encoding="utf-8")
+    cli._report_save_contents(save)
+    assert "命令行里都带着" in capsys.readouterr().out
+
+    save.write_text(save_line(command="bash", full=""), encoding="utf-8")
+    cli._report_save_contents(save)
+    assert capsys.readouterr().out == ""  # 没有 AI 格子就不说话
 
 
 # ----------------------------------------- 钩子有自己的块，不再受「谁管 tpm」影响

@@ -322,7 +322,48 @@ def test_claude_reads_custom_title_as_name(claude_root: Path) -> None:
     entry = claude.parse(FileRef.from_path(path))
     assert entry is not None
     assert entry.name == "sample-project"
+    assert entry.raw_name == "sample-project"
     assert entry.title == "推断出来的标题"  # 名字不覆盖标题，两者并存
+
+
+def test_claude_keeps_the_raw_name_next_to_the_cleaned_one(claude_root: Path) -> None:
+    """name 是清洗过给人看的；atm restore 认身份要比原文（`# github` 不等于 `github`）。"""
+    path = write_jsonl(
+        claude_root / "-home-user-demo" / "33334444-0000-0000-0000-000000000000.jsonl",
+        [
+            {"type": "custom-title", "customTitle": "# github", "sessionId": "33334444"},
+            {"type": "user", "cwd": "/home/user/demo", "message": {"content": "随便问点什么"}},
+        ],
+    )
+    entry = claude.parse(FileRef.from_path(path))
+    assert entry is not None
+    assert (entry.name, entry.raw_name) == ("github", "# github")
+
+
+def test_claude_latest_raw_name_scans_the_whole_file(claude_root: Path) -> None:
+    """头尾窗口看不见中间的改名；atm restore 确认身份时整份扫（codex 复核第四轮）。"""
+    path = write_jsonl(
+        claude_root / "-home-user-demo" / "55556666-0000-0000-0000-000000000000.jsonl",
+        [
+            {"type": "custom-title", "customTitle": "github"},
+            {"type": "user", "cwd": "/home/user/demo", "message": {"content": "问点什么"}},
+            {"type": "custom-title", "customTitle": "wsl"},
+            {"type": "user", "message": {"content": 'type 写成 "custom-title" 的普通消息'}},
+        ],
+    )
+    assert claude.latest_raw_name(str(path)) == "wsl"
+    assert claude.latest_raw_name(str(path.with_name("missing.jsonl"))) is None
+
+
+def test_claude_latest_raw_name_sees_an_escaped_type(tmp_path: Path) -> None:
+    """`"\\u0063ustom-title"` 是合法 JSON；预过滤漏掉它就会拿过期名字认身份（codex 复核第五轮）。"""
+    path = tmp_path / "s.jsonl"
+    path.write_text(
+        '{"type":"custom-title","customTitle":"github"}\n'
+        '{"type":"\\u0063ustom-title","customTitle":"wsl"}\n',
+        encoding="utf-8",
+    )
+    assert claude.latest_raw_name(str(path)) == "wsl"
 
 
 def test_claude_name_is_none_when_unnamed(claude_session: Path) -> None:
@@ -476,6 +517,7 @@ def test_pi_session_info_becomes_name(pi_root: Path) -> None:
 
     assert entry is not None
     assert entry.name == "Refactor auth module"
+    assert entry.raw_name == "Refactor auth module"
 
 
 def test_pi_takes_latest_rename(pi_root: Path) -> None:
@@ -493,6 +535,43 @@ def test_pi_takes_latest_rename(pi_root: Path) -> None:
 
     assert entry is not None
     assert entry.name == "新名字"
+    assert entry.raw_name == "新名字"  # 原文和清洗后的名字必须来自同一次改名
+
+
+def test_pi_latest_raw_name_scans_the_whole_file(pi_root: Path) -> None:
+    path = _pi_file(
+        pi_root,
+        "abc12345",
+        extra=[
+            {"type": "session_info", "name": "github"},
+            _pi_user("随便问点什么"),
+            {"type": "session_info", "name": "wsl"},
+        ],
+    )
+    assert pi.latest_raw_name(str(path)) == "wsl"
+
+
+def test_pi_latest_raw_name_sees_an_escaped_type(tmp_path: Path) -> None:
+    path = tmp_path / "s.jsonl"
+    path.write_text(
+        '{"type":"session_info","name":"github"}\n{"type":"\\u0073ession_info","name":"wsl"}\n',
+        encoding="utf-8",
+    )
+    assert pi.latest_raw_name(str(path)) == "wsl"
+
+
+def test_latest_raw_name_survives_a_pathologically_nested_line(tmp_path: Path) -> None:
+    """嵌套上万层的一行 JSON 会让 json.loads 抛 RecursionError。
+
+    整次恢复不能被一行这样的记录带走（2026-09-15 codex 复核第六轮）。
+    """
+    nested = '{"a":' * 20000 + '"\\u0061"' + "}" * 20000
+    path = tmp_path / "s.jsonl"
+    path.write_text(
+        '{"type":"custom-title","customTitle":"github"}\n' + nested + "\n", encoding="utf-8"
+    )
+    assert claude.latest_raw_name(str(path)) == "github"
+    assert pi.latest_raw_name(str(path)) is None
 
 
 def test_pi_tolerates_corrupt_lines(pi_root: Path) -> None:

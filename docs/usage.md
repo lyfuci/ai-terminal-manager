@@ -66,6 +66,7 @@ atm restore -t work          # a different session; `-t work:1` narrows it to on
 atm restore --all            # every session in the save file
 atm restore --print          # just show the plan
 atm restore -y               # skip the confirmation
+atm restore --save-file PATH # restore from a specific save instead of `last`
 ```
 
 The plan says what will happen to every line, including the ones it will not touch:
@@ -79,6 +80,18 @@ Leaving these 2 alone:
   main:1.2  * github  -- skipped: something is already running in that pane
   main:2.1  old work  -- skipped: that pane no longer exists in the layout
 ```
+
+**Which panes it can fill.** Any pane whose saved command line names a session: atm's own `claude --resume <id>`,
+or what you typed yourself, such as `claude -r github` — a short flag followed by a session name set with `/rename` or
+`claude -n`. Names are looked up in the index, within the same CLI and the same directory — the scope `claude -r`
+itself searches — and only when that name is the last thing on the command line. A name followed by more words is shown as unclear
+instead: the save file has lost the quotes, so atm cannot tell where the name ends. If more than one session has that name, atm
+does not pick one: the plan lists the candidates so you can `atm resume <id>` the right one. A pane started as a plain `claude` carries nothing to resume, so it stays empty —
+`atm doctor` says so when the latest save has AI panes atm cannot restore.
+
+**If `last` has already been replaced.** Once tmux is back, the next autosave overwrites `last` — and if the panes are
+still empty shells by then, that save has no sessions in it. `atm restore` notices and points at the newest older save
+that does: `atm restore --save-file <that file>`.
 
 **A pane that is running something is never overwritten** — that is the one invariant this command is built around.
 Restores go out serially (three CLIs each reading a 20MB+ transcript at the same moment is a real spike), through

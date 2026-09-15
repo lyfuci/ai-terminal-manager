@@ -25,13 +25,18 @@ tmux-resurrect 重启后能把布局搭回来（窗口、分格、每格 cwd）�
 
     pane  main  1  1  :*  1  ✳ github  :/home/sean  1  claude  :/home/…/claude --resume <uuid>
      0     1    2  3   4  5      6           7      8     9                  10
+
+第 10 列记的是**用户实际敲的**命令行，所以两种写法都得认：atm 自己投递的 `claude --resume <uuid>`，
+和手敲的 `claude -r github`（短参数 + 会话名）。名字在规划时回查索引（`resolve`）。
+2026-09-15 真机上的 claude 格子全是后一种（或没带恢复参数的 `claude agents`），atm 只认前一种，
+于是每份存档都解析出 0 条 —— 用户第三次重启后没能恢复。
 """
 
 from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -41,6 +46,8 @@ from . import tmux
 from .dispatch import RESUME_PROGRAMS, DispatchError, DispatchTarget, MemoryLimit, dispatch
 from .i18n import _
 from .model import SessionEntry, Source
+from .sources import claude as claude_source
+from .sources import pi as pi_source
 from .tmux import Pane
 
 _BOOT_ID = Path("/proc/sys/kernel/random/boot_id")
@@ -49,7 +56,17 @@ _MEMINFO = Path("/proc/meminfo")
 # 存档里 pane 行至少要有这么多列才敢解析
 _MIN_FIELDS = 11
 _SESSION_FIELD, _WINDOW_FIELD, _PANE_FIELD = 1, 2, 5
-_TITLE_FIELD, _CWD_FIELD, _COMMAND_FIELD = 6, 7, 10
+_COMMAND_FIELD = 10
+_ACTIVE_VALUES = ("0", "1")
+
+# 恢复参数的短写法。RESUME_PROGRAMS 记的是 atm 投递时用的长写法，存档里却是用户手敲的原样。
+# 实测 `claude --help`：`-r, --resume [value]`；`gemini --help`：`-r, --resume`；
+# `opencode --help`：`-s, --session`。codex 是子命令 `resume`，没有短写法；pi 本机没装，不猜。
+_SHORT_FLAGS: dict[Source, str] = {
+    Source.CLAUDE: "-r",
+    Source.GEMINI: "-r",
+    Source.OPENCODE: "-s",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +80,11 @@ class SavedPane:
     title: str
     cwd: str
     source: Source
+    # 恢复参数后面那个词：atm 投递的是 id，手敲的常常是会话名（`claude -r github`）
     session_id: str
+    # 恢复参数后面的**整段**。存档里引号已经丢了（`claude -r "my project"` 记成 `-r my project`），
+    # 所以只凭第一个词判断不了名字到哪为止 —— `name_reference` 靠它判断后面还有没有别的词。
+    ref_tail: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,8 +93,10 @@ class Item:
 
     saved: SavedPane
     pane_id: str | None  # 对应的活格子；None = 布局里已经没有这一格
-    entry: SessionEntry | None  # 索引里的会话；None = 会话文件已经没了
-    state: str  # ready / occupied / no-pane / no-session
+    entry: SessionEntry | None  # 认准的那条会话；None = 没找到或认不准
+    state: str  # ready / occupied / no-pane / no-session / ambiguous / unclear
+    # 同名会话不止一条时的全部候选（state == "ambiguous"），列给人自己挑
+    candidates: tuple[SessionEntry, ...] = ()
 
     @property
     def ready(self) -> bool:
@@ -86,56 +109,138 @@ def save_path() -> Path:
     return persist.save_dir() / "last"
 
 
+def _pane_columns(fields: list[str]) -> tuple[str, str, str] | None:
+    """一行 pane 的 (标题, cwd, 当时的程序名)。只认下面两种结构，别的返回 None。
+
+    正常行：      `… 5:pane  6:标题  7::cwd  8:active  9:程序  10::命令行`
+    标题为空的行：`… 5:pane  6::cwd  7:active  8:程序  9:pid  10::命令行`
+
+    后一种是真机语料（resurrect 3.4）：空标题那列没了，程序后面多出一列 pid，总列数不变。
+    平时没有标题的空 shell 格子就是这样；2026-09-15 server 退出途中写的存档里连 claude 格子也是
+    （推测是进程正在退、标题已被清空，没有单独验证）。按整组结构判断，而不是只看某一列的前缀。
+    """
+    if len(fields) < _MIN_FIELDS or not fields[_COMMAND_FIELD].startswith(":"):
+        return None
+    if fields[7].startswith(":") and fields[8] in _ACTIVE_VALUES:
+        return fields[6], fields[7][1:], fields[9]
+    if fields[6].startswith(":") and fields[7] in _ACTIVE_VALUES and fields[9].isdigit():
+        return "", fields[6][1:], fields[8]
+    return None
+
+
 def parse_save(text: str) -> tuple[SavedPane, ...]:
     """从存档文本里挑出「能恢复的会话」。认不出的行安静跳过。"""
     out: list[SavedPane] = []
     for line in text.splitlines():
         fields = line.split("\t")
-        if not fields or fields[0] != "pane" or len(fields) < _MIN_FIELDS:
+        if fields[0] != "pane":
             continue
-        command = fields[_COMMAND_FIELD].lstrip(":")
-        found = _session_of(command)
+        columns = _pane_columns(fields)
+        if columns is None:
+            continue
+        found = _session_of(fields[_COMMAND_FIELD].lstrip(":"))
         if found is None:
             continue
-        source, session_id = found
+        source, session_id, ref_tail = found
         session = fields[_SESSION_FIELD]
         window = fields[_WINDOW_FIELD]
         pane = fields[_PANE_FIELD]
         if not (session and window and pane):
             continue
+        title, cwd, _program = columns
         out.append(
             SavedPane(
                 target=f"{session}:{window}.{pane}",
                 session=session,
                 window=window,
                 pane=pane,
-                title=fields[_TITLE_FIELD],
-                cwd=fields[_CWD_FIELD].lstrip(":"),
+                title=title,
+                cwd=cwd,
                 source=source,
                 session_id=session_id,
+                ref_tail=ref_tail,
             )
         )
     return tuple(out)
 
 
-def _session_of(command: str) -> tuple[Source, str] | None:
-    """`/path/to/claude --resume <id>` → (Source.CLAUDE, id)。
+def _session_of(command: str) -> tuple[Source, str, str] | None:
+    """命令行 → (来源, 恢复参数后第一个词, 恢复参数后整段)。
+
+    `/path/to/claude --resume <id>` → (Source.CLAUDE, id, id)。
+    手敲的也认：短写法 `claude -r my project` → (Source.CLAUDE, "my", "my project")，
+    以及 `--resume=<值>`。遇到 `--` 就停：之后是传给程序的位置参数，不是恢复参数。
 
     恢复参数各家不一样（`--resume` / `resume` / `--session`），统一从 RESUME_PROGRAMS 反查，
-    这样加了新来源这里不用改。
+    这样加了新来源这里不用改；短写法见 `_SHORT_FLAGS`。
     """
     words = command.split()
-    if len(words) < 3:
+    if len(words) < 2:
         return None
     program = PurePosixPath(words[0]).name
     for source, argv in RESUME_PROGRAMS.items():
         if argv[0] != program:
             continue
-        flag = argv[1]
-        if flag in words[1:]:
-            index = words.index(flag, 1)
-            if index + 1 < len(words):
-                return source, words[index + 1]
+        long_flag = argv[1]
+        flags = {long_flag, _SHORT_FLAGS.get(source, long_flag)}
+        for index, word in enumerate(words[1:], start=1):
+            if word == "--":
+                break
+            rest = words[index + 1 :]
+            if long_flag.startswith("--") and word.startswith(f"{long_flag}="):
+                value = word[len(long_flag) + 1 :]
+                if value:
+                    return source, value, " ".join([value, *rest])
+                continue
+            # `claude -r --verbose`：-r 没带值（打开选择器），后面是别的参数，不是会话
+            if word in flags and rest and not rest[0].startswith("-"):
+                return source, rest[0], " ".join(rest)
+    return None
+
+
+def count_ai_panes(text: str) -> int:
+    """存档里在跑 AI CLI 的格子数，不管认不认得出会话。doctor 拿它和 `parse_save` 的条数对比。
+
+    命令行列和程序列**任一**是 AI CLI 就算：server 退出途中写的存档里，有的格子命令行已经丢了
+    （被挤成了单独一行），程序列却还是 claude —— 只看命令行会漏掉它，doctor 就会误报「都认得出」。
+    """
+    programs = {argv[0] for argv in RESUME_PROGRAMS.values()}
+    count = 0
+    for line in text.splitlines():
+        fields = line.split("\t")
+        if fields[0] != "pane" or len(fields) < _MIN_FIELDS:
+            continue
+        words = fields[_COMMAND_FIELD].lstrip(":").split()
+        names = {PurePosixPath(words[0]).name} if words else set()
+        columns = _pane_columns(fields)
+        if columns is not None:
+            names.add(columns[2])
+        if names & programs:
+            count += 1
+    return count
+
+
+def newest_restorable_save(directory: Path, *, skip: Path | None = None) -> Path | None:
+    """目录里最新的一份「解析得出会话」的历史存档。没有就是 None。
+
+    `last` 会被每次自动存档替换：重启后格子还空着时再存一次，新的 `last` 里就没有 AI 会话了，
+    `atm restore` 读它只能得到 0 条 —— 而重启前那份还原封不动地躺在目录里。
+    只用来**提示**，不自动换：哪份存档对应用户想要的那一刻，只有用户知道。
+    """
+    try:
+        files = sorted(directory.glob("tmux_resurrect_*.txt"), reverse=True)  # 文件名里是时间戳
+    except OSError:
+        return None
+    skipped = skip.resolve() if skip is not None else None
+    for path in files:
+        try:
+            if path.resolve() == skipped:
+                continue
+            # 坏字节替换掉而不是抛 UnicodeDecodeError：一份写坏的旧存档不能让后面的都不检查
+            if parse_save(path.read_text(encoding="utf-8", errors="replace")):
+                return path
+        except OSError:
+            continue
     return None
 
 
@@ -149,23 +254,108 @@ def matches(saved: SavedPane, target: str | None) -> bool:
     return not window or saved.window == window
 
 
+def latest_raw_name(entry: SessionEntry) -> str | None:
+    """整份会话文件里**最后一次**改名的原文。这个来源没有会话名、或文件读不到，就是 None。
+
+    索引只读头 256KB 和尾部，中间发生的改名它看不见，`raw_name` 可能是过期的旧名字 ——
+    两个会话互换过名字时，拿过期名字认身份会恢复错会话（2026-09-15 codex 复核第四轮实测）。
+    所以按名字认会话时，同一来源、同一 cwd 的会话都用它整份重扫一遍；
+    没有会话名的来源（codex / gemini / opencode）直接返回 None，不读文件。
+    """
+    if entry.source is Source.CLAUDE:
+        return claude_source.latest_raw_name(entry.path)
+    if entry.source is Source.PI:
+        return pi_source.latest_raw_name(entry.path)
+    return None
+
+
+def resolve(
+    saved: SavedPane,
+    entries: Collection[SessionEntry],
+    *,
+    latest_names: dict[tuple[Source, str], str | None] | None = None,
+) -> tuple[SessionEntry, ...]:
+    """存档里的会话引用 → 索引里的会话。空 = 没找到；一条 = 认准了；多条 = 同名认不准。
+
+    1. **当 id 查**，来源必须一致：claude 的引用不能落到恰好同 id 的别家条目上。
+    2. **当会话名查**（`/rename`、`claude -n` 起的）：引用见 `name_reference`，
+       只在同一来源、**同一个 cwd** 里找（`claude -r <名字>` 自己就只找当前项目目录）。
+       比的是每个会话文件里**最后一次**改名的原文（`latest_raw_name`，整份重扫），
+       **不用索引里的名字**：索引只读头尾，中间改过名就过期了。过期名字既会把
+       已经改名的会话错认成它，也会漏掉改成这个名字的会话，让同名冲突看上去唯一
+       （2026-09-15 codex 复核第四、五轮）。
+    3. **同名不止一条就全部交回**，由调用方报「认不准」。不按更新时间挑：那比的是**现在**的
+       更新时间，存档之后才动过的另一个同名会话会被错选（2026-09-15 codex 复核指出）。
+
+    这里交回一条就会被当成 ready 直接投递（开机模式没人确认），所以宁可认不出，不能认错。
+    `claude -r <搜索词>` 在 claude 里是「带搜索词开选择器」，不是精确名字 —— 查不到就是查不到。
+    """
+    for entry in entries:
+        if entry.id == saved.session_id and entry.source is saved.source:
+            return (entry,)
+    name = name_reference(saved)
+    if name is None or not saved.cwd:
+        return ()
+    cwd = os.path.normpath(saved.cwd)
+    # 同一次规划里多个格子共用这张表：每个会话文件最多扫一遍
+    latest = {} if latest_names is None else latest_names
+    matched: list[SessionEntry] = []
+    for entry in entries:
+        if entry.source is not saved.source or os.path.normpath(entry.cwd) != cwd:
+            continue
+        key = (entry.source, entry.id)
+        if key not in latest:
+            latest[key] = latest_raw_name(entry)
+        if latest[key] == name:
+            matched.append(entry)
+    return tuple(matched)
+
+
+def name_reference(saved: SavedPane) -> str | None:
+    """能拿去当会话名比对的引用：恢复参数后面**只有这一个词**时才算，否则 None。
+
+    存档里的命令行已经丢了参数边界（引号没了，连续空格也被合并），所以 `-r` 后面只要还跟着
+    别的东西，就分不清名字到哪为止（2026-09-15 codex 复核，前两版修法都被它举出反例）：
+
+    - `claude -r my project`：可能是名字 `my` 加 prompt `project`，也可能是名字 `my project`；
+    - `claude -r github --verbose`：`--verbose` 可能是选项，
+      也可能是名字 `"github --verbose"` 的一部分。
+
+    认错的代价是把别的会话投进格子（开机模式没人确认），认不出的代价只是让人手动指定一次。
+    所以带空格的名字、后面还跟着参数的名字一律不自动认，由调用方报 `unclear`。
+    """
+    words = saved.ref_tail.split() if saved.ref_tail else [saved.session_id]
+    return words[0] if len(words) == 1 else None
+
+
 def build_plan(
     saved: tuple[SavedPane, ...],
     panes: tuple[Pane, ...],
-    entries: dict[str, SessionEntry],
+    entries: Collection[SessionEntry],
     *,
     target: str | None = None,
 ) -> tuple[Item, ...]:
-    """把存档、活着的格子、会话索引三者对上，得出每一条的状态。"""
+    """把存档、活着的格子、会话索引三者对上，得出每一条的状态。
+
+    `entries` 是索引里的全部条目，**不要先按 id 建字典**：不同来源可能有同一个 id，
+    字典会让后一个覆盖前一个 —— 被覆盖的那条要是正好同名，同名冲突就被藏成了「唯一」，
+    恢复错会话（2026-09-15 codex 复核第六轮）。条目身份一律是 (来源, id)。
+    """
     live = {f"{p.session}:{p.window_index}.{p.pane_index}": p for p in panes}
+    latest_names: dict[tuple[Source, str], str | None] = {}
     items: list[Item] = []
     for entry_saved in saved:
         if not matches(entry_saved, target):
             continue
         pane = live.get(entry_saved.target)
-        session = entries.get(entry_saved.session_id)
+        found = resolve(entry_saved, entries, latest_names=latest_names)
+        session = found[0] if len(found) == 1 else None
         if pane is None:
             state = "no-pane"
+        elif len(found) > 1:
+            state = "ambiguous"  # 同名不止一条：不替用户挑
+        elif session is None and name_reference(entry_saved) is None:
+            state = "unclear"  # 参数边界丢了，分不清会话名到哪为止
         elif session is None:
             state = "no-session"
         elif not pane.is_idle_shell:
@@ -178,6 +368,7 @@ def build_plan(
                 pane_id=pane.id if pane else None,
                 entry=session,
                 state=state,
+                candidates=found if len(found) > 1 else (),
             )
         )
     return tuple(items)
@@ -190,7 +381,12 @@ def describe(items: tuple[Item, ...]) -> str:
     reasons = {
         "occupied": _("跳过：这个格子里已经在跑东西了"),
         "no-pane": _("跳过：布局里没有这一格了"),
-        "no-session": _("跳过：这条会话的记录已经不在了"),
+        "no-session": _("跳过：索引里找不到这条会话（按 id 和会话名都查过）"),
+        "ambiguous": _("跳过：同名会话不止一条，认不准是哪条 —— 用 atm resume <id> 指定："),
+        "unclear": _(
+            "跳过：恢复参数后面还跟着别的词，存档里的引号已经丢了，分不清会话名到哪为止 —— "
+            "用 atm resume <id> 指定"
+        ),
     }
     ready = [i for i in items if i.ready]
     lines = [_("将恢复 {n} 条会话：").format(n=len(ready))] if ready else []
@@ -202,7 +398,11 @@ def describe(items: tuple[Item, ...]) -> str:
         lines.append("")
         lines.append(_("以下 {n} 条不动：").format(n=len(skipped)))
         for item in skipped:
-            lines.append(f"  {item.saved.target}  {item.saved.title}  —— {reasons[item.state]}")
+            label = item.saved.title or item.saved.ref_tail
+            lines.append(f"  {item.saved.target}  {label}  —— {reasons[item.state]}")
+            for entry in item.candidates:
+                # 纯占位符，没有可翻译的自然语言，所以不过 _()
+                lines.append(f"      {entry.id}  {entry.updated_at:%m-%d %H:%M}  {entry.title}")
     return "\n".join(lines)
 
 
