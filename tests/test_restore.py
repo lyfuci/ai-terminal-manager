@@ -354,30 +354,37 @@ def test_a_name_that_only_matches_after_cleaning_is_not_an_identity() -> None:
     assert restore.resolve(saved, _by_id(heading)) == ()
 
 
-def test_a_stale_index_name_is_rechecked_against_the_whole_file(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """索引只读头尾，中间的改名看不见。两个会话互换过名字时，按索引 `github` 会选中 A ——
-    而 A 现在叫 wsl。重扫整份文件后 A 被剔除（2026-09-15 codex 复核第四轮的反例）。
+def test_names_are_checked_against_each_files_latest_rename(tmp_path: Path, monkeypatch) -> None:
+    """比的是整份文件里最后一次改名，不是索引里的名字 —— 索引只读头尾，中间的改名看不见。
+
+    两个方向都出过错（2026-09-15 codex 复核第四、五轮）：过期的旧名会把已经改走名字的会话
+    认成它；改成这个名字的会话在索引里还是旧名，会被漏掉，让同名冲突看上去唯一。
     """
     monkeypatch.setattr(restore, "latest_raw_name", _REAL_LATEST_RAW_NAME)
 
-    def session_file(stem: str, *renames: str) -> Path:
+    def session(stem: str, index_name: str, *renames: str) -> SessionEntry:
         path = tmp_path / f"{stem}.jsonl"
         records = [{"type": "custom-title", "customTitle": n} for n in renames]
         path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
-        return path
+        return replace(make_entry(stem, name=index_name), path=str(path))
 
-    stale_a = replace(make_entry("a", name="github"), path=str(session_file("a", "github", "wsl")))
-    stale_b = replace(make_entry("b", name="wsl"), path=str(session_file("b", "wsl", "github")))
-    current = replace(make_entry("c", name="github"), path=str(session_file("c", "old", "github")))
-    missing = replace(make_entry("d", name="github"), path=str(tmp_path / "gone.jsonl"))
     (saved,) = restore.parse_save(save_line(full="claude -r github"))
 
-    # A 过期被剔除；B 在索引里还是旧名，找不回来 —— 结果是没找到，而不是认错
-    assert restore.resolve(saved, _by_id(stale_a, stale_b)) == ()
-    # 最后一次改名确实是 github 的才算；文件读不到的不算
-    assert restore.resolve(saved, _by_id(stale_a, current, missing)) == (current,)
+    # 互换过名字：A 现在叫 wsl、B 现在叫 github，索引里还是反的
+    swapped_a = session("a", "github", "github", "wsl")
+    swapped_b = session("b", "wsl", "wsl", "github")
+    assert restore.resolve(saved, _by_id(swapped_a, swapped_b)) == (swapped_b,)
+
+    # C 一直叫 github，D 后来也改成了 github：这是同名冲突，不能因为索引过期就当成唯一
+    always = session("c", "github", "github")
+    renamed_to = session("d", "wsl", "wsl", "github")
+    (item,) = restore.build_plan((saved,), (make_pane(),), _by_id(always, renamed_to))
+    assert item.state == "ambiguous"
+    assert {e.id for e in item.candidates} == {"c", "d"}
+
+    # 文件读不到的不算
+    gone = replace(make_entry("e", name="github"), path=str(tmp_path / "gone.jsonl"))
+    assert restore.resolve(saved, _by_id(gone)) == ()
 
 
 def test_names_only_match_in_the_same_directory() -> None:

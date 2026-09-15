@@ -355,6 +355,17 @@ def test_claude_latest_raw_name_scans_the_whole_file(claude_root: Path) -> None:
     assert claude.latest_raw_name(str(path.with_name("missing.jsonl"))) is None
 
 
+def test_claude_latest_raw_name_sees_an_escaped_type(tmp_path: Path) -> None:
+    """`"\\u0063ustom-title"` 是合法 JSON；预过滤漏掉它就会拿过期名字认身份（codex 复核第五轮）。"""
+    path = tmp_path / "s.jsonl"
+    path.write_text(
+        '{"type":"custom-title","customTitle":"github"}\n'
+        '{"type":"\\u0063ustom-title","customTitle":"wsl"}\n',
+        encoding="utf-8",
+    )
+    assert claude.latest_raw_name(str(path)) == "wsl"
+
+
 def test_claude_name_is_none_when_unnamed(claude_session: Path) -> None:
     entry = claude.parse(FileRef.from_path(claude_session))
     assert entry is not None
@@ -536,6 +547,15 @@ def test_pi_latest_raw_name_scans_the_whole_file(pi_root: Path) -> None:
             _pi_user("随便问点什么"),
             {"type": "session_info", "name": "wsl"},
         ],
+    )
+    assert pi.latest_raw_name(str(path)) == "wsl"
+
+
+def test_pi_latest_raw_name_sees_an_escaped_type(tmp_path: Path) -> None:
+    path = tmp_path / "s.jsonl"
+    path.write_text(
+        '{"type":"session_info","name":"github"}\n{"type":"\\u0073ession_info","name":"wsl"}\n',
+        encoding="utf-8",
     )
     assert pi.latest_raw_name(str(path)) == "wsl"
 

@@ -259,7 +259,8 @@ def latest_raw_name(entry: SessionEntry) -> str | None:
 
     索引只读头 256KB 和尾部，中间发生的改名它看不见，`raw_name` 可能是过期的旧名字 ——
     两个会话互换过名字时，拿过期名字认身份会恢复错会话（2026-09-15 codex 复核第四轮实测）。
-    所以按名字认出的候选，投递前都用它把整份文件重扫一遍。只扫候选（通常一两个），不扫全部。
+    所以按名字认会话时，同一来源、同一 cwd 的会话都用它整份重扫一遍；
+    没有会话名的来源（codex / gemini / opencode）直接返回 None，不读文件。
     """
     if entry.source is Source.CLAUDE:
         return claude_source.latest_raw_name(entry.path)
@@ -268,14 +269,21 @@ def latest_raw_name(entry: SessionEntry) -> str | None:
     return None
 
 
-def resolve(saved: SavedPane, entries: dict[str, SessionEntry]) -> tuple[SessionEntry, ...]:
+def resolve(
+    saved: SavedPane,
+    entries: dict[str, SessionEntry],
+    *,
+    latest_names: dict[str, str | None] | None = None,
+) -> tuple[SessionEntry, ...]:
     """存档里的会话引用 → 索引里的会话。空 = 没找到；一条 = 认准了；多条 = 同名认不准。
 
     1. **当 id 查**，来源必须一致：claude 的引用不能落到恰好同 id 的别家条目上。
     2. **当会话名查**（`/rename`、`claude -n` 起的）：引用见 `name_reference`，
-       必须和索引里**原样**的名字（`raw_name`，没经过清洗截断）完全相等；
-       只在同一来源、**同一个 cwd** 里找 ——
-       `claude -r <名字>` 自己就只在当前项目目录里找。
+       只在同一来源、**同一个 cwd** 里找（`claude -r <名字>` 自己就只找当前项目目录）。
+       比的是每个会话文件里**最后一次**改名的原文（`latest_raw_name`，整份重扫），
+       **不用索引里的名字**：索引只读头尾，中间改过名就过期了。过期名字既会把
+       已经改名的会话错认成它，也会漏掉改成这个名字的会话，让同名冲突看上去唯一
+       （2026-09-15 codex 复核第四、五轮）。
     3. **同名不止一条就全部交回**，由调用方报「认不准」。不按更新时间挑：那比的是**现在**的
        更新时间，存档之后才动过的另一个同名会话会被错选（2026-09-15 codex 复核指出）。
 
@@ -289,14 +297,17 @@ def resolve(saved: SavedPane, entries: dict[str, SessionEntry]) -> tuple[Session
     if name is None or not saved.cwd:
         return ()
     cwd = os.path.normpath(saved.cwd)
-    candidates = [
-        e
-        for e in entries.values()
-        if e.source is saved.source and e.raw_name == name and os.path.normpath(e.cwd) == cwd
-    ]
-    # 索引里的名字可能过期（中间改过名）：重扫整份文件，确认它**现在**还叫这个名字。
-    # 反方向（索引里是旧名、现在才叫这个名字的会话）找不回来，只会报没找到 —— 不会认错。
-    return tuple(e for e in candidates if latest_raw_name(e) == name)
+    # 同一次规划里多个格子共用这张表：每个会话文件最多扫一遍
+    latest = {} if latest_names is None else latest_names
+    matched: list[SessionEntry] = []
+    for entry in entries.values():
+        if entry.source is not saved.source or os.path.normpath(entry.cwd) != cwd:
+            continue
+        if entry.id not in latest:
+            latest[entry.id] = latest_raw_name(entry)
+        if latest[entry.id] == name:
+            matched.append(entry)
+    return tuple(matched)
 
 
 def name_reference(saved: SavedPane) -> str | None:
@@ -325,12 +336,13 @@ def build_plan(
 ) -> tuple[Item, ...]:
     """把存档、活着的格子、会话索引三者对上，得出每一条的状态。"""
     live = {f"{p.session}:{p.window_index}.{p.pane_index}": p for p in panes}
+    latest_names: dict[str, str | None] = {}
     items: list[Item] = []
     for entry_saved in saved:
         if not matches(entry_saved, target):
             continue
         pane = live.get(entry_saved.target)
-        found = resolve(entry_saved, entries)
+        found = resolve(entry_saved, entries, latest_names=latest_names)
         session = found[0] if len(found) == 1 else None
         if pane is None:
             state = "no-pane"

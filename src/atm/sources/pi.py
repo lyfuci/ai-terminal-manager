@@ -154,7 +154,8 @@ def latest_raw_name(path: str) -> str | None:
     try:
         with open(path, "rb") as fh:  # noqa: PTH123 — 和 jsonl.py 一致，逐行流式读
             for line in fh:
-                if b'"session_info"' not in line:
+                # 同 claude.py：只找原样会漏掉 `"session_info"` 这种合法转义
+                if b'"session_info"' not in line and b"\\u" not in line:
                     continue
                 record = loads_or_none(line)
                 if not isinstance(record, dict) or record.get("type") != "session_info":

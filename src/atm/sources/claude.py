@@ -189,13 +189,16 @@ def latest_raw_name(path: str) -> str | None:
 
     不走头尾窗口：中间发生的改名只有整份扫才看得见。atm restore 按名字认会话时拿它确认
     索引里的名字没过期 —— 只对候选调用，不在建索引时用。
-    逐行流式读、先按字节找 `"custom-title"` 再解析 JSON：会话文件可能很大，没必要每行都 json.loads。
+    逐行流式读，先做一道**不会漏行**的字节预过滤再解析 JSON：会话文件可能很大。
     """
     name: str | None = None
     try:
         with open(path, "rb") as fh:  # noqa: PTH123 — 和 jsonl.py 一致，逐行流式读
             for line in fh:
-                if b'"custom-title"' not in line:
+                # "custom-title" 不含引号、反斜杠、控制字符，JSON 里它只可能原样出现，
+                # 或者用 \uXXXX 转义（`"custom-title"` 是合法的）。两样都没有的行才能跳过 ——
+                # 只找原样会漏掉转义写法，拿过期名字认身份（2026-09-15 codex 复核第五轮）。
+                if b'"custom-title"' not in line and b"\\u" not in line:
                     continue
                 record = loads_or_none(line)
                 if not isinstance(record, dict) or record.get("type") != "custom-title":
