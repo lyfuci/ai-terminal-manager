@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -271,9 +271,9 @@ def latest_raw_name(entry: SessionEntry) -> str | None:
 
 def resolve(
     saved: SavedPane,
-    entries: dict[str, SessionEntry],
+    entries: Collection[SessionEntry],
     *,
-    latest_names: dict[str, str | None] | None = None,
+    latest_names: dict[tuple[Source, str], str | None] | None = None,
 ) -> tuple[SessionEntry, ...]:
     """存档里的会话引用 → 索引里的会话。空 = 没找到；一条 = 认准了；多条 = 同名认不准。
 
@@ -290,9 +290,9 @@ def resolve(
     这里交回一条就会被当成 ready 直接投递（开机模式没人确认），所以宁可认不出，不能认错。
     `claude -r <搜索词>` 在 claude 里是「带搜索词开选择器」，不是精确名字 —— 查不到就是查不到。
     """
-    by_id = entries.get(saved.session_id)
-    if by_id is not None and by_id.source is saved.source:
-        return (by_id,)
+    for entry in entries:
+        if entry.id == saved.session_id and entry.source is saved.source:
+            return (entry,)
     name = name_reference(saved)
     if name is None or not saved.cwd:
         return ()
@@ -300,12 +300,13 @@ def resolve(
     # 同一次规划里多个格子共用这张表：每个会话文件最多扫一遍
     latest = {} if latest_names is None else latest_names
     matched: list[SessionEntry] = []
-    for entry in entries.values():
+    for entry in entries:
         if entry.source is not saved.source or os.path.normpath(entry.cwd) != cwd:
             continue
-        if entry.id not in latest:
-            latest[entry.id] = latest_raw_name(entry)
-        if latest[entry.id] == name:
+        key = (entry.source, entry.id)
+        if key not in latest:
+            latest[key] = latest_raw_name(entry)
+        if latest[key] == name:
             matched.append(entry)
     return tuple(matched)
 
@@ -330,13 +331,18 @@ def name_reference(saved: SavedPane) -> str | None:
 def build_plan(
     saved: tuple[SavedPane, ...],
     panes: tuple[Pane, ...],
-    entries: dict[str, SessionEntry],
+    entries: Collection[SessionEntry],
     *,
     target: str | None = None,
 ) -> tuple[Item, ...]:
-    """把存档、活着的格子、会话索引三者对上，得出每一条的状态。"""
+    """把存档、活着的格子、会话索引三者对上，得出每一条的状态。
+
+    `entries` 是索引里的全部条目，**不要先按 id 建字典**：不同来源可能有同一个 id，
+    字典会让后一个覆盖前一个 —— 被覆盖的那条要是正好同名，同名冲突就被藏成了「唯一」，
+    恢复错会话（2026-09-15 codex 复核第六轮）。条目身份一律是 (来源, id)。
+    """
     live = {f"{p.session}:{p.window_index}.{p.pane_index}": p for p in panes}
-    latest_names: dict[str, str | None] = {}
+    latest_names: dict[tuple[Source, str], str | None] = {}
     items: list[Item] = []
     for entry_saved in saved:
         if not matches(entry_saved, target):

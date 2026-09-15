@@ -551,7 +551,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             print(_("不在 tmux 里，认不出该恢复哪个会话。用 -t <会话名> 或 --all。"))
             return EXIT_ERROR
 
-    entries = {e.id: e for e in index_mod.build().entries}
+    entries = index_mod.build().entries  # 不按 id 建字典：跨来源同 id 会互相覆盖，藏住同名冲突
     items = restore.build_plan(saved, tmux.list_panes(), entries, target=target)
     print(restore.describe(items))
 
@@ -589,7 +589,7 @@ def _cmd_restore_boot(restore) -> int:
         restore.append_log([_("读不到 resurrect 存档 {path}：{exc}").format(path=path, exc=exc)])
         return EXIT_OK
 
-    entries = {e.id: e for e in index_mod.build().entries}
+    entries = index_mod.build().entries  # 不按 id 建字典：跨来源同 id 会互相覆盖，藏住同名冲突
     items = restore.build_plan(saved, tmux.list_panes(), entries, target=None)
     ready = tuple(i for i in items if i.ready)
     # 计划原样进日志：没人看着，跳过的每一条（尤其同名认不准的候选）只能事后在这里查

@@ -560,6 +560,20 @@ def test_pi_latest_raw_name_sees_an_escaped_type(tmp_path: Path) -> None:
     assert pi.latest_raw_name(str(path)) == "wsl"
 
 
+def test_latest_raw_name_survives_a_pathologically_nested_line(tmp_path: Path) -> None:
+    """嵌套上万层的一行 JSON 会让 json.loads 抛 RecursionError。
+
+    整次恢复不能被一行这样的记录带走（2026-09-15 codex 复核第六轮）。
+    """
+    nested = '{"a":' * 20000 + '"\\u0061"' + "}" * 20000
+    path = tmp_path / "s.jsonl"
+    path.write_text(
+        '{"type":"custom-title","customTitle":"github"}\n' + nested + "\n", encoding="utf-8"
+    )
+    assert claude.latest_raw_name(str(path)) == "github"
+    assert pi.latest_raw_name(str(path)) is None
+
+
 def test_pi_tolerates_corrupt_lines(pi_root: Path) -> None:
     path = _pi_file(pi_root, "abc12345", extra=["{ 不是 json", _pi_user("脏行后面的正常消息")])
 

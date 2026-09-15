@@ -262,7 +262,7 @@ def test_target_filter(target: str | None, expected: bool) -> None:
 
 def test_ready_when_the_pane_is_an_idle_shell() -> None:
     saved = restore.parse_save(save_line())
-    (item,) = restore.build_plan(saved, (make_pane(),), {CLAUDE_ID: make_entry()})
+    (item,) = restore.build_plan(saved, (make_pane(),), (make_entry(),))
     assert item.ready and item.pane_id == "%1"
 
 
@@ -270,31 +270,31 @@ def test_never_overwrites_a_pane_that_is_running_something() -> None:
     """这是整个功能最重要的一条：正在用的会话不能被顶掉。"""
     saved = restore.parse_save(save_line())
     panes = (make_pane(command="claude"),)
-    (item,) = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    (item,) = restore.build_plan(saved, panes, (make_entry(),))
     assert item.state == "occupied" and not item.ready
 
 
 def test_reports_a_pane_that_no_longer_exists() -> None:
     saved = restore.parse_save(save_line(window="9", pane="9"))
-    (item,) = restore.build_plan(saved, (make_pane(),), {CLAUDE_ID: make_entry()})
+    (item,) = restore.build_plan(saved, (make_pane(),), (make_entry(),))
     assert item.state == "no-pane" and item.pane_id is None
 
 
 def test_reports_a_session_that_is_gone_from_the_index() -> None:
     saved = restore.parse_save(save_line())
-    (item,) = restore.build_plan(saved, (make_pane(),), {})
+    (item,) = restore.build_plan(saved, (make_pane(),), ())
     assert item.state == "no-session"
 
 
-def _by_id(*entries: SessionEntry) -> dict[str, SessionEntry]:
-    return {e.id: e for e in entries}
+def _entries(*entries: SessionEntry) -> tuple[SessionEntry, ...]:
+    return entries
 
 
 def test_a_session_name_is_looked_up_in_the_index() -> None:
     (saved,) = restore.parse_save(save_line(full="claude -r github"))
     wanted = make_entry(name="github")
     other = make_entry("other-id", name="wsl")
-    (item,) = restore.build_plan((saved,), (make_pane(),), _by_id(wanted, other))
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(wanted, other))
     assert item.ready and item.entry is wanted
 
 
@@ -308,8 +308,8 @@ def test_a_name_with_spaces_matches_the_whole_tail() -> None:
     short = make_entry("a", name="my")
     full = make_entry("b", name="my project")
     # 分不清是 `my` + prompt 还是名字 `my project`：两个都不认，报 unclear
-    assert restore.resolve(saved, _by_id(short, full)) == ()
-    (item,) = restore.build_plan((saved,), (make_pane(),), _by_id(short, full))
+    assert restore.resolve(saved, _entries(short, full)) == ()
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(short, full))
     assert item.state == "unclear" and not item.ready
     assert "分不清会话名到哪为止" in restore.describe((item,))
 
@@ -330,7 +330,7 @@ def test_only_a_name_that_ends_the_command_line_is_an_identity(
     full: str, names: list[str], expected: str | None
 ) -> None:
     (saved,) = restore.parse_save(save_line(full=full))
-    entries = _by_id(*(make_entry(f"id-{i}", name=n) for i, n in enumerate(names)))
+    entries = _entries(*(make_entry(f"id-{i}", name=n) for i, n in enumerate(names)))
     assert [e.name for e in restore.resolve(saved, entries)] == ([expected] if expected else [])
 
 
@@ -342,16 +342,16 @@ def test_a_name_the_index_had_to_truncate_is_never_treated_as_an_identity() -> N
     other_long = "a-very-long-session-name-that-goes-past-forty-columns-two"
     (saved,) = restore.parse_save(save_line(full=f"claude -r {long_name}"))
     other = make_entry(name=clean_title(other_long, limit=40), raw_name=other_long)
-    assert restore.resolve(saved, _by_id(other)) == ()
+    assert restore.resolve(saved, _entries(other)) == ()
     itself = make_entry("self", name=clean_title(long_name, limit=40), raw_name=long_name)
-    assert restore.resolve(saved, _by_id(other, itself)) == (itself,)
+    assert restore.resolve(saved, _entries(other, itself)) == (itself,)
 
 
 def test_a_name_that_only_matches_after_cleaning_is_not_an_identity() -> None:
     """原文 `# github` 在索引里显示成 `github`：`claude -r github` 指的不是它。"""
     (saved,) = restore.parse_save(save_line(full="claude -r github"))
     heading = make_entry(name="github", raw_name="# github")
-    assert restore.resolve(saved, _by_id(heading)) == ()
+    assert restore.resolve(saved, _entries(heading)) == ()
 
 
 def test_names_are_checked_against_each_files_latest_rename(tmp_path: Path, monkeypatch) -> None:
@@ -373,24 +373,24 @@ def test_names_are_checked_against_each_files_latest_rename(tmp_path: Path, monk
     # 互换过名字：A 现在叫 wsl、B 现在叫 github，索引里还是反的
     swapped_a = session("a", "github", "github", "wsl")
     swapped_b = session("b", "wsl", "wsl", "github")
-    assert restore.resolve(saved, _by_id(swapped_a, swapped_b)) == (swapped_b,)
+    assert restore.resolve(saved, _entries(swapped_a, swapped_b)) == (swapped_b,)
 
     # C 一直叫 github，D 后来也改成了 github：这是同名冲突，不能因为索引过期就当成唯一
     always = session("c", "github", "github")
     renamed_to = session("d", "wsl", "wsl", "github")
-    (item,) = restore.build_plan((saved,), (make_pane(),), _by_id(always, renamed_to))
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(always, renamed_to))
     assert item.state == "ambiguous"
     assert {e.id for e in item.candidates} == {"c", "d"}
 
     # 文件读不到的不算
     gone = replace(make_entry("e", name="github"), path=str(tmp_path / "gone.jsonl"))
-    assert restore.resolve(saved, _by_id(gone)) == ()
+    assert restore.resolve(saved, _entries(gone)) == ()
 
 
 def test_names_only_match_in_the_same_directory() -> None:
     """`claude -r <名字>` 自己就只在当前项目目录里找，跨目录匹配等于替它猜。"""
     (saved,) = restore.parse_save(save_line(cwd="/work", full="claude -r video"))
-    assert restore.resolve(saved, _by_id(make_entry(name="video", cwd="/elsewhere"))) == ()
+    assert restore.resolve(saved, _entries(make_entry(name="video", cwd="/elsewhere"))) == ()
 
 
 def test_duplicate_names_are_reported_with_candidates_not_guessed() -> None:
@@ -402,7 +402,7 @@ def test_duplicate_names_are_reported_with_candidates_not_guessed() -> None:
     older = make_entry("a", name="video", cwd="/work", day=12)
     newer = make_entry("b", name="video", cwd="/work", day=13)
 
-    (item,) = restore.build_plan((saved,), (make_pane(),), _by_id(older, newer))
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(older, newer))
 
     assert item.state == "ambiguous" and item.entry is None and not item.ready
     assert {e.id for e in item.candidates} == {"a", "b"}
@@ -415,26 +415,65 @@ def test_an_id_match_wins_over_a_name_match() -> None:
     (saved,) = restore.parse_save(save_line(full=f"claude --resume {CLAUDE_ID}"))
     by_id = make_entry()
     named_like_the_id = make_entry("other-id", name=CLAUDE_ID, day=20)
-    assert restore.resolve(saved, _by_id(by_id, named_like_the_id)) == (by_id,)
+    assert restore.resolve(saved, _entries(by_id, named_like_the_id)) == (by_id,)
 
 
 def test_an_id_from_another_source_does_not_match() -> None:
     """claude 的引用不能落到恰好同 id 的 codex 条目上。"""
     (saved,) = restore.parse_save(save_line(full=f"claude --resume {CODEX_ID}"))
-    assert restore.resolve(saved, _by_id(make_entry(CODEX_ID, source=Source.CODEX))) == ()
+    assert restore.resolve(saved, _entries(make_entry(CODEX_ID, source=Source.CODEX))) == ()
+
+
+def test_the_same_id_in_another_source_does_not_hide_a_duplicate_name() -> None:
+    """条目身份是 (来源, id)。之前 CLI 按 id 建字典，同 id 的 codex 条目把 claude 的 B 覆盖掉，
+    两个都叫 github 的冲突看上去只剩 A（2026-09-15 codex 复核第六轮）。
+    """
+    (saved,) = restore.parse_save(save_line(full="claude -r github"))
+    a = make_entry("a", name="github")
+    b = make_entry("b", name="github")
+    codex_b = make_entry("b", source=Source.CODEX)
+    (item,) = restore.build_plan((saved,), (make_pane(),), (a, b, codex_b))
+    assert item.state == "ambiguous"
+    assert {(e.source, e.id) for e in item.candidates} == {
+        (Source.CLAUDE, "a"),
+        (Source.CLAUDE, "b"),
+    }
+
+
+def test_the_cli_hands_every_index_entry_to_the_plan(tmp_path: Path, monkeypatch, capsys) -> None:
+    """同一件事在 CLI 这一层：不能在交给 build_plan 之前按 id 去重。"""
+    from atm import cli, tmux
+    from atm import index as index_mod
+
+    save = tmp_path / "last"
+    save.write_text(save_line(full="claude -r github"), encoding="utf-8")
+    monkeypatch.setattr(restore, "save_path", lambda: save)
+    monkeypatch.setattr(tmux, "has_server", lambda: True)
+    monkeypatch.setattr(tmux, "list_panes", lambda: (make_pane(),))
+    monkeypatch.setattr(restore, "current_session", lambda: "main")
+    twins = (
+        make_entry("a", name="github"),
+        make_entry("b", name="github"),
+        make_entry("b", source=Source.CODEX),
+    )
+    monkeypatch.setattr(index_mod, "build", lambda **kw: index_mod.SessionIndex(twins, None))
+    monkeypatch.setattr(restore, "dispatch", lambda *a, **k: pytest.fail("认不准不该投递"))
+
+    assert cli.main(["restore", "--print"]) == cli.EXIT_OK
+    assert "atm resume" in capsys.readouterr().out
 
 
 def test_names_are_only_matched_within_the_same_source() -> None:
     (saved,) = restore.parse_save(save_line(full="claude -r github"))
     codex_named_github = make_entry(CODEX_ID, source=Source.CODEX, name="github")
-    (item,) = restore.build_plan((saved,), (make_pane(),), _by_id(codex_named_github))
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(codex_named_github))
     assert item.state == "no-session"
 
 
 def test_a_search_term_that_is_not_a_session_name_is_reported_not_guessed() -> None:
     """`claude -r foo` 在 claude 里是「带搜索词开选择器」，不是精确名字 —— atm 不猜，报出来。"""
     (saved,) = restore.parse_save(save_line(full="claude -r git"))
-    (item,) = restore.build_plan((saved,), (make_pane(),), _by_id(make_entry(name="github")))
+    (item,) = restore.build_plan((saved,), (make_pane(),), _entries(make_entry(name="github")))
     assert item.state == "no-session"
     assert "会话名" in restore.describe((item,))
 
@@ -443,7 +482,7 @@ def test_plan_honours_the_target_filter() -> None:
     text = "\n".join([save_line(session="main"), save_line(session="work")])
     saved = restore.parse_save(text)
     panes = (make_pane(session="main"), make_pane(pane_id="%9", session="work"))
-    entries = {CLAUDE_ID: make_entry()}
+    entries = (make_entry(),)
     assert len(restore.build_plan(saved, panes, entries, target="main")) == 1
     assert len(restore.build_plan(saved, panes, entries, target=None)) == 2
 
@@ -455,7 +494,7 @@ def test_describe_says_why_each_skipped_one_is_skipped() -> None:
     text = "\n".join([save_line(pane="1"), save_line(pane="2"), save_line(pane="3", window="9")])
     saved = restore.parse_save(text)
     panes = (make_pane("%1", pane=1), make_pane("%2", pane=2, command="claude"))
-    items = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    items = restore.build_plan(saved, panes, (make_entry(),))
 
     text_out = restore.describe(items)
 
@@ -479,7 +518,7 @@ def test_executes_only_ready_items_and_never_steals_focus(monkeypatch) -> None:
     text = "\n".join([save_line(pane="1"), save_line(pane="2")])
     saved = restore.parse_save(text)
     panes = (make_pane("%1", pane=1), make_pane("%2", pane=2, command="claude"))
-    items = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    items = restore.build_plan(saved, panes, (make_entry(),))
 
     notes = restore.execute(items)
 
@@ -504,7 +543,7 @@ def test_one_failure_does_not_stop_the_rest(monkeypatch) -> None:
     text = "\n".join([save_line(pane="1"), save_line(pane="2")])
     saved = restore.parse_save(text)
     panes = (make_pane("%1", pane=1), make_pane("%2", pane=2))
-    items = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    items = restore.build_plan(saved, panes, (make_entry(),))
 
     notes = restore.execute(items)
 
@@ -732,7 +771,7 @@ def test_execute_stops_when_memory_drops_below_the_floor(tmp_path: Path, monkeyp
     text = "\n".join([save_line(pane="1"), save_line(pane="2"), save_line(pane="3")])
     saved = restore.parse_save(text)
     panes = tuple(make_pane(f"%{i}", pane=i) for i in (1, 2, 3))
-    items = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    items = restore.build_plan(saved, panes, (make_entry(),))
 
     # 第一条之前还够，投完就跌破下限
     sizes = iter([10**8, 1_000, 1_000])
@@ -753,7 +792,7 @@ def test_progress_counts_failures_too(monkeypatch) -> None:
     )
     saved = restore.parse_save("\n".join([save_line(pane="1"), save_line(pane="2")]))
     panes = (make_pane("%1", pane=1), make_pane("%2", pane=2))
-    items = restore.build_plan(saved, panes, {CLAUDE_ID: make_entry()})
+    items = restore.build_plan(saved, panes, (make_entry(),))
 
     seen: list[int] = []
     restore.execute(items, on_done=seen.append)
