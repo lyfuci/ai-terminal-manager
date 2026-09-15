@@ -24,7 +24,7 @@ import re
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-from ..jsonl import iter_head_records, iter_tail_records
+from ..jsonl import iter_head_records, iter_tail_records, loads_or_none
 from ..model import UNTITLED, FileRef, SessionEntry, Source
 from ..text import clean_title, is_junk_prompt
 
@@ -143,6 +143,28 @@ def _scan_tail_name(path: str) -> tuple[str, str]:
             name = clean_title(candidate, limit=40)
             raw_name = candidate
     return name, raw_name
+
+
+def latest_raw_name(path: str) -> str | None:
+    """整份文件里**最后一次**改名（`session_info`）的原文。没改过名、或文件读不到，就是 None。
+
+    和 claude.py 的同名函数同一个理由：头尾窗口看不见中间的改名，atm restore 认身份前要整份确认。
+    """
+    name: str | None = None
+    try:
+        with open(path, "rb") as fh:  # noqa: PTH123 — 和 jsonl.py 一致，逐行流式读
+            for line in fh:
+                if b'"session_info"' not in line:
+                    continue
+                record = loads_or_none(line)
+                if not isinstance(record, dict) or record.get("type") != "session_info":
+                    continue
+                candidate = record.get("name")
+                if isinstance(candidate, str) and candidate.strip():
+                    name = candidate
+    except OSError:
+        return None
+    return name
 
 
 def _user_text(record: dict) -> str:

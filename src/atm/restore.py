@@ -46,6 +46,8 @@ from . import tmux
 from .dispatch import RESUME_PROGRAMS, DispatchError, DispatchTarget, MemoryLimit, dispatch
 from .i18n import _
 from .model import SessionEntry, Source
+from .sources import claude as claude_source
+from .sources import pi as pi_source
 from .tmux import Pane
 
 _BOOT_ID = Path("/proc/sys/kernel/random/boot_id")
@@ -252,6 +254,20 @@ def matches(saved: SavedPane, target: str | None) -> bool:
     return not window or saved.window == window
 
 
+def latest_raw_name(entry: SessionEntry) -> str | None:
+    """整份会话文件里**最后一次**改名的原文。这个来源没有会话名、或文件读不到，就是 None。
+
+    索引只读头 256KB 和尾部，中间发生的改名它看不见，`raw_name` 可能是过期的旧名字 ——
+    两个会话互换过名字时，拿过期名字认身份会恢复错会话（2026-09-15 codex 复核第四轮实测）。
+    所以按名字认出的候选，投递前都用它把整份文件重扫一遍。只扫候选（通常一两个），不扫全部。
+    """
+    if entry.source is Source.CLAUDE:
+        return claude_source.latest_raw_name(entry.path)
+    if entry.source is Source.PI:
+        return pi_source.latest_raw_name(entry.path)
+    return None
+
+
 def resolve(saved: SavedPane, entries: dict[str, SessionEntry]) -> tuple[SessionEntry, ...]:
     """存档里的会话引用 → 索引里的会话。空 = 没找到；一条 = 认准了；多条 = 同名认不准。
 
@@ -273,11 +289,14 @@ def resolve(saved: SavedPane, entries: dict[str, SessionEntry]) -> tuple[Session
     if name is None or not saved.cwd:
         return ()
     cwd = os.path.normpath(saved.cwd)
-    return tuple(
+    candidates = [
         e
         for e in entries.values()
         if e.source is saved.source and e.raw_name == name and os.path.normpath(e.cwd) == cwd
-    )
+    ]
+    # 索引里的名字可能过期（中间改过名）：重扫整份文件，确认它**现在**还叫这个名字。
+    # 反方向（索引里是旧名、现在才叫这个名字的会话）找不回来，只会报没找到 —— 不会认错。
+    return tuple(e for e in candidates if latest_raw_name(e) == name)
 
 
 def name_reference(saved: SavedPane) -> str | None:

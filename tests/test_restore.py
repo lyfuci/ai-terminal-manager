@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,6 +19,15 @@ from atm.tmux import Pane
 
 CLAUDE_ID = "1b21e2f4-518e-492a-b1ad-61fbbeb27dec"
 CODEX_ID = "0199c0de-1111-2222-3333-444455556666"
+
+# 真去读会话文件的那个版本。下面的 autouse 夹具默认把它换成「信索引里的 raw_name」，
+# 这样大多数用例不用造真文件；专门测它的用例再换回来。
+_REAL_LATEST_RAW_NAME = restore.latest_raw_name
+
+
+@pytest.fixture(autouse=True)
+def _trust_index_names(monkeypatch):
+    monkeypatch.setattr(restore, "latest_raw_name", lambda entry: entry.raw_name)
 
 
 def save_line(
@@ -341,6 +352,32 @@ def test_a_name_that_only_matches_after_cleaning_is_not_an_identity() -> None:
     (saved,) = restore.parse_save(save_line(full="claude -r github"))
     heading = make_entry(name="github", raw_name="# github")
     assert restore.resolve(saved, _by_id(heading)) == ()
+
+
+def test_a_stale_index_name_is_rechecked_against_the_whole_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """索引只读头尾，中间的改名看不见。两个会话互换过名字时，按索引 `github` 会选中 A ——
+    而 A 现在叫 wsl。重扫整份文件后 A 被剔除（2026-09-15 codex 复核第四轮的反例）。
+    """
+    monkeypatch.setattr(restore, "latest_raw_name", _REAL_LATEST_RAW_NAME)
+
+    def session_file(stem: str, *renames: str) -> Path:
+        path = tmp_path / f"{stem}.jsonl"
+        records = [{"type": "custom-title", "customTitle": n} for n in renames]
+        path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+        return path
+
+    stale_a = replace(make_entry("a", name="github"), path=str(session_file("a", "github", "wsl")))
+    stale_b = replace(make_entry("b", name="wsl"), path=str(session_file("b", "wsl", "github")))
+    current = replace(make_entry("c", name="github"), path=str(session_file("c", "old", "github")))
+    missing = replace(make_entry("d", name="github"), path=str(tmp_path / "gone.jsonl"))
+    (saved,) = restore.parse_save(save_line(full="claude -r github"))
+
+    # A 过期被剔除；B 在索引里还是旧名，找不回来 —— 结果是没找到，而不是认错
+    assert restore.resolve(saved, _by_id(stale_a, stale_b)) == ()
+    # 最后一次改名确实是 github 的才算；文件读不到的不算
+    assert restore.resolve(saved, _by_id(stale_a, current, missing)) == (current,)
 
 
 def test_names_only_match_in_the_same_directory() -> None:

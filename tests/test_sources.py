@@ -340,6 +340,21 @@ def test_claude_keeps_the_raw_name_next_to_the_cleaned_one(claude_root: Path) ->
     assert (entry.name, entry.raw_name) == ("github", "# github")
 
 
+def test_claude_latest_raw_name_scans_the_whole_file(claude_root: Path) -> None:
+    """头尾窗口看不见中间的改名；atm restore 确认身份时整份扫（codex 复核第四轮）。"""
+    path = write_jsonl(
+        claude_root / "-home-user-demo" / "55556666-0000-0000-0000-000000000000.jsonl",
+        [
+            {"type": "custom-title", "customTitle": "github"},
+            {"type": "user", "cwd": "/home/user/demo", "message": {"content": "问点什么"}},
+            {"type": "custom-title", "customTitle": "wsl"},
+            {"type": "user", "message": {"content": 'type 写成 "custom-title" 的普通消息'}},
+        ],
+    )
+    assert claude.latest_raw_name(str(path)) == "wsl"
+    assert claude.latest_raw_name(str(path.with_name("missing.jsonl"))) is None
+
+
 def test_claude_name_is_none_when_unnamed(claude_session: Path) -> None:
     entry = claude.parse(FileRef.from_path(claude_session))
     assert entry is not None
@@ -510,6 +525,19 @@ def test_pi_takes_latest_rename(pi_root: Path) -> None:
     assert entry is not None
     assert entry.name == "新名字"
     assert entry.raw_name == "新名字"  # 原文和清洗后的名字必须来自同一次改名
+
+
+def test_pi_latest_raw_name_scans_the_whole_file(pi_root: Path) -> None:
+    path = _pi_file(
+        pi_root,
+        "abc12345",
+        extra=[
+            {"type": "session_info", "name": "github"},
+            _pi_user("随便问点什么"),
+            {"type": "session_info", "name": "wsl"},
+        ],
+    )
+    assert pi.latest_raw_name(str(path)) == "wsl"
 
 
 def test_pi_tolerates_corrupt_lines(pi_root: Path) -> None:

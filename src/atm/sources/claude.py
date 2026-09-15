@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-from ..jsonl import DEFAULT_HEAD_BYTES, iter_head_records, iter_tail_records
+from ..jsonl import DEFAULT_HEAD_BYTES, iter_head_records, iter_tail_records, loads_or_none
 from ..model import UNTITLED, FileRef, SessionEntry, Source
 from ..text import clean_title, is_junk_prompt
 
@@ -182,6 +182,30 @@ def _scan_tail(path: str) -> tuple[str, str, str]:
             if isinstance(candidate, str) and candidate.strip():
                 title = clean_title(candidate)
     return name, raw_name, title
+
+
+def latest_raw_name(path: str) -> str | None:
+    """整份文件里**最后一次**改名（`custom-title`）的原文。没改过名、或文件读不到，就是 None。
+
+    不走头尾窗口：中间发生的改名只有整份扫才看得见。atm restore 按名字认会话时拿它确认
+    索引里的名字没过期 —— 只对候选调用，不在建索引时用。
+    逐行流式读、先按字节找 `"custom-title"` 再解析 JSON：会话文件可能很大，没必要每行都 json.loads。
+    """
+    name: str | None = None
+    try:
+        with open(path, "rb") as fh:  # noqa: PTH123 — 和 jsonl.py 一致，逐行流式读
+            for line in fh:
+                if b'"custom-title"' not in line:
+                    continue
+                record = loads_or_none(line)
+                if not isinstance(record, dict) or record.get("type") != "custom-title":
+                    continue
+                candidate = record.get("customTitle")
+                if isinstance(candidate, str) and candidate.strip():
+                    name = candidate
+    except OSError:
+        return None
+    return name
 
 
 def _user_text(record: dict) -> str:
