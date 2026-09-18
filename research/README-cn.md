@@ -262,3 +262,6 @@ Windows GUI / 控制模式解析器 / 布局同步全部蒸发。2026-09-05 起 
 - 2026-09-18 **格子健康**（`atm health`、侧栏 `⚠` 标记、卡顿日志 `~/.local/state/atm/health.jsonl`）：
   用户反馈有些格子跑完命令会卡死，atm 一声不吭。经 `#{pane_pid}` 把每格对到它自己的 cgroup；按 PSI、
   `memory.events.local` 的 high 速率、连续两次采样都在 D 状态的进程判定。为什么只看 PSI 不够见第 11 条坑。
+- 2026-09-18 **后台盯梢进程**（0.11.1）：0.11.0 的提醒只在侧栏里跑，而用户很少开着侧栏——真机上卡了没提示、
+  统计文件一次都没写。现在 `atm install` 在块里加 `run-shell -b '<atm> health --watch'`。隔离 socket 上实测：
+  不在任何 pane 里的进程 `display-message` 会报 `no current client`，所以改成 `list-clients` 后逐个 `-c`。

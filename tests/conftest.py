@@ -188,3 +188,6 @@ def _no_real_pane_health(monkeypatch):
     from atm import cli
 
     monkeypatch.setattr(cli, "_health_panes", lambda: ())
+    real_hint = cli._watch_hint
+    monkeypatch.setattr(cli, "_watch_hint", lambda: None)
+    return real_hint

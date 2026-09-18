@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import os
@@ -330,6 +331,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_health.add_argument("--all", action="store_true", help=_("正常的格子也列出来"))
     p_health.add_argument("--days", type=float, default=7.0, help=_("统计最近几天的记录（默认 7）"))
     p_health.add_argument("--json", action="store_true", help=_("机器可读输出"))
+    p_health.add_argument(
+        "--watch",
+        action="store_true",
+        help=_(
+            "常驻后台盯着：有格子卡住就在 tmux 状态栏提醒、记进统计（atm install 让 tmux 起它）"
+        ),
+    )
     p_health.set_defaults(handler=_cmd_health)
 
     p_doctor = sub.add_parser("doctor", help=_("体检：数据源在不在、tmux 通不通"))
@@ -1010,6 +1018,8 @@ def _health_label(pane: Pane) -> str:
 def _cmd_health(args: argparse.Namespace) -> int:
     from . import health
 
+    if args.watch:
+        return _health_watch()
     panes = _health_panes()
     now = health.snapshot([(p.id, p.pid) for p in panes])
     since = datetime.now(tz=UTC).timestamp() - args.days * 86400
@@ -1046,6 +1056,78 @@ def _cmd_health(args: argparse.Namespace) -> int:
     print(_("\n== 最近 {days:g} 天 ==").format(days=args.days))
     _print_health_stats(stats)
     return EXIT_OK
+
+
+# 后台盯梢的节奏和侧栏一样：PSI 是 10 秒平均，D 状态要连着两次 —— 3 秒一采足够。
+_WATCH_SECONDS = 3.0
+# list-panes 连着失败这么多次就认为 tmux server 没了，自己退出（run-shell -b 起的进程
+# 不会随 server 一起死）。
+_WATCH_GIVE_UP = 3
+
+
+def _health_watch() -> int:
+    """`atm health --watch`：不依赖侧栏的卡顿提醒 + 统计。
+
+    由 tmux 配置里的 `run-shell -b` 在 server 启动时拉起（atm install 写的那一行），
+    `atm install` 也会对正在跑的 server 立刻起一个。两把锁：
+    - `watch.lock`：同一时刻只留一个盯梢进程 ——
+      重新 source 配置、重复 install 起的多余进程直接退出；
+    - `health.lock`：和侧栏共用的「记录员」锁，谁拿到谁写日志、弹提醒，同一次卡顿只报一次。
+    atm 升级后（本模块文件被换掉）自己 re-exec 成新版本，不用重启 tmux。
+    静默运行：run-shell -b 的进程一输出东西，tmux 就会把它弹到当前格子上。
+    """
+    import time
+
+    from . import health, sidebar
+
+    log = health.log_path()
+    if health.try_lock(log.with_name("watch.lock")) is None:
+        return EXIT_OK  # 已经有一个在盯了
+    code = Path(health.__file__)
+    stamp = _mtime(code)
+    tracker = health.Tracker()
+    recorder: int | None = None
+    failures = 0
+    while True:
+        if _mtime(code) != stamp:
+            # 升级做到一半（解释器暂时不在）就下一轮再试，别让盯梢进程崩掉
+            with contextlib.suppress(OSError):
+                _reexec_watch()
+        try:
+            panes = sidebar.running_panes(tmux.list_panes())
+            failures = 0
+        except tmux.TmuxError:
+            failures += 1
+            if failures >= _WATCH_GIVE_UP:
+                return EXIT_OK
+            time.sleep(_WATCH_SECONDS)
+            continue
+        if recorder is None:
+            recorder = health.try_lock(log.with_name("health.lock"))
+            if recorder is not None:
+                tracker.log = log
+        result = health.sample([(p.id, p.pid) for p in panes], previous=tracker.last)
+        labels = {p.id: sidebar.pane_label(p) for p in panes}
+        changes = tracker.update(result, labels, now=time.time())
+        if recorder is not None:
+            for text in health.alerts(changes):
+                tmux.display_message_all(text)
+        time.sleep(_WATCH_SECONDS)
+
+
+def _mtime(path: Path) -> float | None:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def _reexec_watch() -> None:
+    """换成新装的 atm 接着盯。
+
+    锁的 fd 不会被继承（Python 默认 non-inheritable），exec 后自动释放。
+    """
+    os.execv(sys.executable, [sys.executable, "-m", "atm", "health", "--watch"])
 
 
 def _print_health_now(panes: Sequence[Pane], now: dict, *, show_all: bool) -> None:
@@ -1087,9 +1169,7 @@ def _print_health_stats(stats: Sequence) -> None:
 
     if not stats:
         print(
-            _("  没有记录。统计由侧栏在后台记（开着侧栏才有）：{path}").format(
-                path=health.log_path()
-            )
+            _("  没有记录。统计由后台盯梢进程（或侧栏）记：{path}").format(path=health.log_path())
         )
         return
     now = datetime.now(tz=UTC).timestamp()
@@ -1123,6 +1203,9 @@ def _report_health(*, days: float, top: int) -> None:
 
     panes = _health_panes()
     _print_health_now(panes, health.snapshot([(p.id, p.pid) for p in panes]), show_all=False)
+    hint = _watch_hint()
+    if hint:
+        print(hint)
     since = datetime.now(tz=UTC).timestamp() - days * 86400
     stats = health.summarize(health.read_log(health.log_path()), since=since)
     if stats:
@@ -1433,7 +1516,40 @@ def _cmd_update(args: argparse.Namespace) -> int:
             return EXIT_ERROR
         shown = _installed_version_line()
     print(_("完成：{v0}").format(v0=shown or _("（跑 atm --version 看版本）")))
+    hint = _watch_hint()
+    if hint:
+        print(hint)
     return EXIT_OK
+
+
+def _watch_hint() -> str | None:
+    """卡顿提醒的后台进程没在跑时，告诉用户怎么让它跑起来；在跑 / 用户没装键位块时返回 None。
+
+    `atm update` 只换代码，不重写 ~/.tmux.conf 里的块 —— 从旧版升上来的机器，块里还没有
+    `run-shell -b … health --watch` 那一行，要跑一次 `atm install` 才有。
+    """
+    from . import health
+    from . import install as install_mod
+
+    try:
+        cfg = _config_mod().load()
+        path = Path(cfg.keys_conf_path) if cfg.keys_conf_path else Path.home() / ".tmux.conf"
+        text = install_mod._read(path)
+    except (OSError, RuntimeError, ValueError):
+        return None  # 配置坏了 / 读不了：doctor 别处会报，这里不添乱
+    if not install_mod._has_marker(text):
+        return None  # 用户没让 atm 管 tmux 配置，不催
+    if "health --watch" not in text:
+        return _(
+            "  卡顿提醒还没装进 tmux：跑一次 `atm install -y`（重写 atm 的键位块并立刻起后台进程）"
+        )
+    fd = health.try_lock(health.log_path().with_name("watch.lock"))
+    if fd is None:
+        return None  # 有人拿着锁 = 正在跑
+    os.close(fd)
+    if not tmux.has_server():
+        return None  # 没有 server，下次起 tmux 时会自己拉起
+    return _("  卡顿提醒的后台进程没在跑：`atm install -y` 会立刻起一个")
 
 
 def _installed_version_line() -> str:

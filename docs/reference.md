@@ -177,9 +177,23 @@ PSI 不算。能看出来的是 `memory.events.local` 的 high：464 次/秒。
 父层 `app.slice` 的 `memory.events` high 也是 464/s，`.local` 是 0。第一版读的是 `memory.events`，结果同一个
 `user@` 下所有格子都被标成「回收」。老内核（< 5.7）没有 `.local` 时只对格子自己那层退回 `memory.events`。
 
-**提醒与统计**：侧栏每 3 秒采一次，某格进入问题状态时 `tmux display-message` 一次（不重复），并往
+**提醒与统计**：每 3 秒采一次，某格进入问题状态时提醒一次（不重复），并往
 `$XDG_STATE_HOME/atm/health.jsonl` 写 `started` / `ended`（带时长、原因、读数），超过 1MB 轮转一代。
-每个 window 都可能开侧栏，所以用 `health.lock` 的 `flock` 选出唯一的记录员，别的侧栏只画标记。
+用 `health.lock` 的 `flock` 选出唯一的记录员（盯梢进程或某个侧栏），别的只画标记。
+
+**后台盯梢进程（0.11.1）**：0.11.0 只在侧栏里采样，而用户并不常开侧栏——真机上卡了也没提示，统计文件
+一次都没写过。现在 `atm install` 在键位块末尾加 `run-shell -b '<atm> health --watch'`，tmux server 起来就拉起它，
+`install` 对正在跑的 server 也立刻 `run-shell -b` 一次。几个实测过的点（隔离 socket，`-f /dev/null`）：
+
+- 不在任何 pane 里的进程直接 `display-message` 会报 `no current client`，提示丢了——所以先 `list-clients`
+  再逐个 `display-message -c`。
+- 重复 source 配置 / 重复 install 会起多份：`watch.lock` 拿不到的直接退出，实测连起两次只剩一个 python 进程。
+- `run-shell -b` 起的进程不随 server 退出：`list-panes` 连续失败 3 次就自己退，实测 kill-server 后 10 秒内没了。
+- 静默运行：`run-shell -b` 的进程一输出，tmux 就会把输出弹到当前格子上。
+- `atm update` 换掉代码后，盯梢进程发现 `health.py` 的 mtime 变了就 `execv` 成新版本（锁 fd 默认不继承，
+  exec 后自动释放、新进程重新拿）。
+- `atm update` 不重写 `~/.tmux.conf`，从 0.11.0 升上来的块里还没有这一行：`update` 和 `doctor` 发现
+  「块里没有 / 进程没在跑（`watch.lock` 没人拿）」时提示跑 `atm install -y`。
 `atm health` 按格子名（不是 pane id——重启就变）汇总最近 N 天：次数、合计、最长、最近一次。
 一次性体检（`atm health` / `doctor`）采两次样、隔 1 秒，才分得出 D 是不是持续的、算得出回收速率。
 

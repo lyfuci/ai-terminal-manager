@@ -515,7 +515,6 @@ EN: dict[str, str] = {
     "  全部 {n} 格正常": "  all {n} panes healthy",
     "  最近 {days:g} 天卡得最多的:": "  most stalled in the last {days:g} days:",
     "  没有正在跑的格子（或 tmux server 没起来）": "  no running panes (or the tmux server is not up)",
-    "  没有记录。统计由侧栏在后台记（开着侧栏才有）：{path}": "  no records yet. The sidebar records them in the background (only while it is open): {path}",
     "  读不到格子的 cgroup（需要 cgroup v2 + systemd 管 tmux），没法判断": "  cannot read the panes' cgroups (needs cgroup v2 with tmux under systemd); cannot judge",
     "== 现在 ==": "== Now ==",
     "atm: ⚠ {label} —— {what}（atm health 看详情）": "atm: ⚠ {label} -- {what} (see atm health)",
@@ -533,6 +532,11 @@ EN: dict[str, str] = {
     "超限": "HIGH",
     "这一格正被拖慢或卡住：内存 / IO / CPU / 卡D；atm health 看详情和统计": "this pane is slowed or stuck: memory / IO / CPU / D state; see atm health for details and stats",
     "进程卡在不可中断睡眠（D 状态），Ctrl-C 叫不醒": "a process is stuck in uninterruptible sleep (D state); Ctrl-C will not wake it",
+    "  没有记录。统计由后台盯梢进程（或侧栏）记：{path}": "  no records yet. The background watcher (or the sidebar) records them: {path}",
+    "常驻后台盯着：有格子卡住就在 tmux 状态栏提醒、记进统计（atm install 让 tmux 起它）": "run in the background: announce stalled panes on the tmux status line and record them (atm install makes tmux start it)",
+    "  （后台）atm health --watch  →  格子卡住时在状态栏提醒，并记进统计": "  (background) atm health --watch  ->  announce stalled panes on the status line and record them",
+    "  卡顿提醒的后台进程没在跑：`atm install -y` 会立刻起一个": "  the stall watcher is not running: `atm install -y` starts one now",
+    "  卡顿提醒还没装进 tmux：跑一次 `atm install -y`（重写 atm 的键位块并立刻起后台进程）": "  stall alerts are not in tmux yet: run `atm install -y` once (rewrites atm's key block and starts the watcher now)",
 }
 
 JA: dict[str, str] = {
@@ -1042,7 +1046,6 @@ JA: dict[str, str] = {
     "  全部 {n} 格正常": "  {n} 個のペインはすべて正常",
     "  最近 {days:g} 天卡得最多的:": "  直近 {days:g} 日で最も詰まったペイン:",
     "  没有正在跑的格子（或 tmux server 没起来）": "  実行中のペインがない（または tmux サーバーが起動していない）",
-    "  没有记录。统计由侧栏在后台记（开着侧栏才有）：{path}": "  記録なし。統計はサイドバーがバックグラウンドで記録します（開いている間のみ）: {path}",
     "  读不到格子的 cgroup（需要 cgroup v2 + systemd 管 tmux），没法判断": "  ペインの cgroup を読めない（cgroup v2 と systemd 管理下の tmux が必要）ため判定できない",
     "== 现在 ==": "== 現在 ==",
     "atm: ⚠ {label} —— {what}（atm health 看详情）": "atm: ⚠ {label} —— {what}（詳細は atm health）",
@@ -1060,6 +1063,11 @@ JA: dict[str, str] = {
     "超限": "上限超",
     "这一格正被拖慢或卡住：内存 / IO / CPU / 卡D；atm health 看详情和统计": "このペインは遅い / 固まっている: メモリ / IO / CPU / D 状態。詳細と統計は atm health",
     "进程卡在不可中断睡眠（D 状态），Ctrl-C 叫不醒": "プロセスが割り込み不可スリープ（D 状態）で止まっている。Ctrl-C では戻らない",
+    "  没有记录。统计由后台盯梢进程（或侧栏）记：{path}": "  記録なし。統計はバックグラウンドの監視プロセス（またはサイドバー）が記録します: {path}",
+    "常驻后台盯着：有格子卡住就在 tmux 状态栏提醒、记进统计（atm install 让 tmux 起它）": "バックグラウンドで監視: 詰まったペインを tmux のステータス行で知らせ、統計に記録（atm install が tmux から起動させる）",
+    "  （后台）atm health --watch  →  格子卡住时在状态栏提醒，并记进统计": "  （バックグラウンド）atm health --watch  →  詰まったペインをステータス行で知らせ、統計に記録",
+    "  卡顿提醒的后台进程没在跑：`atm install -y` 会立刻起一个": "  詰まり監視プロセスが動いていない: `atm install -y` ですぐ起動する",
+    "  卡顿提醒还没装进 tmux：跑一次 `atm install -y`（重写 atm 的键位块并立刻起后台进程）": "  詰まり通知がまだ tmux に入っていない: `atm install -y` を一度実行（atm のキーバインドブロックを書き直し、監視プロセスをすぐ起動）",
 }
 
 CATALOG: dict[str, dict[str, str]] = {"en": EN, "ja": JA}

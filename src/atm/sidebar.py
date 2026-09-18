@@ -40,6 +40,14 @@ def is_ai_pane(pane: Pane) -> bool:
     return pane.current_command in AI_COMMANDS
 
 
+def pane_label(pane: Pane) -> str:
+    """一格在列表里怎么称呼：AI 进程用它自设的标题（✳ 任务名），其余用 命令 + 目录名。"""
+    if is_ai_pane(pane) and pane.title:
+        return pane.title
+    base = pane.current_path.rstrip("/").rsplit("/", 1)[-1] or pane.current_path
+    return f"{pane.current_command}  {base}"
+
+
 def running_panes(panes: tuple[Pane, ...], *, exclude: str | None = None) -> tuple[Pane, ...]:
     """侧栏列表：去掉侧栏自己，AI 进程排前面，其余按 session/window/pane 顺序。
 

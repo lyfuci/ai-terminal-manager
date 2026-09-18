@@ -419,3 +419,21 @@ def display_message(message: str) -> None:
     """在 tmux 状态栏上提示一句。失败无所谓，纯锦上添花。"""
     with contextlib.suppress(TmuxError):
         run(["display-message", message])
+
+
+def display_message_all(message: str) -> int:
+    """在**每个**连着的客户端的状态栏上提示一句，返回发出去几个。
+
+    不在任何 pane 里的进程（`run-shell -b` 起的后台进程）直接 `display-message`，
+    tmux 找不到「当前客户端」—— 实测报 `no current client`，提示就丢了。所以逐个 `-c` 指定。
+    """
+    try:
+        clients = [c for c in run(["list-clients", "-F", "#{client_name}"]).splitlines() if c]
+    except TmuxError:
+        return 0
+    sent = 0
+    for client in clients:
+        with contextlib.suppress(TmuxError):
+            run(["display-message", "-c", client, message])
+            sent += 1
+    return sent
