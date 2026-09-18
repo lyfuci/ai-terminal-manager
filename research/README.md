@@ -228,6 +228,14 @@ layout sync all evaporated. Since 2026-09-05, `atm install` installs resurrect +
     (`helpers.sh:execute_hook` calls `get_tmux_option` then), not at config-load time, so it has no ordering
     relationship with `run '…/tpm'`. Measured 2026-09-12.
 
+11. **PSI does not see memory reclaim, and `memory.events` is hierarchical.** A process pinned under
+    `MemoryHigh=64M` with a 200M working set ran ~640× slower (560 → 0.88 passes/s), yet memory PSI some was 1.2%
+    and io 8.7%: it spends its CPU in kernel reclaim (stime 100/s), which PSI does not count as waiting. The signal
+    that shows it is the `high` counter of `memory.events.local` (464/s). Read `.local` on every level: plain
+    `memory.events` also counts descendants, so the parent `app.slice` showed the same 464/s — the first version of
+    `atm health` flagged every pane under `user@` because of it. Measured 2026-09-18,
+    `research/experiments/2026-09-18-pane-health/`.
+
 ## To be confirmed
 
 1. **Cross-device takeover or not** → decides Route A / B. **Still unanswered**, but no longer blocking: Route C has
@@ -300,4 +308,7 @@ See `CLAUDE.md`. The actual project code lives in `src/atm/`.
   also fixed the "if not Claude then Codex" tag bug in `cli.py`, source tags moved into `model.SOURCE_TAG` with a
   guard test. **`atm install` installs resurrect + continuum** (PR #6), and the positioning was written into this
   README: multi-session management on servers / over SSH.
-
+- 2026-09-18 **Pane health** (`atm health`, sidebar `⚠` tags, stall log in `~/.local/state/atm/health.jsonl`):
+  the user reported panes freezing after some commands with no hint from atm. Each pane maps to its own cgroup via
+  `#{pane_pid}`; stalls are classified from PSI, the `memory.events.local` high rate, and processes in D state for
+  two samples in a row. See pitfall 11 for why PSI alone was not enough.

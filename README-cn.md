@@ -73,6 +73,7 @@ uv tool install ./ai-terminal-manager
 
 ```bash
 atm doctor      # 数据源在不在、tmux 通不通、能扫到多少条会话、自动存档钩子有没有真的装上
+atm health      # 哪格此刻在卡（内存回收 / IO / 进程卡在 D 状态），以及最近各格卡过几次、多久
 atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把要写的内容打出来问过你；-y 跳过确认。所有可调的值都在 `atm config` 里
 ```
 
@@ -94,7 +95,7 @@ atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把�
 用 `atm claude` / `atm codex` / `atm pi` 启动，会话就跑在 cgroup 内存闸门里。闸门默认开，数值按机器算
 （`memory.high` / `memory.max` 默认 `auto`：Max = 物理内存 35%、下限 4G，High = Max 的 80%）——
 正常干活的会话不会被限流，失控的那个被兜住。直接敲 `claude` 仍然不受限——前缀即选择。
-`atm doctor` 会报出**正在被限流**的会话。见 [docs/usage-cn.md](docs/usage-cn.md)。
+`atm doctor` 会报出**正在被限流**的会话；侧栏里哪格一卡住（回收 / IO / CPU / 进程卡在 D 状态）就标 `⚠`。见 [docs/usage-cn.md](docs/usage-cn.md)。
 
 tmux 没装的话 `atm install` 给出对应包管理器的安装命令，不替你跑 sudo。
 卸载：`atm uninstall && uv tool uninstall ai-terminal-manager`——只删这两个块，你自己的配置一个字不动，克隆下来的插件也不动。

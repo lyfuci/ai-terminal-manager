@@ -200,6 +200,13 @@ Windows GUI / コントロールモードパーサ / レイアウト同期はす
     `get_tmux_option`）であって設定読み込み時ではないため、`run '…/tpm'` との順序関係がないこと。
     2026-09-12 実測。
 
+11. **PSI はメモリ回収を見ない。`memory.events` は階層で累計される。** ワーキングセット 200M のプロセスを
+    `MemoryHigh=64M` に押し込むと約 640 倍遅くなった（560 → 0.88 回/秒）のに、memory PSI some は 1.2%、io は 8.7%：
+    CPU はカーネルの回収に使われていて（stime 100/s）、PSI はそれを待ちとして数えない。見えるのは
+    `memory.events.local` の `high` カウンタ（464/s）。どの階層でも `.local` を読むこと：素の `memory.events` は
+    子孫も数えるため、親の `app.slice` も同じ 464/s を示した——`atm health` の初版はこのせいで `user@` 配下の全ペインに
+    「回収」を付けた。2026-09-18 実測、`research/experiments/2026-09-18-pane-health/`。
+
 ## 未確認
 
 1. **別デバイス引き継ぎの要否** → ルート A / B を決める。**まだ未回答**だが、もうブロッカーではない：ルート C が使えるものを出荷済み。
@@ -260,4 +267,7 @@ Windows GUI / コントロールモードパーサ / レイアウト同期はす
   **Pi セッションソース**（PR #5）：三つ目の CLI、アダプタは上流ドキュメントから、実機未検証；
   あわせて `cli.py` の「Claude でなければ Codex」というタグのバグを修正、ソースタグを `model.SOURCE_TAG` に集約してガードテストを追加。
   **`atm install` が resurrect + continuum を入れる**（PR #6）、そしてこの README にポジショニングを明記：サーバー / SSH 上のマルチセッション管理。
-
+- 2026-09-18 **ペインの健康状態**（`atm health`、サイドバーの `⚠` 表示、詰まりログ `~/.local/state/atm/health.jsonl`）：
+  コマンドの後にペインが固まるのに atm が何も言わない、という報告から。`#{pane_pid}` で各ペインを自分の cgroup に
+  対応づけ、PSI・`memory.events.local` の high レート・2 回連続で D 状態のプロセスで判定する。PSI だけでは足りない
+  理由は落とし穴 11。

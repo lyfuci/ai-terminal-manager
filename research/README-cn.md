@@ -192,6 +192,12 @@ Windows GUI / 控制模式解析器 / 布局同步全部蒸发。2026-09-05 起 
     （`helpers.sh:execute_hook` 里才 `get_tmux_option`），不是配置加载时，所以它和 `run '…/tpm'`
     没有先后关系。2026-09-12 实测。
 
+11. **PSI 看不见内存回收，`memory.events` 是层级累计的。** 工作集 200M 的进程被压在 `MemoryHigh=64M` 下，
+    慢了约 640 倍（560 → 0.88 轮/秒），memory PSI some 却只有 1.2%、io 8.7%：CPU 全花在内核回收上（stime 100/s），
+    PSI 不把它算作等待。能看出来的是 `memory.events.local` 的 `high` 计数（464/s）。每一层都要读 `.local`：
+    普通的 `memory.events` 连子孙一起算，父层 `app.slice` 同样显示 464/s——`atm health` 第一版就因此把 `user@`
+    下所有格子都标成了「回收」。2026-09-18 实测，`research/experiments/2026-09-18-pane-health/`。
+
 ## 待确认
 
 1. **跨端接管要不要** → 决定 A / B 路线。**仍未回答**，但不再阻塞：路线 C 已经交付可用的东西了。
@@ -253,4 +259,6 @@ Windows GUI / 控制模式解析器 / 布局同步全部蒸发。2026-09-05 起 
   **Pi 会话源**（PR #5）：第三家 CLI，适配器照上游文档写，未经真机验证；
   顺带修了 `cli.py` 里「不是 Claude 就当 Codex」的标记 bug，来源标记收进 `model.SOURCE_TAG` 并加守卫测试。
   **`atm install` 顺手装 resurrect + continuum**（PR #6），并把定位写进本 README：服务器 / SSH 上的多会话管理。
-
+- 2026-09-18 **格子健康**（`atm health`、侧栏 `⚠` 标记、卡顿日志 `~/.local/state/atm/health.jsonl`）：
+  用户反馈有些格子跑完命令会卡死，atm 一声不吭。经 `#{pane_pid}` 把每格对到它自己的 cgroup；按 PSI、
+  `memory.events.local` 的 high 速率、连续两次采样都在 D 状态的进程判定。为什么只看 PSI 不够见第 11 条坑。

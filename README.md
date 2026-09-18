@@ -87,6 +87,7 @@ installed (uv tool / pipx / pip, PyPI or git) and runs the matching upgrade; `at
 
 ```bash
 atm doctor      # are the data sources there, does tmux respond, how many sessions are found, is the autosave hook really installed
+atm health      # which pane is stalled right now (memory reclaim / IO / stuck in D state), and how often each one stalled lately
 atm install     # write key bindings to ~/.tmux.conf + install resurrect/continuum. Prints what it will write and asks first; -y skips the prompt. Everything tunable lives in `atm config`
 ```
 
@@ -112,7 +113,8 @@ Config edits keep environment overrides temporary; reset also reconciles install
 Launch with `atm claude` / `atm codex` / `atm pi` to run inside a cgroup memory gate. It is on by default and
 sized to the machine (`memory.high` / `memory.max` are `auto`: Max = 35% of RAM with a 4G floor, High = 80% of
 Max), so a normal working session is never throttled while a runaway one is contained. Plain `claude` stays
-unlimited — the prefix is the choice. `atm doctor` reports any session that is actually being throttled.
+unlimited — the prefix is the choice. `atm doctor` reports any session that is actually being throttled, and the
+sidebar flags a pane with `⚠` the moment it stalls (reclaim, IO, CPU, or a process stuck in D state).
 See [docs/usage.md](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md).
 
 If tmux isn't installed, `atm install` prints the install command for your package manager; it never runs sudo for

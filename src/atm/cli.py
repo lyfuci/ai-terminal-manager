@@ -324,6 +324,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_prune.add_argument("-n", "--dry-run", action="store_true", help=_("只列出来，不关"))
     p_prune.set_defaults(handler=_cmd_prune)
 
+    p_health = sub.add_parser(
+        "health", help=_("格子健康：哪格正在被拖慢 / 卡住，以及最近卡过几次、多久")
+    )
+    p_health.add_argument("--all", action="store_true", help=_("正常的格子也列出来"))
+    p_health.add_argument("--days", type=float, default=7.0, help=_("统计最近几天的记录（默认 7）"))
+    p_health.add_argument("--json", action="store_true", help=_("机器可读输出"))
+    p_health.set_defaults(handler=_cmd_health)
+
     p_doctor = sub.add_parser("doctor", help=_("体检：数据源在不在、tmux 通不通"))
     p_doctor.add_argument("--json", action="store_true", help=_("机器可读输出"))
     p_doctor.set_defaults(handler=_cmd_doctor)
@@ -970,6 +978,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     print(_("\n== 内存闸门 =="))
     guard_ok = _report_guard()
 
+    print(_("\n== 格子健康 =="))
+    _report_health(days=1.0, top=3)
+
     print(_("\n== 索引 =="))
     idx = report["index"]
     print(f"  {report['indexDescribe']}")
@@ -977,6 +988,147 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print(f"    {SOURCE_TAG.get(Source(source), '??')} {source}: {n}")
     # 没装某家 CLI 不算故障；配置文件读不了才算 —— 那意味着用户以为的限制根本没生效。
     return EXIT_OK if guard_ok else EXIT_ERROR
+
+
+def _health_panes() -> tuple[Pane, ...]:
+    """要体检的格子：和侧栏「运行中」那一栏是同一批。没有 tmux server 就是空。"""
+    from . import sidebar
+
+    if not tmux.has_server():
+        return ()
+    try:
+        return sidebar.running_panes(tmux.list_panes())
+    except tmux.TmuxError:
+        return ()
+
+
+def _health_label(pane: Pane) -> str:
+    what = pane.title if pane.title and pane.title != pane.current_command else ""
+    return f"{pane.label} {pane.current_command} {what}".rstrip()
+
+
+def _cmd_health(args: argparse.Namespace) -> int:
+    from . import health
+
+    panes = _health_panes()
+    now = health.snapshot([(p.id, p.pid) for p in panes])
+    since = datetime.now(tz=UTC).timestamp() - args.days * 86400
+    stats = health.summarize(health.read_log(health.log_path()), since=since)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "panes": [
+                        {"label": p.label, "command": p.current_command, **now[p.id].to_json()}
+                        for p in panes
+                        if p.id in now
+                    ],
+                    "history": [
+                        {
+                            "label": s.label,
+                            "count": s.count,
+                            "seconds": round(s.seconds, 1),
+                            "longest": round(s.longest, 1),
+                            "last": s.last,
+                            "problems": list(s.problems),
+                        }
+                        for s in stats
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return EXIT_OK
+
+    print(_("== 现在 =="))
+    _print_health_now(panes, now, show_all=args.all)
+    print(_("\n== 最近 {days:g} 天 ==").format(days=args.days))
+    _print_health_stats(stats)
+    return EXIT_OK
+
+
+def _print_health_now(panes: Sequence[Pane], now: dict, *, show_all: bool) -> None:
+    from . import health
+
+    if not panes:
+        print(_("  没有正在跑的格子（或 tmux server 没起来）"))
+        return
+    if not any(h.cgroups for h in now.values()):
+        print(_("  读不到格子的 cgroup（需要 cgroup v2 + systemd 管 tmux），没法判断"))
+        return
+    bad = 0
+    for pane in panes:
+        h = now.get(pane.id)
+        if h is None:
+            continue
+        problems = health.problem_order(h.problems)
+        if problems:
+            bad += 1
+        elif not show_all:
+            continue
+        mark = "⚠" if problems else " "
+        why = "；".join(health.describe(c) for c in problems)
+        print(f"  {mark} {truncate_display(_health_label(pane), 40)}")
+        print(f"      {h.summary()}" + (f"  —— {why}" if why else ""))
+        for proc in h.stuck:
+            where = f" @ {proc.wchan}" if proc.wchan else ""
+            print(
+                _("      卡住的进程: {pid} {comm}{where}").format(
+                    pid=proc.pid, comm=proc.comm, where=where
+                )
+            )
+    if bad == 0:
+        print(_("  全部 {n} 格正常").format(n=len(now)))
+
+
+def _print_health_stats(stats: Sequence) -> None:
+    from . import health
+
+    if not stats:
+        print(
+            _("  没有记录。统计由侧栏在后台记（开着侧栏才有）：{path}").format(
+                path=health.log_path()
+            )
+        )
+        return
+    now = datetime.now(tz=UTC).timestamp()
+    for s in stats:
+        what = "/".join(health.short_label(c) for c in s.problems)
+        print(
+            _(
+                "  {label}  {count} 次，合计 {total}，最长 {longest}，最近 {ago} 前  [{what}]"
+            ).format(
+                label=truncate_display(s.label, 30),
+                count=s.count,
+                total=_seconds(s.seconds),
+                longest=_seconds(s.longest),
+                ago=humanize_age(now - s.last),
+                what=what,
+            )
+        )
+
+
+def _seconds(value: float) -> str:
+    if value < 60:
+        return f"{value:.0f}s"
+    if value < 3600:
+        return f"{value / 60:.1f}m"
+    return f"{value / 3600:.1f}h"
+
+
+def _report_health(*, days: float, top: int) -> None:
+    """doctor 里的一段：此刻有没有格子在卡，最近一天哪几格卡得最多。"""
+    from . import health
+
+    panes = _health_panes()
+    _print_health_now(panes, health.snapshot([(p.id, p.pid) for p in panes]), show_all=False)
+    since = datetime.now(tz=UTC).timestamp() - days * 86400
+    stats = health.summarize(health.read_log(health.log_path()), since=since)
+    if stats:
+        print(_("  最近 {days:g} 天卡得最多的:").format(days=days))
+        _print_health_stats(stats[:top])
+        print(_("  → 完整统计：atm health"))
 
 
 def _cmd_install(args: argparse.Namespace) -> int:

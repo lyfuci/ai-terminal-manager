@@ -1,0 +1,20 @@
+== 1. 吞吐：没有限制 ==
+passes/s 560.00
+== 2. MemoryHigh=64M（工作集 200M）==
+  scope memory.events.local high: 464/s
+  父层 app.slice memory.events high: 464/s（层级累计，含子 scope）
+  父层 app.slice memory.events.local high: 0/s
+  utime +6 / stime +135 ticks in 5s（100/s）
+  memory.pressure: some avg10=1.22 avg60=0.28 avg300=0.06 total=236513
+  io.pressure: some avg10=8.67 avg60=1.96 avg300=0.42 total=1392517
+passes/s 0.88
+== 3. 隔离 tmux 里的侧栏 ==
+  -- 进行中（侧栏前 3 行）
+  ── 运行中 1
+  ⚠回收 bash  ai-terminal-manager ←
+  -- 结束后
+  ── 运行中 1
+  sleep  ai-terminal-manager      ←
+  -- 统计日志（去掉 scope 名）
+  {"ts": 1789697414.439, "event": "started", "pane": "%1", "label": "bash  ai-terminal-manager", "problems": ["reclaim"], "detail": "mem 1% io 7% cpu 0% high 400/s(run-*.scope)"}
+  {"ts": 1789697429.605, "event": "ended", "pane": "%1", "label": "bash  ai-terminal-manager", "problems": ["over-high", "reclaim"], "detail": "mem 2% io 16% cpu 0% high 444/s(run-*.scope)", "seconds": 15.2}

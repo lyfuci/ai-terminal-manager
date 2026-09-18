@@ -51,9 +51,11 @@ _PANE_FORMAT = _SEP.join(
         "#{window_id}",
         "#{pane_last}",
         f"#{{{SIDEBAR_OPTION}}}",
+        # ↓ 2026-09-18 格子健康要从 pane 的进程找到它的 cgroup。
+        "#{pane_pid}",
     ]
 )
-_PANE_FIELDS = 16
+_PANE_FIELDS = 17
 
 # 往这些命令里投 send-keys 是安全的（它们在等一行输入）。
 # 别的（vim / claude / codex 本身 / less）说明那个 pane 正忙，投进去会被当成对话内容。
@@ -120,6 +122,8 @@ class Pane:
     last: bool = False
     # 这是不是侧栏自己（见 SIDEBAR_OPTION）。
     is_sidebar: bool = False
+    # pane 里第一个进程（通常是 shell）的 pid；0 = 不知道。格子健康靠它找 cgroup。
+    pid: int = 0
 
     @property
     def label(self) -> str:
@@ -256,6 +260,7 @@ def parse_panes(stdout: str) -> tuple[Pane, ...]:
                     window_id=fields[13],
                     last=fields[14] == "1",
                     is_sidebar=fields[15] == "1",
+                    pid=int(fields[16]) if fields[16].isdigit() else 0,
                 )
             )
         except ValueError:
