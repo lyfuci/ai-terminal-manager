@@ -177,3 +177,14 @@ def write_opencode_db(root: Path, sessions: list[dict], parts: list[dict] | None
     conn.commit()
     conn.close()
     return db
+
+
+@pytest.fixture(autouse=True)
+def _no_real_pane_health(monkeypatch):
+    """doctor 里的「格子健康」会列真 tmux 的 pane、读真 /proc —— 测试里一律当没有格子。
+
+    要测它的用例自己再 monkeypatch 回去。
+    """
+    from atm import cli
+
+    monkeypatch.setattr(cli, "_health_panes", lambda: ())

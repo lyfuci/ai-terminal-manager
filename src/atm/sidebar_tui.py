@@ -18,8 +18,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from . import dispatch as dispatch_mod
+from . import health, sidebar, tmux
 from . import index as index_mod
-from . import sidebar, tmux
 from .dispatch import DispatchError, DispatchTarget, MemoryLimit
 from .fuzzy import ScoredEntry, rank, score
 from .i18n import _
@@ -48,6 +48,9 @@ _KEY_CTRL_X = 24
 _PANE_REFRESH_SECONDS = 1.0
 _INDEX_REFRESH_SECONDS = 15.0
 _STATUS_SECONDS = 6.0
+# 格子健康每 3 秒采一次：PSI 本身是 10 秒平均，采得再勤也不会更准；
+# D 状态要连着两次才算卡住，所以最快 3 秒报出来。
+_HEALTH_SECONDS = 3.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +112,10 @@ class _Sidebar(_Screen):
         self._placing: Placeable | None = None
         self._panes_at = 0.0
         self._index_at = 0.0
+        self._health_at = 0.0
+        self._tracker = health.Tracker()
+        # 多个 window 各开一个侧栏时，只有抢到锁的那个写统计日志、弹提醒。
+        self._recorder: int | None = None
 
     # ------------------------------------------------------------ 主循环
 
@@ -134,6 +141,35 @@ class _Sidebar(_Screen):
         changed |= self._refresh_index()
         if changed:
             self._recompute(keep_cursor=True)
+        self._refresh_health()
+
+    def _refresh_health(self) -> None:
+        """采一次格子健康；有格子新出问题时在 tmux 状态栏提醒一句。"""
+        now = time.monotonic()
+        if now - self._health_at < _HEALTH_SECONDS:
+            return
+        self._health_at = now
+        if self._recorder is None:
+            log = health.log_path()
+            self._recorder = health.try_lock(log.with_name("health.lock"))
+            if self._recorder is not None:
+                self._tracker.log = log
+        panes = sidebar.running_panes(self._panes, exclude=self._self_id)
+        result = health.sample([(p.id, p.pid) for p in panes], previous=self._tracker.last)
+        labels = {p.id: _pane_label(p) for p in panes}
+        changes = self._tracker.update(result, labels, now=time.time())
+        if self._recorder is None:
+            return
+        for change in changes:
+            if change.kind != "started":
+                continue
+            episode = change.episode
+            tmux.display_message(
+                _("atm: ⚠ {label} —— {what}（atm health 看详情）").format(
+                    label=truncate_display(episode.label, 30),
+                    what=health.describe(health.problem_order(episode.problems)[0]),
+                )
+            )
 
     def _refresh_panes(self, *, force: bool = False) -> bool:
         now = time.monotonic()
@@ -186,6 +222,7 @@ class _Sidebar(_Screen):
             ("", ""),
             ("←", _("主格；右侧标窗口名的格子在别的 window（多半是 bg）")),
             (_("粗体"), _("AI 进程（claude / codex / pi）")),
+            ("⚠", _("这一格正被拖慢或卡住：内存 / IO / CPU / 卡D；atm health 看详情和统计")),
         )
 
     def _handle_key(self, key: object, stdscr: curses.window) -> None:
@@ -491,9 +528,19 @@ class _Sidebar(_Screen):
         tail = "←" if row.is_main else ("" if row.here else pane.window_name[:6])
         room = max(0, width - 1 - display_width(tail) - (1 if tail else 0))
         attr = base | (curses.A_BOLD if sidebar.is_ai_pane(pane) else 0)
-        x = self._put(stdscr, y, 0, pad_display(truncate_display(label, room), room), attr)
+        x = 0
+        problems = self._problems(pane.id)
+        if problems:
+            mark = f"⚠{health.short_label(problems[0])} "
+            x = self._put(stdscr, y, 0, mark, base | _color(6) | curses.A_BOLD)
+            room = max(0, room - display_width(mark))
+        x = self._put(stdscr, y, x, pad_display(truncate_display(label, room), room), attr)
         if tail:
             self._put(stdscr, y, x + 1, tail, base | _color(5))
+
+    def _problems(self, pane_id: str) -> tuple[str, ...]:
+        h = self._tracker.last.get(pane_id)
+        return h.problems if h is not None else ()
 
     def _draw_footer(self, stdscr: curses.window, height: int, width: int) -> None:
         if height < 3:
@@ -509,6 +556,9 @@ class _Sidebar(_Screen):
             row = self._selected()
             if isinstance(row, RunningRow):
                 line = f"{row.pane.label}  {row.pane.current_path}"
+                h = self._tracker.last.get(row.pane.id)
+                if h is not None and h.problems:
+                    line = f"⚠ {health.describe(h.problems[0])}  {h.summary()}"
             elif isinstance(row, ScoredEntry):
                 e = row.entry
                 gone = _("⚠目录已删 ") if e.cwd in self._missing else ""

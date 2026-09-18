@@ -187,6 +187,28 @@ claude                         # no prefix = native, no limits at all
 take the machine down; `atm doctor` reports both layers. Details and the numbers behind the defaults:
 [reference.md](reference.md#内存闸门默认开).
 
+## When a pane freezes: `atm health`
+
+Some commands make a pane look frozen — the process is alive, prints nothing, ignores Ctrl-C. atm now tells you
+which pane and why, using numbers the kernel already keeps per pane (each tmux pane is its own systemd scope):
+
+- **Sidebar**: a stalled pane gets a red `⚠` tag — `⚠RECL` (keeps hitting its memory soft limit; CPU goes to
+  reclaim), `⚠D` (a process stuck in uninterruptible sleep for two samples in a row), `⚠HIGH` (above its soft
+  limit), `⚠MEM` / `⚠IO` / `⚠CPU` (PSI stall time). The footer explains the selected one. When a pane *starts*
+  stalling, the tmux status line says so once.
+- **Statistics**: the sidebar logs every stall (start, end, duration, cause) to `~/.local/state/atm/health.jsonl`.
+  With several sidebars open only one records.
+
+```bash
+atm health            # stalled panes right now + per-pane totals for the last 7 days
+atm health --all      # also list healthy panes with their readings
+atm health --days 1   # shorter window; --json for scripts
+```
+
+`atm doctor` includes the same check. Why memory-reclaim rate and not just PSI: a process throttled by
+`MemoryHigh` ran ~640× slower in our measurement while memory PSI stayed at 1–2% — it is busy reclaiming, not
+waiting. Details: [reference.md](reference.md#格子健康哪格在卡2026-09-18).
+
 ## How it works (three-minute version)
 
 **"Remembering state" is really three layers.** atm touches two of them and leaves the third to tmux:

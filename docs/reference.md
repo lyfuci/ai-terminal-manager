@@ -148,6 +148,41 @@ atm prune [-n]                             # 关掉 bg 里空闲的 shell 格子
 `new-window` 默认把你的视图切到新窗口 —— 侧栏从历史恢复时必须 `-d` 后台开再 swap，
 否则你会被带到新窗口里、看到的是被换出去的旧主格，像「弹出了一个全新会话」（实机踩过，已修）。
 
+## 格子健康：哪格在卡（2026-09-18）
+
+起因：用户反馈「有些窗口会因为执行一些命令而卡死」，希望有提醒或统计。卡死的样子是进程活着、不出字、
+Ctrl-C 没反应，atm 原来什么都不说（`doctor` 只报 slice 的累计 high 事件，不知道是哪格、什么时候）。
+
+**每格一个 cgroup**：tmux 在 systemd 下给每个 pane 建一个 `app.slice/tmux-spawn-<uuid>.scope`；atm 投递的会话
+被 `systemd-run` 挪进 `atm.slice/atm-ai.slice/run-*.scope`。从 `#{pane_pid}` 出发把整棵进程树走一遍，收集它们的
+cgroup，就得到「这一格」的全部 cgroup。实测 3 格一次采样约 2ms。
+
+判定（`src/atm/health.py`，阈值都是常量）：
+
+| 标记 | 条件 | 说明 |
+|---|---|---|
+| `⚠卡D` | 同一进程**连续两次**采样都在 D 状态 | 一瞬间的 D（读盘）很正常，不报；报的时候带 `wchan` |
+| `⚠回收` | 这一格的 cgroup 或任一祖先，`memory.events.local` 的 high 每秒涨 ≥ 20 | 见下面的实测 |
+| `⚠超限` | 某一层 `memory.current > memory.high` | 实际很少触发：回收会把 current 压回 high 附近 |
+| `⚠内存` | memory PSI some avg10 ≥ 10% | |
+| `⚠IO` | io PSI some ≥ 40% 或 full ≥ 20% | 编译 / git 就能冲到二三十，所以线放宽 |
+| `⚠CPU` | cpu PSI some ≥ 60% | |
+
+**为什么不能只看 PSI**（`research/experiments/2026-09-18-pane-health/`）：同一段反复摸 200M 内存的 python，
+不限制时 560 轮/秒，放进 `MemoryHigh=64M` 的 scope 里 0.88 轮/秒（慢约 640 倍）。这时 memory PSI some 只有
+1.2%、io 8.7%，但 5 秒里 stime 涨了 135 tick（100/s）——CPU 全耗在内核回收上，是在「干活」不是在「等」，
+PSI 不算。能看出来的是 `memory.events.local` 的 high：464 次/秒。
+
+**必须读 `.local`**：`memory.events` 是层级累计的，子 scope 撞自己的限制也记到每一层祖先头上。实测同一时刻
+父层 `app.slice` 的 `memory.events` high 也是 464/s，`.local` 是 0。第一版读的是 `memory.events`，结果同一个
+`user@` 下所有格子都被标成「回收」。老内核（< 5.7）没有 `.local` 时只对格子自己那层退回 `memory.events`。
+
+**提醒与统计**：侧栏每 3 秒采一次，某格进入问题状态时 `tmux display-message` 一次（不重复），并往
+`$XDG_STATE_HOME/atm/health.jsonl` 写 `started` / `ended`（带时长、原因、读数），超过 1MB 轮转一代。
+每个 window 都可能开侧栏，所以用 `health.lock` 的 `flock` 选出唯一的记录员，别的侧栏只画标记。
+`atm health` 按格子名（不是 pane id——重启就变）汇总最近 N 天：次数、合计、最长、最近一次。
+一次性体检（`atm health` / `doctor`）采两次样、隔 1 秒，才分得出 D 是不是持续的、算得出回收速率。
+
 ## 用
 
 ```bash

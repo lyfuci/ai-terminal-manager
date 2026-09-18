@@ -73,6 +73,7 @@ uv がなければ `pipx install ai-terminal-manager` でも同じ。更新は *
 
 ```bash
 atm doctor      # データソースはあるか、tmux は通るか、何件見つかるか、自動保存フックが本当に入っているか
+atm health      # いま詰まっているペイン（メモリ回収 / IO / D 状態で固まったプロセス）と、最近の詰まり回数・時間
 atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/continuum を入れる。書く内容を先に表示して確認を取る；-y で確認省略。調整できる値はすべて `atm config` に
 ```
 
@@ -96,7 +97,7 @@ atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/contin
 `atm claude` / `atm codex` / `atm pi` で起動すれば、セッションは cgroup のメモリゲート内で動く。ゲートは既定で有効、
 値はマシンに応じて算出（`memory.high` / `memory.max` は既定 `auto`：Max = 物理メモリの 35%・下限 4G、High = Max の 80%）——
 通常作業のセッションはスロットリングされず、暴走したものだけが抑えられる。素の `claude` は制限なしのまま——プレフィックスが選択。
-**実際にスロットリングされている**セッションは `atm doctor` が報告する。詳細は [docs/usage-ja.md](docs/usage-ja.md)。
+**実際にスロットリングされている**セッションは `atm doctor` が報告し、サイドバーは詰まったペイン（回収 / IO / CPU / D 状態）に `⚠` を付ける。詳細は [docs/usage-ja.md](docs/usage-ja.md)。
 
 tmux が入っていなければ `atm install` がパッケージマネージャに応じたインストールコマンドを表示する。sudo は代わりに実行しない。
 アンインストール：`atm uninstall && uv tool uninstall ai-terminal-manager`——この二つのブロックだけを消し、あなた自身の設定は一文字も触らず、clone したプラグインも残す。
