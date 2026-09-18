@@ -192,6 +192,16 @@ PSI 不算。能看出来的是 `memory.events.local` 的 high：464 次/秒。
 - 静默运行：`run-shell -b` 的进程一输出，tmux 就会把输出弹到当前格子上。
 - `atm update` 换掉代码后，盯梢进程发现 `health.py` 的 mtime 变了就 `execv` 成新版本（锁 fd 默认不继承，
   exec 后自动释放、新进程重新拿）。
+- 盯梢进程每轮把各格的状态写进 pane 选项 `@atm_health`（带 tmux 样式，只写变了的）。
+
+**格子状态栏（0.12.0，`prefix + m`）**：`atm health --toggle-border` 把全局 `pane-border-status` 设成 `top`、
+`pane-border-format` 换成「编号 + 标题 …… 右侧 `#{@atm_health}`」，原值先存进 `@atm_border_prev_status` /
+`@atm_border_prev_format`，再按一次原样还回去（实测：用户自己的 `pane-border-format` 关掉后一字不差）。
+选项值里的 `#[fg=red,bold]` 在边框格式里照样生效（隔离 socket 实测，终端输出里是 `ESC[31mESC[1m⚠回收`）。
+没读到 cgroup 的格子不显示任何东西——不知道就不说健康。tmux 做不了半透明，所以不做浮层：浮层（popup）
+打开时会抢走输入，而边框行不挡任何东西、跟着格子走。默认键 `m` 顶掉的是 tmux 自带的 `select-pane -m`
+（标记格子）；只绑小写，`M`（清除标记）不动——为此换键时的解绑改成只解块里原样写着的键，原来会连大写一起解。
+
 - `atm update` 不重写 `~/.tmux.conf`，从 0.11.0 升上来的块里还没有这一行：`update` 和 `doctor` 发现
   「块里没有 / 进程没在跑（`watch.lock` 没人拿）」时提示跑 `atm install -y`。
 `atm health` 按格子名（不是 pane id——重启就变）汇总最近 N 天：次数、合计、最长、最近一次。

@@ -20,7 +20,13 @@ from .i18n import _
 
 _TMUX_FIELDS = ("tmux_mouse", "tmux_focus_events", "tmux_history_limit", "tmux_base_index")
 _TMUX_FIELDS += ("tmux_renumber_windows",)
-_KEY_FIELDS = ("keys_pick", "keys_sidebar", "keys_popup_width", "keys_popup_height")
+_KEY_FIELDS = (
+    "keys_pick",
+    "keys_sidebar",
+    "keys_health",
+    "keys_popup_width",
+    "keys_popup_height",
+)
 _SLICE_FIELDS = ("memory_slice", "memory_slice_high", "memory_slice_max", "memory_user")
 _RESTORE_FIELDS = ("restore_on_boot",)
 

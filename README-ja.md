@@ -79,7 +79,7 @@ atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/contin
 
 `atm install` は二つのことをし、それぞれをマーカーで囲んだブロックとして書く。変更前に自動バックアップ：
 
-- **キーバインドブロック**：四つ——`prefix + a/A` ポップアップ、`prefix + b/B` サイドバー（詳細は [docs/usage-ja.md](docs/usage-ja.md)）。実行中の tmux server に即時反映。キーは変更可：`atm install --key s --sidebar-key g`。
+- **キーバインドブロック**：五つ——`prefix + a/A` ポップアップ、`prefix + b/B` サイドバー、`prefix + m` ペインごとの詰まり表示（詳細は [docs/usage-ja.md](docs/usage-ja.md)）。実行中の tmux server に即時反映。キーは変更可：`atm install --key s --sidebar-key g`。
 - **永続化ブロック**：tpm 経由で **tmux-resurrect + tmux-continuum** を入れ（`~/.tmux/plugins/` に clone）、
   `@continuum-restore` を有効化、10 分ごとに自動保存。再起動後に session / window / pane / cwd が自動で戻る。
   claude / codex を再起動させることは意図的に**しない**——起動時に一斉に立ち上げるとメモリを一瞬で食い尽くす

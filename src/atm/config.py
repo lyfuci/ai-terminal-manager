@@ -70,6 +70,9 @@ class Config:
     keys_conf_path: str = ""
     keys_pick: str = "a"
     keys_sidebar: str = "b"
+    # prefix + 这个键开关「格子状态栏」：每格顶边右侧显示它的健康状态。只绑小写 ——
+    # 默认 m 顶掉的是 tmux 自带的 select-pane -m（标记格子），大写 M（清标记）不动。
+    keys_health: str = "m"
     keys_popup_width: str = "80%"
     keys_popup_height: str = "70%"
     # tmux 常用选项 —— 就是大多数人手写在 ~/.tmux.conf 顶上的那几行。默认全是「不写」：
@@ -118,6 +121,7 @@ KEYS: dict[str, str] = {
     "keys.conf-path": "keys_conf_path",
     "keys.pick": "keys_pick",
     "keys.sidebar": "keys_sidebar",
+    "keys.health": "keys_health",
     "keys.popup-width": "keys_popup_width",
     "keys.popup-height": "keys_popup_height",
     "tmux.mouse": "tmux_mouse",
@@ -141,6 +145,7 @@ _HELP: dict[str, str] = {
     "keys.conf-path": "安装的 tmux 配置路径；空串 = ~/.tmux.conf",
     "keys.pick": "prefix + 这个键唤出选择器（大写 = 只看当前目录）。单个小写字母",
     "keys.sidebar": "prefix + 这个键开关侧栏（大写 = 把当前格子收进后台）。单个小写字母",
+    "keys.health": "prefix + 这个键开关格子状态栏（每格右上角显示卡没卡）。单个小写字母",
     "keys.popup-width": "选择器浮层宽度，给 display-popup -w（如 80% 或 120）",
     "keys.popup-height": "选择器浮层高度，给 display-popup -h（如 70% 或 40）",
     "tmux.mouse": "tmux 鼠标：点格子切焦点、滚轮翻滚动缓冲、拖边框调大小（写进 ~/.tmux.conf）",
@@ -393,7 +398,7 @@ def _coerce(key: str, value: object):
         return s
     if key in ("memory.high", "memory.max", "memory.slice-high", "memory.slice-max"):
         return "auto" if s.lower() == "auto" else validate_size(key, s)
-    if key in ("keys.pick", "keys.sidebar"):
+    if key in ("keys.pick", "keys.sidebar", "keys.health"):
         if not re.match(r"^[a-z]$", s):
             raise ConfigError(
                 _("{key} 只能是单个小写字母，收到 {value!r}（大写留给配套的第二条绑定）").format(
@@ -416,6 +421,13 @@ def validate(cfg: Config) -> None:
         raise ConfigError(
             _("keys.pick 和 keys.sidebar 不能相同（都是 {key!r}）").format(key=cfg.keys_pick)
         )
+    for other in ("keys_pick", "keys_sidebar"):
+        if cfg.keys_health == getattr(cfg, other):
+            raise ConfigError(
+                _("keys.health 和 {other} 不能相同（都是 {key!r}）").format(
+                    other=other.replace("_", "."), key=cfg.keys_health
+                )
+            )
 
 
 # ---------------------------------------------------------------- 启动包装

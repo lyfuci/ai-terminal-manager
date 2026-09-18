@@ -41,6 +41,8 @@ DEFAULT_WIDTH = "80%"
 DEFAULT_HEIGHT = "70%"
 # 侧栏开关键（大写 = 把当前格子收进后台）。tmux 默认没绑 b / B。
 DEFAULT_SIDEBAR_KEY = "b"
+# 格子状态栏开关键。tmux 默认的 m 是 select-pane -m（标记格子），用得很少；只绑小写。
+DEFAULT_HEALTH_KEY = "m"
 
 
 class BindingKind(StrEnum):
@@ -155,6 +157,7 @@ def build_plan(
     cfg: object | None = None,
     key: str | None = None,
     sidebar_key: str | None = None,
+    health_key: str | None = None,
     width: str | None = None,
     height: str | None = None,
 ) -> InstallPlan:
@@ -168,12 +171,18 @@ def build_plan(
 
     key = pick(key, "keys_pick", DEFAULT_KEY)
     sidebar_key = pick(sidebar_key, "keys_sidebar", DEFAULT_SIDEBAR_KEY)
+    health_key = pick(health_key, "keys_health", DEFAULT_HEALTH_KEY)
     width = pick(width, "keys_popup_width", DEFAULT_WIDTH)
     height = pick(height, "keys_popup_height", DEFAULT_HEIGHT)
     validate_key("--key", key)
     validate_key("--sidebar-key", sidebar_key)
     if key == sidebar_key:
         raise ValueError(_("--key 和 --sidebar-key 不能相同（都是 {key!r}）").format(key=key))
+    validate_key("keys.health", health_key)
+    if health_key in (key, sidebar_key):
+        raise ValueError(
+            _("keys.health 不能和选择器 / 侧栏的键相同（都是 {key!r}）").format(key=health_key)
+        )
     path = conf_path or Path.home() / ".tmux.conf"
     atm_command = resolve_atm_command()
 
@@ -204,6 +213,12 @@ def build_plan(
             key=sidebar_key.upper(),
             command=f"{atm_command} park '#{{pane_id}}'",
             description=_("把当前格子收进后台窗口 bg"),
+            kind=BindingKind.SHELL,
+        ),
+        Binding(
+            key=health_key,
+            command=f"{atm_command} health --toggle-border",
+            description=_("格子状态栏：每格右上角显示卡没卡（再按一次关）"),
             kind=BindingKind.SHELL,
         ),
     )
@@ -246,7 +261,7 @@ def apply(plan: InstallPlan, *, live: bool = True) -> InstallResult:
         applied_live, live_error = _apply_live(plan)
         if applied_live:
             # 安装和配置同步共用此顺序；旧键取自实际块，避免配置已改后漏解绑。
-            current = {binding.key.lower() for binding in plan.bindings}
+            current = {binding.key for binding in plan.bindings}
             unbind_live(tuple(k for k in _installed_keys(existing) if k not in current))
 
     return InstallResult(
@@ -272,7 +287,9 @@ def _installed_keys(text: str) -> tuple[str, ...]:
                 and parts[0] == "bind-key"
                 and _VALID_KEY.fullmatch(parts[1].lower())
             ):
-                keys[parts[1].lower()] = None
+                # 原样记下（区分大小写）：块里写了哪条就只解哪条。格子状态栏只绑了小写 m，
+                # 换键时要是连 M 一起解，就把 tmux 自带的「清除标记」也解掉了。
+                keys[parts[1]] = None
     return tuple(keys)
 
 
@@ -289,13 +306,15 @@ def remove(conf_path: Path | None = None) -> tuple[bool, Path | None]:
 
 
 def unbind_live(keys: tuple[str, ...]) -> None:
-    """换键之后把旧键在活着的 server 上解掉（连同大写那条）。失败无所谓，下次起 server 就没了。"""
+    """换键之后把旧键在活着的 server 上解掉。失败无所谓，下次起 server 就没了。
+
+    `keys` 是块里原样写着的键（区分大小写），只解这些。
+    """
     if not tmux.has_server():
         return
     for key in keys:
-        for k in (key, key.upper()):
-            with contextlib.suppress(tmux.TmuxError):
-                tmux.run(["unbind-key", k])
+        with contextlib.suppress(tmux.TmuxError):
+            tmux.run(["unbind-key", key])
 
 
 def _apply_live(plan: InstallPlan) -> tuple[bool, str | None]:

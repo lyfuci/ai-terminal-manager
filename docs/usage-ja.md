@@ -16,6 +16,7 @@
 | `prefix + A` | 同上、ただしカレントディレクトリ（サブディレクトリ含む）のセッションのみ |
 | `prefix + b` | **サイドバー**：閉じていれば最左に全高の一列を開く；開いていればそこへ移動；すでに中なら閉じる |
 | `prefix + B` | 現在の pane をバックグラウンドウィンドウ `bg` に退避——プロセスは動き続け、後でサイドバーから戻せる |
+| `prefix + m` | **ペインのステータス表示**：各 pane の上枠の右に詰まり状態（`✓` / `⚠回収 high 464/s` …）、もう一度押すと消える。tmux 標準の `m`（pane のマーク）を置き換える；`M` はそのまま。キー変更：`atm config keys.health` |
 
 **ポップアップ内**：文字入力であいまい検索、`↑↓` / `^N` `^P` で移動、`Tab` で 全部 / Claude / Codex / Pi / Gemini / opencode を巡回、`⏎` で選択、`Esc` でキャンセル、`F1` / `?`（検索欄が空のとき）でキー一覧。
 選択後は第二段階：全 pane（忙閑状態付き）+「新しく pane を分割」+「新しい window」+「表示のみ」。
@@ -171,7 +172,7 @@ tmux オプションの有効化は引き続き即時適用する。無効化は
 ```bash
 atm config                     # 対話エディタ：↑↓ でキー選択、Enter で編集/切替、s で保存、? でヘルプ；右パネルが選択中の項目を表示言語で説明（形式 / デフォルト / 環境変数 / 由来）（atm config --show は表示のみ）
 atm config memory.high 4G      # ソフト上限：スロットリング + 回収、殺さない。既定 auto = Max の 80%
-atm config keys.pick s         # ピッカーキー（大文字 = 現在のディレクトリのみ）；keys.sidebar、keys.popup-width/-height も。保存で実行中の server に再割り当て
+atm config keys.pick s         # ピッカーキー（大文字 = 現在のディレクトリのみ）；keys.sidebar、keys.health、keys.popup-width/-height も。保存で実行中の server に再割り当て
 atm config tmux.mouse true     # tmux 共通オプション：mouse / focus-events / history-limit / base-index / renumber-windows → ~/.tmux.conf に独立ブロック、即時適用。あなた自身の行が同じオプションを設定していれば、黙って負けるのではなく行番号付きで報告する
 atm config memory.slice-high 20G  # 合計 slice の数値（デフォルト auto = 物理メモリの 50% / 65%）；atm が書いたユニットを書き直し + daemon-reload
 atm config memory.max 8G       # ハード上限：セッションの scope 全体（子プロセス含む）を kill。既定 auto = 物理メモリの 35%・下限 4G

@@ -93,7 +93,7 @@ atm install     # write key bindings to ~/.tmux.conf + install resurrect/continu
 
 `atm install` does two things, each written as its own marker-delimited block, with a backup taken first:
 
-- **Key-binding block**: four bindings — `prefix + a/A` popup, `prefix + b/B` sidebar (details in [docs/usage.md](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md)). Applied to the running tmux server immediately. Keys can be
+- **Key-binding block**: five bindings — `prefix + a/A` popup, `prefix + b/B` sidebar, `prefix + m` per-pane stall status (details in [docs/usage.md](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md)). Applied to the running tmux server immediately. Keys can be
   changed: `atm install --key s --sidebar-key g`.
 - **Persistence block**: installs **tmux-resurrect + tmux-continuum** via tpm (cloned into `~/.tmux/plugins/`),
   turns on `@continuum-restore`, autosaves every 10 minutes. After a reboot, sessions / windows / panes / cwd come

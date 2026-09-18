@@ -16,6 +16,7 @@
 | `prefix + A` | 同上，但只看当前目录（含子目录）的会话 |
 | `prefix + b` | **侧栏**：没开就在最左边开一条通高的；开了就切过去；已经在里面就收起 |
 | `prefix + B` | 把当前格子收进后台窗口 `bg` —— 进程继续跑，之后从侧栏里还能选回来 |
+| `prefix + m` | **格子状态栏**：每格顶边右侧显示它卡没卡（`✓` / `⚠回收 high 464/s` …），再按一次收起。顶掉的是 tmux 自带的 `m`（标记格子），`M` 不动。换键：`atm config keys.health` |
 
 **浮层里**：打字模糊搜索，`↑↓` / `^N` `^P` 移动，`Tab` 在 全部 / Claude / Codex / Pi / Gemini / opencode 之间循环，`⏎` 选中，`Esc` 取消，`F1` / `?`（搜索框为空时）弹出完整键位表。
 选中会话后进第二步：列出所有 pane（带忙闲状态）+「新分一个 pane」+「新开 window」+「只打印」。
@@ -167,7 +168,7 @@ ATM_LANG=en atm --help         # 界面语言：跟系统 LC_ALL / LC_MESSAGES /
 ```bash
 atm config                     # 交互式编辑器：↑↓ 选键，Enter 改/切换，s 保存，? 帮助；右侧面板按界面语言说明选中项（格式 / 默认 / 环境变量 / 来源）（atm config --show 只打印）
 atm config memory.high 4G      # 软上限：节流 + 回收，不杀。默认 auto = Max 的 80%
-atm config keys.pick s         # 选择器键（大写 = 只看当前目录）；还有 keys.sidebar、keys.popup-width/-height。保存即对运行中的 server 重绑
+atm config keys.pick s         # 选择器键（大写 = 只看当前目录）；还有 keys.sidebar、keys.health、keys.popup-width/-height。保存即对运行中的 server 重绑
 atm config tmux.mouse true     # tmux 常用选项：mouse / focus-events / history-limit / base-index / renumber-windows → 写进 ~/.tmux.conf 的独立块，立即生效。你自己的行要是也设了同一个选项，atm 会连行号一起报出来，而不是默默被盖掉
 atm config memory.slice-high 20G  # 总量 slice 的数（默认 auto = 物理内存 50% / 65%）；atm 写的单元会重写 + daemon-reload
 atm config memory.max 8G       # 硬上限：杀整个会话 scope（含子进程）。默认 auto = 物理内存 35%，下限 4G

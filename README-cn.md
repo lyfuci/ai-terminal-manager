@@ -79,7 +79,7 @@ atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把�
 
 `atm install` 做两件事，各自写成一个 marker 包起来的块，改前自动备份：
 
-- **键位块**：四个绑定——`prefix + a/A` 浮层、`prefix + b/B` 侧栏（详见 [docs/usage-cn.md](docs/usage-cn.md)）。对正在跑的 tmux server 立即生效。键位可换：`atm install --key s --sidebar-key g`。
+- **键位块**：五个绑定——`prefix + a/A` 浮层、`prefix + b/B` 侧栏、`prefix + m` 每格卡顿状态（详见 [docs/usage-cn.md](docs/usage-cn.md)）。对正在跑的 tmux server 立即生效。键位可换：`atm install --key s --sidebar-key g`。
 - **持久化块**：经 tpm 装 **tmux-resurrect + tmux-continuum**（克隆到 `~/.tmux/plugins/`），
   开 `@continuum-restore`、10 分钟自动存档。重启后 session / window / pane / cwd 自动搭回来。
   刻意**不**让它重新拉起 claude / codex ——开机批量拉起会瞬间吃光内存（`research/notes/2026-08-12-incident.md` 附三）；

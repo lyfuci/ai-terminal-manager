@@ -275,3 +275,7 @@ Windows GUI / コントロールモードパーサ / レイアウト同期はす
   ほとんど開いていない——実機で固まっても通知がなく、統計ファイルも一度も書かれなかった。`atm install` がブロックに
   `run-shell -b '<atm> health --watch'` を加えるようにした。隔離ソケットで実測：ペインの外のプロセスが
   `display-message` すると `no current client` になるため、`list-clients` してクライアントごとに `-c` で送る。
+- 2026-09-18 **ペインのステータス表示**（0.12.0、`prefix + m`）：監視プロセスが各 pane の状態を pane オプション
+  `@atm_health` に書き、切り替えで `pane-border-status top` と右側にそれを出すフォーマットに替え、もう一度押すと
+  ユーザー自身の枠設定を元に戻す。tmux は半透明にできず popup は入力を奪うので枠の行を使った。キー変更時の unbind は
+  大文字小文字を区別するようにし、`keys.health` を変えても tmux 標準の `M` を外さない。
