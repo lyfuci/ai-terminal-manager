@@ -611,3 +611,21 @@ def problem_order(problems: Iterable[str]) -> tuple[str, ...]:
     """按严重程度排：卡D > 回收 > 超限 > 内存 > IO > CPU。"""
     found = set(problems)
     return tuple(c for c in CODES if c in found) + tuple(sorted(found - set(CODES)))
+
+
+def alerts(changes: Iterable[Change]) -> list[str]:
+    """新出问题的格子各一句提醒（给 tmux 状态栏）。恢复不提醒 —— 那会把提醒刷成噪音。"""
+    from .text import truncate_display
+
+    out = []
+    for change in changes:
+        if change.kind != "started" or not change.episode.problems:
+            continue
+        episode = change.episode
+        out.append(
+            _("atm: ⚠ {label} —— {what}（atm health 看详情）").format(
+                label=truncate_display(episode.label, 30),
+                what=describe(problem_order(episode.problems)[0]),
+            )
+        )
+    return out

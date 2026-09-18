@@ -93,6 +93,8 @@ class InstallPlan:
     already_installed: bool
     conf_exists: bool
     atm_command: str
+    # tmux server 启动时在后台跑的命令（格子卡顿提醒）。空 = 不起。
+    watch_command: str = ""
 
     def describe(self) -> str:
         lines = [_("将写入 {self_conf_path}：").format(self_conf_path=self.conf_path), ""]
@@ -101,6 +103,8 @@ class InstallPlan:
         lines.append(_("绑定说明："))
         for binding in self.bindings:
             lines.append(f"  prefix + {binding.key}  →  {binding.description}")
+        if self.watch_command:
+            lines.append(_("  （后台）atm health --watch  →  格子卡住时在状态栏提醒，并记进统计"))
         if self.already_installed:
             lines.append("")
             lines.append(_("（已存在 atm 配置块，会被整块替换掉，不会重复追加）"))
@@ -204,8 +208,12 @@ def build_plan(
         ),
     )
 
-    body = "\n".join(binding.conf_line() for binding in bindings)
-    block = f"{MARKER_BEGIN}\n{body}\n{MARKER_END}"
+    # 卡顿提醒不能挂在侧栏上：用户不一定开着侧栏（2026-09-18 真机上就没开，卡了也没提示）。
+    # 跟着 tmux server 起一个后台进程；它自己保证只留一份、server 没了自己退。
+    watch_command = f"{atm_command} health --watch"
+    lines = [binding.conf_line() for binding in bindings]
+    lines.append(f"run-shell -b {shlex.quote(watch_command)}")
+    block = f"{MARKER_BEGIN}\n" + "\n".join(lines) + f"\n{MARKER_END}"
 
     existing = _read(path)
     return InstallPlan(
@@ -215,6 +223,7 @@ def build_plan(
         already_installed=_has_marker(existing),
         conf_exists=path.exists(),
         atm_command=atm_command,
+        watch_command=watch_command,
     )
 
 
@@ -300,6 +309,9 @@ def _apply_live(plan: InstallPlan) -> tuple[bool, str | None]:
     try:
         for binding in plan.bindings:
             tmux.run(binding.tmux_args())
+        if plan.watch_command:
+            # 已经有一个在盯的话，新起的这个拿不到锁会立刻退出 —— 重复执行无害。
+            tmux.run(["run-shell", "-b", plan.watch_command])
     except tmux.TmuxError as exc:
         return False, str(exc)
     return True, None

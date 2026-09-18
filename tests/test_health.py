@@ -478,3 +478,170 @@ def test_cmd_health_hides_healthy_panes_unless_all(state, monkeypatch, capsys):
     assert "main:1.2" not in capsys.readouterr().out
     cli.main(["health", "--all"])
     assert "main:1.2" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- atm health --watch
+
+
+def test_alerts_only_for_new_problems():
+    started = health.Change("started", health.Episode("%1", "proj", 0, {health.IO, health.STUCK}))
+    ended = health.Change("ended", health.Episode("%2", "other", 0, {health.IO}), 5)
+    texts = health.alerts([started, ended])
+    assert len(texts) == 1
+    assert "proj" in texts[0]
+    assert health.describe(health.STUCK) in texts[0]  # 按严重程度挑第一个说
+
+
+class _Stop(Exception):
+    pass
+
+
+@pytest.fixture
+def watch_env(state, monkeypatch):
+    """跑 _health_watch 的假环境：tmux 调用、采样、sleep 全部替换，第 N 次 sleep 时停下。"""
+    from atm import cli
+
+    env = {"panes": [(_pane(),)], "health": [], "shown": [], "sleeps": 0, "stop_after": 3}
+
+    def list_panes():
+        item = env["panes"].pop(0) if len(env["panes"]) > 1 else env["panes"][0]
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    def sample(panes, previous=None):
+        return env["health"].pop(0) if env["health"] else {}
+
+    def sleep(_seconds):
+        env["sleeps"] += 1
+        if env["sleeps"] >= env["stop_after"]:
+            raise _Stop
+
+    monkeypatch.setattr(cli.tmux, "list_panes", list_panes)
+    monkeypatch.setattr(cli.tmux, "display_message_all", env["shown"].append)
+    monkeypatch.setattr(health, "sample", sample)
+    monkeypatch.setattr("time.sleep", sleep)
+    return env
+
+
+def test_watch_announces_and_records(watch_env, state):
+    from atm import cli
+
+    bad = {"%1": health.PaneHealth("%1", io=health.Psi(90, 50))}
+    watch_env["health"] = [bad, bad, {"%1": health.PaneHealth("%1")}]
+    with pytest.raises(_Stop):
+        cli._health_watch()
+    assert len(watch_env["shown"]) == 1  # 卡了两轮只提醒一次
+    assert [r["event"] for r in health.read_log(state)] == ["started", "ended"]
+
+
+def test_watch_stays_quiet_when_sidebar_is_recorder(watch_env, state):
+    """侧栏已经是记录员：盯梢进程不重复提醒、不重复记。"""
+    import os
+
+    from atm import cli
+
+    held = health.try_lock(state.with_name("health.lock"))
+    try:
+        watch_env["health"] = [{"%1": health.PaneHealth("%1", io=health.Psi(90, 50))}]
+        with pytest.raises(_Stop):
+            cli._health_watch()
+    finally:
+        os.close(held)
+    assert watch_env["shown"] == []
+    assert not state.exists()
+
+
+def test_watch_single_instance(watch_env, state):
+    import os
+
+    from atm import cli
+
+    held = health.try_lock(state.with_name("watch.lock"))
+    try:
+        assert cli._health_watch() == cli.EXIT_OK  # 立刻退出，一次都没采
+    finally:
+        os.close(held)
+    assert watch_env["sleeps"] == 0
+
+
+def test_watch_exits_when_tmux_server_is_gone(watch_env):
+    from atm import cli
+
+    gone = tmux.TmuxError("no server running")
+    watch_env["panes"] = [gone, gone, gone, gone]
+    watch_env["stop_after"] = 99
+    assert cli._health_watch() == cli.EXIT_OK
+    assert watch_env["sleeps"] == cli._WATCH_GIVE_UP - 1
+
+
+def test_watch_reexecs_after_upgrade(watch_env, monkeypatch):
+    from atm import cli
+
+    stamps = iter([1.0, 1.0, 2.0])
+    monkeypatch.setattr(cli, "_mtime", lambda path: next(stamps))
+
+    class _Reexec(Exception):
+        pass
+
+    def reexec():
+        raise _Reexec
+
+    monkeypatch.setattr(cli, "_reexec_watch", reexec)
+    with pytest.raises(_Reexec):
+        cli._health_watch()
+
+
+@pytest.fixture
+def hint_env(state, tmp_path, monkeypatch, _no_real_pane_health):
+    from atm import cli, config
+
+    monkeypatch.setattr(config, "load", lambda: config.Config())
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(cli.tmux, "has_server", lambda: True)
+    return _no_real_pane_health, tmp_path / ".tmux.conf"
+
+
+def test_watch_hint_silent_without_atm_block(hint_env):
+    hint, conf = hint_env
+    conf.write_text("set -g mouse on\n", encoding="utf-8")
+    assert hint() is None
+
+
+def test_watch_hint_old_block_needs_install(hint_env):
+    from atm.install import MARKER_BEGIN, MARKER_END
+
+    hint, conf = hint_env
+    conf.write_text(f"{MARKER_BEGIN}\nbind-key a run-shell x\n{MARKER_END}\n", encoding="utf-8")
+    assert "atm install -y" in hint()
+
+
+def test_watch_hint_running_vs_not(hint_env, state):
+    import os
+
+    from atm import install
+
+    hint, conf = hint_env
+    install.apply(install.build_plan(conf_path=conf), live=False)
+    assert "atm install -y" in hint()  # 块里有了，但没人拿着 watch.lock
+    held = health.try_lock(state.with_name("watch.lock"))
+    try:
+        assert hint() is None
+    finally:
+        os.close(held)
+
+
+def test_watch_survives_failed_reexec(watch_env, monkeypatch):
+    from atm import cli
+
+    monkeypatch.setattr(cli, "_mtime", lambda path: object())  # 每次都「变了」
+    tries = []
+
+    def reexec():
+        tries.append(1)
+        raise FileNotFoundError("python gone mid-upgrade")
+
+    monkeypatch.setattr(cli, "_reexec_watch", reexec)
+    with pytest.raises(_Stop):
+        cli._health_watch()
+    assert len(tries) == watch_env["stop_after"]  # 每一轮都重试，但一直在采样

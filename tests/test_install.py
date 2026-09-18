@@ -252,3 +252,24 @@ def test_bindings_contain_no_bare_atm_command(tmp_path: Path, monkeypatch) -> No
             continue
         assert str(fake) in line
         assert "'atm " not in line and '"atm ' not in line
+
+
+def test_block_starts_health_watcher(tmp_path: Path) -> None:
+    """卡顿提醒不能依赖侧栏开着：tmux server 起来就在后台起 atm health --watch。"""
+    plan = _plan(tmp_path / ".tmux.conf")
+    lines = plan.block.splitlines()
+    assert lines[-2] == f"run-shell -b {shlex.quote(plan.watch_command)}"
+    assert plan.watch_command.endswith(" health --watch")
+    # 这一行不是 bind-key，不能被当成键位（换键时会拿块里的键去解绑）
+    assert install_mod._installed_keys(plan.block) == ("a", "b")
+
+
+def test_live_apply_starts_watcher_after_bindings(tmp_path: Path, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(install_mod.tmux, "has_server", lambda: True)
+    monkeypatch.setattr(install_mod.tmux, "run", lambda args, **kw: calls.append(args) or "")
+    plan = _plan(tmp_path / ".tmux.conf")
+    result = install_mod.apply(plan)
+    assert result.applied_live
+    assert calls[-1] == ["run-shell", "-b", plan.watch_command]
+    assert all(c[0] == "bind-key" for c in calls[:-1])

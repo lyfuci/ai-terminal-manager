@@ -194,10 +194,14 @@ which pane and why, using numbers the kernel already keeps per pane (each tmux p
 
 - **Sidebar**: a stalled pane gets a red `⚠` tag — `⚠RECL` (keeps hitting its memory soft limit; CPU goes to
   reclaim), `⚠D` (a process stuck in uninterruptible sleep for two samples in a row), `⚠HIGH` (above its soft
-  limit), `⚠MEM` / `⚠IO` / `⚠CPU` (PSI stall time). The footer explains the selected one. When a pane *starts*
-  stalling, the tmux status line says so once.
-- **Statistics**: the sidebar logs every stall (start, end, duration, cause) to `~/.local/state/atm/health.jsonl`.
-  With several sidebars open only one records.
+  limit), `⚠MEM` / `⚠IO` / `⚠CPU` (PSI stall time). The footer explains the selected one.
+- **Alerts without the sidebar**: `atm install` adds one line to its tmux block, `run-shell -b '… atm health --watch'`,
+  so a small background watcher starts with the tmux server (and right away on the running one). When a pane
+  *starts* stalling, every attached client's status line says so once. It keeps a single instance, exits a few
+  seconds after the server goes away, and re-execs itself after `atm update`. Upgrading from 0.11.0: run
+  `atm install -y` once — `atm update` and `atm doctor` remind you if the watcher isn't running.
+- **Statistics**: every stall (start, end, duration, cause) goes to `~/.local/state/atm/health.jsonl`. The watcher
+  and the sidebar share one recorder lock, so each stall is logged and announced once.
 
 ```bash
 atm health            # stalled panes right now + per-pane totals for the last 7 days

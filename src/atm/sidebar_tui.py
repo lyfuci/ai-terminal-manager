@@ -160,16 +160,8 @@ class _Sidebar(_Screen):
         changes = self._tracker.update(result, labels, now=time.time())
         if self._recorder is None:
             return
-        for change in changes:
-            if change.kind != "started":
-                continue
-            episode = change.episode
-            tmux.display_message(
-                _("atm: ⚠ {label} —— {what}（atm health 看详情）").format(
-                    label=truncate_display(episode.label, 30),
-                    what=health.describe(health.problem_order(episode.problems)[0]),
-                )
-            )
+        for text in health.alerts(changes):
+            tmux.display_message_all(text)
 
     def _refresh_panes(self, *, force: bool = False) -> bool:
         now = time.monotonic()
@@ -575,15 +567,7 @@ def _pane_haystack(pane: Pane) -> str:
     return " ".join((pane.title, pane.current_command, pane.current_path, pane.window_name))
 
 
-def _pane_label(pane: Pane) -> str:
-    """一格在列表里怎么称呼：AI 进程用它自设的标题（✳ 任务名），其余用 命令 + 目录名。"""
-    if sidebar.is_ai_pane(pane) and pane.title:
-        return pane.title
-    return f"{pane.current_command}  {_basename(pane.current_path)}"
-
-
-def _basename(path: str) -> str:
-    return path.rstrip("/").rsplit("/", 1)[-1] or path
+_pane_label = sidebar.pane_label
 
 
 def _row_key(row: Row) -> str:

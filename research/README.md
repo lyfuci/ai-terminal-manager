@@ -312,3 +312,7 @@ See `CLAUDE.md`. The actual project code lives in `src/atm/`.
   the user reported panes freezing after some commands with no hint from atm. Each pane maps to its own cgroup via
   `#{pane_pid}`; stalls are classified from PSI, the `memory.events.local` high rate, and processes in D state for
   two samples in a row. See pitfall 11 for why PSI alone was not enough.
+- 2026-09-18 **Stall watcher** (0.11.1): alerts in 0.11.0 only ran inside the sidebar, and the user rarely keeps it
+  open, so a real freeze produced no alert and the stall log was never written. `atm install` now adds
+  `run-shell -b '<atm> health --watch'` to its block. Measured on an isolated socket: a process outside any pane
+  gets `no current client` from `display-message`, so alerts go to each client via `list-clients` + `-c`.

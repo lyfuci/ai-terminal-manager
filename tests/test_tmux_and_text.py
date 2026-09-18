@@ -383,3 +383,31 @@ def test_parse_panes_accepts_tmux34_escaped_separator() -> None:
 def test_parse_panes_escaped_and_raw_mixed() -> None:
     panes = tmux.parse_panes(_pane_line() + "\n" + _pane_line(id="%2").replace(SEP, "\\037"))
     assert [p.id for p in panes] == ["%1", "%2"]
+
+
+def test_display_message_all_targets_each_client(monkeypatch):
+    """后台进程没有「当前客户端」，必须逐个 -c 指定，否则提示丢失。"""
+    calls = []
+
+    def run(args, **kw):
+        calls.append(args)
+        if args[0] == "list-clients":
+            return "/dev/pts/1\n/dev/pts/4\n"
+        if args[-2:] == ["/dev/pts/4", "hi"]:
+            raise tmux.TmuxError("client gone")
+        return ""
+
+    monkeypatch.setattr(tmux, "run", run)
+    assert tmux.display_message_all("hi") == 1
+    assert calls[1:] == [
+        ["display-message", "-c", "/dev/pts/1", "hi"],
+        ["display-message", "-c", "/dev/pts/4", "hi"],
+    ]
+
+
+def test_display_message_all_without_server(monkeypatch):
+    def run(args, **kw):
+        raise tmux.TmuxError("no server running")
+
+    monkeypatch.setattr(tmux, "run", run)
+    assert tmux.display_message_all("hi") == 0
