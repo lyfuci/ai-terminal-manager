@@ -338,6 +338,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "常驻后台盯着：有格子卡住就在 tmux 状态栏提醒、记进统计（atm install 让 tmux 起它）"
         ),
     )
+    p_health.add_argument(
+        "--toggle-border",
+        action="store_true",
+        help=_("开 / 关格子状态栏：每格顶边右侧显示卡没卡（键位 keys.health，默认 prefix + m）"),
+    )
     p_health.set_defaults(handler=_cmd_health)
 
     p_doctor = sub.add_parser("doctor", help=_("体检：数据源在不在、tmux 通不通"))
@@ -1020,6 +1025,8 @@ def _cmd_health(args: argparse.Namespace) -> int:
 
     if args.watch:
         return _health_watch()
+    if args.toggle_border:
+        return _toggle_border()
     panes = _health_panes()
     now = health.snapshot([(p.id, p.pid) for p in panes])
     since = datetime.now(tz=UTC).timestamp() - args.days * 86400
@@ -1088,6 +1095,7 @@ def _health_watch() -> int:
     tracker = health.Tracker()
     recorder: int | None = None
     failures = 0
+    shown: dict[str, str] = {}  # 已经写进各格 @atm_health 的内容；没变就不再调 tmux
     while True:
         if _mtime(code) != stamp:
             # 升级做到一半（解释器暂时不在）就下一轮再试，别让盯梢进程崩掉
@@ -1112,7 +1120,81 @@ def _health_watch() -> int:
         if recorder is not None:
             for text in health.alerts(changes):
                 tmux.display_message_all(text)
+        shown = _publish_border(panes, result, shown)
         time.sleep(_WATCH_SECONDS)
+
+
+def _publish_border(panes, result, shown: dict[str, str]) -> dict[str, str]:
+    """把每格的状态写进它的 pane 选项 `@atm_health`，格子状态栏的格式串直接引用它。
+
+    只写变了的：状态稳定时一轮一次 tmux 调用都不多。没数据的格子写空串（不显示），
+    而不是写「✓」—— 不知道就别说健康。
+    """
+    from . import health
+
+    current: dict[str, str] = {}
+    for pane in panes:
+        text = health.border_text(result.get(pane.id))
+        unchanged = shown.get(pane.id) == text
+        if unchanged or tmux.set_pane_user_option(pane.id, health.BORDER_OPTION, text):
+            current[pane.id] = text
+    return current
+
+
+# 格子状态栏：开的时候改这两个全局选项，原值存在下面两个 @ 选项里，关的时候原样还回去。
+_BORDER_ON = "@atm_border"
+_BORDER_SAVED = (
+    ("pane-border-status", "@atm_border_prev_status"),
+    ("pane-border-format", "@atm_border_prev_format"),
+)
+
+
+def _border_format() -> str:
+    """左边和 tmux 默认一样（编号 + 标题，当前格反色），右边是盯梢进程写的状态。"""
+    from . import health
+
+    return (
+        "#{?pane_active,#[reverse],}#{pane_index}#[default] #{=/40/…:pane_title}"
+        f"#[align=right]#{{{health.BORDER_OPTION}}} "
+    )
+
+
+def _toggle_border() -> int:
+    """`prefix + m`：开 / 关格子状态栏。由 run-shell -b 调，所以只用状态栏说话、不往 stdout 写。
+
+    开：记下 pane-border-status / pane-border-format 的原值，换成 atm 的；
+    关：原样还回去。用户自己的边框设置不会丢。
+    """
+    if not tmux.has_server():
+        print(_("没有正在运行的 tmux server。"), file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        if tmux.show_global(_BORDER_ON) == "1":
+            for option, saved in _BORDER_SAVED:
+                previous = tmux.show_global(saved)
+                if previous is None:
+                    tmux.run(["set-option", "-gu", option])
+                else:
+                    tmux.run(["set-option", "-g", option, previous])
+                tmux.run(["set-option", "-gu", saved])
+            tmux.run(["set-option", "-gu", _BORDER_ON])
+            tmux.display_message_all(_("atm: 格子状态栏已关"))
+            return EXIT_OK
+        for option, saved in _BORDER_SAVED:
+            previous = tmux.show_global(option)
+            if previous is not None:
+                tmux.run(["set-option", "-g", saved, previous])
+        tmux.run(["set-option", "-g", "pane-border-status", "top"])
+        tmux.run(["set-option", "-g", "pane-border-format", _border_format()])
+        tmux.run(["set-option", "-g", _BORDER_ON, "1"])
+    except tmux.TmuxError as exc:
+        print(f"atm: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    hint = _watch_hint()
+    tmux.display_message_all(
+        hint.strip() if hint else _("atm: 格子状态栏已开（每格右上角：✓ 正常 / ⚠ 卡住的原因）")
+    )
+    return EXIT_OK
 
 
 def _mtime(path: Path) -> float | None:

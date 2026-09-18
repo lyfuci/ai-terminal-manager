@@ -55,6 +55,9 @@ RECLAIM = "reclaim"
 
 CODES: tuple[str, ...] = (STUCK, RECLAIM, OVER_HIGH, MEMORY, IO, CPU)
 
+# 盯梢进程把每格的状态写进这个 pane 选项，格子状态栏（prefix + m）的格式串引用它。
+BORDER_OPTION = "@atm_health"
+
 _CGROUP_ROOT = Path("/sys/fs/cgroup")
 _PROC_ROOT = Path("/proc")
 
@@ -629,3 +632,36 @@ def alerts(changes: Iterable[Change]) -> list[str]:
             )
         )
     return out
+
+
+def _tmux_escape(text: str) -> str:
+    """tmux 格式里 `#` 是转义起点；进程名之类的外来文本要把它双写。"""
+    return text.replace("#", "##")
+
+
+def border_text(h: PaneHealth | None) -> str:
+    """格子顶边右侧显示的那一小段（带 tmux 样式），存进 pane 选项 `@atm_health`。
+
+    必须短：顶边还要放格子编号和标题。只说最严重的那一个问题和它的关键读数。
+    """
+    if h is None or not h.cgroups:
+        return ""  # 没数据就什么都不显示，不假装健康
+    problems = problem_order(h.problems)
+    if not problems:
+        return "#[fg=green]✓#[default]"
+    code = problems[0]
+    reading = ""
+    if code == STUCK and h.stuck:
+        reading = f"D {h.stuck[0].comm}"
+    elif code == RECLAIM:
+        reading = f"high {h.reclaim_rate:.0f}/s"
+    elif code == OVER_HIGH and h.over_high:
+        reading = f">high {h.over_high}"
+    elif code == MEMORY and h.memory is not None:
+        reading = f"mem {h.memory.some:.0f}%"
+    elif code == IO and h.io is not None:
+        reading = f"io {max(h.io.some, h.io.full):.0f}%"
+    elif code == CPU and h.cpu is not None:
+        reading = f"cpu {h.cpu.some:.0f}%"
+    tag = f"#[fg=red,bold]⚠{_tmux_escape(short_label(code))}#[default]"
+    return f"{tag} {_tmux_escape(reading)}".rstrip()

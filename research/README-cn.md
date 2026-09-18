@@ -265,3 +265,6 @@ Windows GUI / 控制模式解析器 / 布局同步全部蒸发。2026-09-05 起 
 - 2026-09-18 **后台盯梢进程**（0.11.1）：0.11.0 的提醒只在侧栏里跑，而用户很少开着侧栏——真机上卡了没提示、
   统计文件一次都没写。现在 `atm install` 在块里加 `run-shell -b '<atm> health --watch'`。隔离 socket 上实测：
   不在任何 pane 里的进程 `display-message` 会报 `no current client`，所以改成 `list-clients` 后逐个 `-c`。
+- 2026-09-18 **格子状态栏**（0.12.0，`prefix + m`）：盯梢进程把每格状态写进 pane 选项 `@atm_health`；开关把
+  `pane-border-status` 设成 `top`、格式右侧显示它，再按一次把用户自己的边框设置原样还回去。tmux 做不了半透明、
+  popup 会抢输入，所以用边框行。换键解绑改成区分大小写，换 `keys.health` 不会误解 tmux 自带的 `M`。

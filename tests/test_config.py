@@ -288,3 +288,15 @@ def test_slice_remove_only_touches_ours(tmp_path: Path, monkeypatch) -> None:
 def test_slice_status_when_missing(tmp_path: Path) -> None:
     st = guard.status("atm-ai.slice", tmp_path)
     assert not st.exists and not st.ours and st.high is None
+
+
+def test_keys_health_must_differ_from_other_keys():
+    import pytest
+
+    from atm import config
+
+    config.validate(config.Config())
+    with pytest.raises(config.ConfigError, match=r"keys\.health"):
+        config.validate(config.Config(keys_health="a"))
+    with pytest.raises(config.ConfigError, match=r"keys\.health"):
+        config.validate(config.Config(keys_health="b"))

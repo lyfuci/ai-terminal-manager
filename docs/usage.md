@@ -16,6 +16,7 @@ Once installed it's four keys (`prefix` is `Ctrl-b` by default):
 | `prefix + A` | Same, but only sessions from the current directory (and subdirectories) |
 | `prefix + b` | **Sidebar**: opens a full-height strip on the far left if closed; switches to it if open; collapses it if you're already in it |
 | `prefix + B` | Park the current pane in the background window `bg` — the process keeps running and can be picked back from the sidebar |
+| `prefix + m` | **Pane status bar**: each pane's top border shows, on the right, whether it is stalled (`✓` / `⚠RECL high 464/s` …); press again to hide. Replaces tmux's own `m` (mark pane); `M` is left alone. Key: `atm config keys.health` |
 
 **In the popup**: type to fuzzy-search, `↑↓` / `^N` `^P` to move, `Tab` cycles All / Claude / Codex / Pi / Gemini / opencode, `⏎`
 selects, `Esc` cancels, `F1` / `?` (with an empty search box) opens the full key list. After picking a session comes a second step: every pane (with busy/idle state) + "split a new
@@ -174,7 +175,7 @@ Enabling tmux options still applies them live. Disabling an option removes atm's
 ```bash
 atm config                     # interactive editor: ↑↓ pick a key, Enter edit/toggle, s save, ? help; a right-hand panel explains the selected key (format, default, env var, source) in the UI language (atm config --show for plain text)
 atm config memory.high 4G      # soft cap: throttle + reclaim, never kills. Default auto = 80% of max
-atm config keys.pick s         # picker key (uppercase = current dir only); keys.sidebar, keys.popup-width/-height too. Saving rebinds the running server
+atm config keys.pick s         # picker key (uppercase = current dir only); keys.sidebar, keys.health, keys.popup-width/-height too. Saving rebinds the running server
 atm config tmux.mouse true     # common tmux options: mouse / focus-events / history-limit / base-index / renumber-windows → own block in ~/.tmux.conf, applied live. If your own lines set the same option, atm names them with line numbers instead of silently losing to them
 atm config memory.slice-high 20G  # aggregate slice numbers (default auto = 50% / 65% of RAM); the unit atm wrote is rewritten + daemon-reload
 atm config memory.max 8G       # hard cap: kills the whole session scope (children included). Default auto = 35% of RAM, floor 4G

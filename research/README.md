@@ -316,3 +316,7 @@ See `CLAUDE.md`. The actual project code lives in `src/atm/`.
   open, so a real freeze produced no alert and the stall log was never written. `atm install` now adds
   `run-shell -b '<atm> health --watch'` to its block. Measured on an isolated socket: a process outside any pane
   gets `no current client` from `display-message`, so alerts go to each client via `list-clients` + `-c`.
+- 2026-09-18 **Pane status bar** (0.12.0, `prefix + m`): the watcher writes each pane's state into the pane option
+  `@atm_health`; the toggle switches `pane-border-status top` with a format that shows it on the right, and restores
+  the user's own border settings on the second press. tmux can't do translucency and a popup steals input, so the
+  border line was chosen. Key unbinding is now exact-case so changing `keys.health` never unbinds tmux's own `M`.

@@ -279,7 +279,7 @@ class ConfigEditor(_Screen):
             return _("形如 name.slice")
         if key in ("memory.slice-high", "memory.slice-max"):
             return _("auto，或 24G / 512M 这样的大小")
-        if key in ("keys.pick", "keys.sidebar"):
+        if key in ("keys.pick", "keys.sidebar", "keys.health"):
             return _("单个小写字母")
         if key in ("keys.popup-width", "keys.popup-height"):
             return _("80% 或 120")

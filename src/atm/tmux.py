@@ -421,6 +421,25 @@ def display_message(message: str) -> None:
         run(["display-message", message])
 
 
+def set_pane_user_option(pane_id: str, name: str, value: str) -> bool:
+    """设一个 pane 级用户选项（`@xxx`）。pane 已经没了之类的失败返回 False，不抛。"""
+    try:
+        run(["set-option", "-p", "-t", pane_id, name, value])
+    except TmuxError:
+        return False
+    return True
+
+
+def show_global(name: str) -> str | None:
+    """读一个全局选项的值；没设过（用户选项）/ 读不到返回 None。"""
+    try:
+        out = run(["show-options", "-gqv", name])
+    except TmuxError:
+        return None
+    value = out.rstrip("\n")
+    return value if value else None
+
+
 def display_message_all(message: str) -> int:
     """在**每个**连着的客户端的状态栏上提示一句，返回发出去几个。
 

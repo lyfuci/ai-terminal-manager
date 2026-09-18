@@ -645,3 +645,71 @@ def test_watch_survives_failed_reexec(watch_env, monkeypatch):
     with pytest.raises(_Stop):
         cli._health_watch()
     assert len(tries) == watch_env["stop_after"]  # 每一轮都重试，但一直在采样
+
+
+# ---------------------------------------------------------------- 格子状态栏
+
+
+def test_border_text():
+    assert health.border_text(None) == ""
+    assert health.border_text(health.PaneHealth("%1")) == ""  # 没读到 cgroup：不假装健康
+    ok = health.PaneHealth("%1", cgroups=("/x",))
+    assert health.border_text(ok) == "#[fg=green]✓#[default]"
+    stuck = health.PaneHealth(
+        "%1",
+        cgroups=("/x",),
+        reclaim_rate=464,
+        stuck=(health.StuckProc(7, "we#ird", "x"),),
+    )
+    # 最严重的是卡D；进程名里的 # 要双写，否则会被 tmux 当格式
+    assert health.border_text(stuck) == "#[fg=red,bold]⚠卡D#[default] D we##ird"
+    reclaim = health.PaneHealth("%1", cgroups=("/x",), reclaim_rate=464.2)
+    assert health.border_text(reclaim).endswith("high 464/s")
+
+
+def test_watch_publishes_border_only_when_changed(watch_env, monkeypatch):
+    from atm import cli
+
+    sets = []
+    monkeypatch.setattr(
+        cli.tmux, "set_pane_user_option", lambda p, n, v: sets.append((p, n, v)) or True
+    )
+    ok = {"%1": health.PaneHealth("%1", cgroups=("/x",))}
+    bad = {"%1": health.PaneHealth("%1", cgroups=("/x",), io=health.Psi(90, 50))}
+    watch_env["health"] = [ok, ok, bad]
+    with pytest.raises(_Stop):
+        cli._health_watch()
+    assert [v for _p, _n, v in sets] == [
+        "#[fg=green]✓#[default]",
+        "#[fg=red,bold]⚠IO#[default] io 90%",
+    ]
+    assert {n for _p, n, _v in sets} == {health.BORDER_OPTION}
+
+
+def test_toggle_border_saves_and_restores(monkeypatch, _no_real_pane_health):
+    """开的时候记下用户原来的边框设置，关的时候原样还回去。"""
+    from atm import cli
+
+    options = {"pane-border-status": "off", "pane-border-format": "USER FORMAT"}
+
+    def run(args, **kw):
+        if args[:2] == ["show-options", "-gqv"]:
+            return options.get(args[2], "") + "\n"
+        if args[:2] == ["set-option", "-g"]:
+            options[args[2]] = args[3]
+        elif args[:2] == ["set-option", "-gu"]:
+            options.pop(args[2], None)
+        return ""
+
+    monkeypatch.setattr(cli.tmux, "has_server", lambda: True)
+    monkeypatch.setattr(cli.tmux, "run", run)
+    monkeypatch.setattr(cli.tmux, "display_message_all", lambda text: 1)
+    before = dict(options)
+
+    assert cli.main(["health", "--toggle-border"]) == cli.EXIT_OK
+    assert options["pane-border-status"] == "top"
+    assert health.BORDER_OPTION in options["pane-border-format"]
+    assert options["@atm_border"] == "1"
+
+    assert cli.main(["health", "--toggle-border"]) == cli.EXIT_OK
+    assert options == before

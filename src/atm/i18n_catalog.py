@@ -537,6 +537,13 @@ EN: dict[str, str] = {
     "  （后台）atm health --watch  →  格子卡住时在状态栏提醒，并记进统计": "  (background) atm health --watch  ->  announce stalled panes on the status line and record them",
     "  卡顿提醒的后台进程没在跑：`atm install -y` 会立刻起一个": "  the stall watcher is not running: `atm install -y` starts one now",
     "  卡顿提醒还没装进 tmux：跑一次 `atm install -y`（重写 atm 的键位块并立刻起后台进程）": "  stall alerts are not in tmux yet: run `atm install -y` once (rewrites atm's key block and starts the watcher now)",
+    "atm: 格子状态栏已关": "atm: pane status bar off",
+    "atm: 格子状态栏已开（每格右上角：✓ 正常 / ⚠ 卡住的原因）": "atm: pane status bar on (top-right of each pane: ✓ healthy / ⚠ why it is stalled)",
+    "keys.health 不能和选择器 / 侧栏的键相同（都是 {key!r}）": "keys.health must differ from the picker / sidebar keys (both are {key!r})",
+    "keys.health 和 {other} 不能相同（都是 {key!r}）": "keys.health and {other} must differ (both are {key!r})",
+    "prefix + 这个键开关格子状态栏（每格右上角显示卡没卡）。单个小写字母": "prefix + this key toggles the pane status bar (top-right of each pane shows whether it is stalled). A single lowercase letter",
+    "开 / 关格子状态栏：每格顶边右侧显示卡没卡（键位 keys.health，默认 prefix + m）": "toggle the pane status bar: each pane's top border shows whether it is stalled (key keys.health, default prefix + m)",
+    "格子状态栏：每格右上角显示卡没卡（再按一次关）": "pane status bar: top-right of each pane shows whether it is stalled (press again to hide)",
 }
 
 JA: dict[str, str] = {
@@ -1068,6 +1075,13 @@ JA: dict[str, str] = {
     "  （后台）atm health --watch  →  格子卡住时在状态栏提醒，并记进统计": "  （バックグラウンド）atm health --watch  →  詰まったペインをステータス行で知らせ、統計に記録",
     "  卡顿提醒的后台进程没在跑：`atm install -y` 会立刻起一个": "  詰まり監視プロセスが動いていない: `atm install -y` ですぐ起動する",
     "  卡顿提醒还没装进 tmux：跑一次 `atm install -y`（重写 atm 的键位块并立刻起后台进程）": "  詰まり通知がまだ tmux に入っていない: `atm install -y` を一度実行（atm のキーバインドブロックを書き直し、監視プロセスをすぐ起動）",
+    "atm: 格子状态栏已关": "atm: ペインのステータス表示をオフ",
+    "atm: 格子状态栏已开（每格右上角：✓ 正常 / ⚠ 卡住的原因）": "atm: ペインのステータス表示をオン（各ペインの右上：✓ 正常 / ⚠ 詰まりの原因）",
+    "keys.health 不能和选择器 / 侧栏的键相同（都是 {key!r}）": "keys.health はピッカー / サイドバーのキーと別にすること（どちらも {key!r}）",
+    "keys.health 和 {other} 不能相同（都是 {key!r}）": "keys.health と {other} は同じにできない（どちらも {key!r}）",
+    "prefix + 这个键开关格子状态栏（每格右上角显示卡没卡）。单个小写字母": "prefix + このキーでペインのステータス表示を切り替え（各ペインの右上に詰まり状態を表示）。小文字 1 文字",
+    "开 / 关格子状态栏：每格顶边右侧显示卡没卡（键位 keys.health，默认 prefix + m）": "ペインのステータス表示を切り替え: 各ペインの上枠の右に詰まり状態を表示（キー keys.health、既定 prefix + m）",
+    "格子状态栏：每格右上角显示卡没卡（再按一次关）": "ペインのステータス表示: 各ペインの右上に詰まり状態（もう一度押すと消える）",
 }
 
 CATALOG: dict[str, dict[str, str]] = {"en": EN, "ja": JA}

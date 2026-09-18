@@ -130,8 +130,9 @@ def test_binding_tmux_args_are_argv_not_shell() -> None:
 def test_upper_key_bound_for_here_variant(tmp_path: Path) -> None:
     plan = _plan(tmp_path / ".tmux.conf", key="a")
     keys = {b.key for b in plan.bindings}
-    # 2026-09-02 起多了侧栏的 b / B（见 test_sidebar_bindings_use_run_shell_with_pane_id）
-    assert keys == {"a", "A", "b", "B"}
+    # 2026-09-02 起多了侧栏的 b / B（见 test_sidebar_bindings_use_run_shell_with_pane_id）；
+    # 2026-09-18 起多了格子状态栏的 m —— 只有小写，M 是 tmux 自带的「清除标记」
+    assert keys == {"a", "A", "b", "B", "m"}
     assert any("--here" in b.command for b in plan.bindings)
 
 
@@ -207,7 +208,7 @@ def test_sidebar_key_validation(tmp_path: Path) -> None:
         _plan(conf, sidebar_key="1")
     with pytest.raises(ValueError, match="不能相同"):
         _plan(conf, key="b", sidebar_key="b")
-    assert {b.key for b in _plan(conf, sidebar_key="s").bindings} == {"a", "A", "s", "S"}
+    assert {b.key for b in _plan(conf, sidebar_key="s").bindings} == {"a", "A", "s", "S", "m"}
 
 
 def test_resolve_atm_command_returns_absolute_path(tmp_path: Path, monkeypatch) -> None:
@@ -261,7 +262,7 @@ def test_block_starts_health_watcher(tmp_path: Path) -> None:
     assert lines[-2] == f"run-shell -b {shlex.quote(plan.watch_command)}"
     assert plan.watch_command.endswith(" health --watch")
     # 这一行不是 bind-key，不能被当成键位（换键时会拿块里的键去解绑）
-    assert install_mod._installed_keys(plan.block) == ("a", "b")
+    assert install_mod._installed_keys(plan.block) == ("a", "A", "b", "B", "m")
 
 
 def test_live_apply_starts_watcher_after_bindings(tmp_path: Path, monkeypatch) -> None:
@@ -273,3 +274,33 @@ def test_live_apply_starts_watcher_after_bindings(tmp_path: Path, monkeypatch) -
     assert result.applied_live
     assert calls[-1] == ["run-shell", "-b", plan.watch_command]
     assert all(c[0] == "bind-key" for c in calls[:-1])
+
+
+def test_health_key_binding_and_validation(tmp_path: Path) -> None:
+    import pytest
+
+    conf = tmp_path / ".tmux.conf"
+    plan = _plan(conf)
+    (binding,) = [b for b in plan.bindings if b.key == "m"]
+    assert binding.command.endswith(" health --toggle-border")
+    assert binding.kind is install_mod.BindingKind.SHELL
+    assert "M" not in {b.key for b in plan.bindings}
+    assert {b.key for b in _plan(conf, health_key="h").bindings} >= {"h"}
+    with pytest.raises(ValueError, match=r"keys\.health"):
+        _plan(conf, health_key="b")
+    with pytest.raises(ValueError):
+        _plan(conf, health_key="M")
+
+
+def test_changing_health_key_does_not_unbind_tmux_default_upper(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """只解块里原样写着的键：m 换成 h 时解 m，不能顺手解掉 tmux 自带的 M（清除标记）。"""
+    conf = tmp_path / ".tmux.conf"
+    install_mod.apply(_plan(conf), live=False)
+    calls = []
+    monkeypatch.setattr(install_mod.tmux, "has_server", lambda: True)
+    monkeypatch.setattr(install_mod.tmux, "run", lambda args, **kw: calls.append(args) or "")
+    install_mod.apply(_plan(conf, health_key="h"))
+    unbound = [c[1] for c in calls if c[0] == "unbind-key"]
+    assert unbound == ["m"]
