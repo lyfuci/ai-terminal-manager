@@ -54,11 +54,12 @@ def test_install_uses_config_keys_when_no_flags(env: Path) -> None:
 
 
 def test_install_applies_tmux_options_from_config(env: Path) -> None:
-    config.save(config.Config(tmux_mouse=True, tmux_history_limit=50000))
+    config.save(config.Config(tmux_mouse=True, tmux_history_limit=50000, tmux_extended_keys=True))
     assert cli.main(["install", "-y", "--no-persist", "--conf", str(env)]) == cli.EXIT_OK
     text = env.read_text(encoding="utf-8")
     assert text.startswith(tmuxopts.MARKER_BEGIN)
     assert "set -g history-limit 50000" in text and "bind-key a " in text
+    assert "set -g extended-keys on" in text
 
 
 def test_invalid_flag_is_one_line_error_and_no_write(env: Path, capsys) -> None:

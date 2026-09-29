@@ -483,7 +483,7 @@ atm config --reset                # 全部默认
 |---|---|---|
 | `[memory]` | `slice-high` / `slice-max`（默认 `auto` = 物理内存 50% / 65%，或写死 `24G`） | atm 写的 `atm-ai.slice` 按新数重写 + `daemon-reload`；你自己写的单元不动 |
 | `[keys]` | `conf-path`（空串 = ~/.tmux.conf）/ `pick`（默认 a）/ `sidebar`（默认 b）/ `popup-width`（80%）/ `popup-height`（70%） | 键位块已装的话重写 + 对运行中的 server 重绑，成功后才解绑旧键；没装就提示先 `atm install` |
-| `[tmux]` | `mouse` / `focus-events` / `history-limit`（0 = 不写）/ `base-index`（0 或 1）/ `renumber-windows` | 写进 `~/.tmux.conf` **最前面**的独立 marker 块（你后面写的任何一行都能盖掉它）+ 开启的选项对运行中的 server `set -g`；关闭只撤文件设置，运行中的值不动，变更对新 server 生效。全关时整块删掉 |
+| `[tmux]` | `mouse` / `focus-events` / `history-limit`（0 = 不写）/ `base-index`（0 或 1）/ `renumber-windows` / `extended-keys`（默认关，需终端支持；不设置 tmux 3.4 不支持的 `extended-keys-format`） | 写进 `~/.tmux.conf` **最前面**的独立 marker 块（你后面写的任何一行都能盖掉它）+ 开启的选项对运行中的 server `set -g`；关闭只撤文件设置，运行中的值不动，变更对新 server 生效。全关时整块删掉 |
 
 `[tmux]` 默认全部「不写」，不动你的 tmux 配置；开了才写 `set -g mouse on`，关了也不写 `off`。
 `atm uninstall` 一起删键位块、持久化块、tmux 选项块和 atm 写的 slice。

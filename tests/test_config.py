@@ -97,6 +97,22 @@ def test_tmux_keys_roundtrip_and_env(cfg_path: Path, monkeypatch) -> None:
         config.set_value(cfg, "tmux.mouse", "maybe")
 
 
+def test_extended_keys_is_opt_in_and_roundtrips(cfg_path: Path, monkeypatch) -> None:
+    assert config.Config().tmux_extended_keys is False
+    cfg = config.set_value(config.Config(), "tmux.extended-keys", "true")
+    config.save(cfg)
+    loaded, sources = config.load_with_sources()
+    assert loaded.tmux_extended_keys and sources["tmux.extended-keys"] == "file"
+    assert "extended_keys = true" in cfg_path.read_text(encoding="utf-8")
+    monkeypatch.setenv("ATM_TMUX_EXTENDED_KEYS", "false")
+    loaded, sources = config.load_with_sources()
+    assert not loaded.tmux_extended_keys
+    assert sources["tmux.extended-keys"] == "env ATM_TMUX_EXTENDED_KEYS"
+    assert not config.unset_value(cfg, "tmux.extended-keys").tmux_extended_keys
+    with pytest.raises(config.ConfigError):
+        config.set_value(cfg, "tmux.extended-keys", "maybe")
+
+
 def test_unknown_tmux_key_is_error(cfg_path: Path) -> None:
     cfg_path.parent.mkdir(parents=True)
     cfg_path.write_text("[tmux]\nmose = true\n", encoding="utf-8")

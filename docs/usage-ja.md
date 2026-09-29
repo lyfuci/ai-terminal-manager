@@ -174,11 +174,16 @@ atm config                     # 対話エディタ：↑↓ でキー選択、E
 atm config memory.high 4G      # ソフト上限：スロットリング + 回収、殺さない。既定 auto = Max の 80%
 atm config keys.pick s         # ピッカーキー（大文字 = 現在のディレクトリのみ）；keys.sidebar、keys.health、keys.popup-width/-height も。保存で実行中の server に再割り当て
 atm config tmux.mouse true     # tmux 共通オプション：mouse / focus-events / history-limit / base-index / renumber-windows → ~/.tmux.conf に独立ブロック、即時適用。あなた自身の行が同じオプションを設定していれば、黙って負けるのではなく行番号付きで報告する
+atm config tmux.extended-keys true  # 任意：extended-keys on。Shift+Enter などには tmux と端末の対応が必要
 atm config memory.slice-high 20G  # 合計 slice の数値（デフォルト auto = 物理メモリの 50% / 65%）；atm が書いたユニットを書き直し + daemon-reload
 atm config memory.max 8G       # ハード上限：セッションの scope 全体（子プロセス含む）を kill。既定 auto = 物理メモリの 35%・下限 4G
 atm claude --resume <id>       # その cgroup 内で claude を起動；引数はそのまま透過
 claude                         # プレフィックスなし = ネイティブ、制限なし
 ```
+
+`tmux.extended-keys` は既定で無効。無効化すると atm の一行だけを削除し、実行中の server の値は
+変更しない。次回の server 起動時に反映される。tmux 3.4 にない `extended-keys-format` は設定しない。他の設定が同じオプションを後から上書きする場合、
+atm が検出できる競合行を報告する。
 
 `atm codex …` / `atm pi …` も同じ。`prefix + a` の投入とサイドバーの resume も同じ設定を使う。
 `atm install` は合計用の `atm-ai.slice`（物理メモリの 50% / 65%）も書き、N 本合計でもマシンを落とさない；

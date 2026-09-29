@@ -80,6 +80,7 @@ class Config:
     # 的独立 marker 块（用户后面自己写的任何一行都能盖掉它），并对活着的 server 立即生效。
     tmux_mouse: bool = False
     tmux_focus_events: bool = False
+    tmux_extended_keys: bool = False
     tmux_history_limit: int = 0  # 0 = 不写；常用 50000（tmux 默认 2000）
     tmux_base_index: int = 0  # 0 = 不写；1 = window / pane 都从 1 开始编号
     tmux_renumber_windows: bool = False
@@ -126,6 +127,7 @@ KEYS: dict[str, str] = {
     "keys.popup-height": "keys_popup_height",
     "tmux.mouse": "tmux_mouse",
     "tmux.focus-events": "tmux_focus_events",
+    "tmux.extended-keys": "tmux_extended_keys",
     "tmux.history-limit": "tmux_history_limit",
     "tmux.base-index": "tmux_base_index",
     "tmux.renumber-windows": "tmux_renumber_windows",
@@ -150,6 +152,7 @@ _HELP: dict[str, str] = {
     "keys.popup-height": "选择器浮层高度，给 display-popup -h（如 70% 或 40）",
     "tmux.mouse": "tmux 鼠标：点格子切焦点、滚轮翻滚动缓冲、拖边框调大小（写进 ~/.tmux.conf）",
     "tmux.focus-events": "tmux 把终端的焦点进出转给程序（编辑器自动重载、AI CLI 感知切窗要它）",
+    "tmux.extended-keys": "扩展组合键（如 Shift+Enter）；需 tmux 和终端支持。默认不写",
     "tmux.history-limit": "每格滚动缓冲行数；0 = 不写（tmux 默认 2000），常用 50000",
     "tmux.base-index": "window / pane 编号起点；0 = 不写（tmux 从 0 数），1 = 从 1 开始",
     "tmux.renumber-windows": "关掉一个 window 后剩下的自动重新编号，不留空洞",

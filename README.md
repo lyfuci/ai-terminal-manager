@@ -108,6 +108,11 @@ atm install     # write key bindings to ~/.tmux.conf + install resurrect/continu
 
 The CLI speaks English, Chinese and Japanese, following your locale (`ATM_LANG=en|zh|ja` overrides).
 
+Optional tmux keyboard support: `atm config tmux.extended-keys true` writes `extended-keys on`
+in the managed options block (also applied live). It is off by default; modified keys such as
+Shift+Enter require tmux and terminal support. Turning it off removes only atm's line, leaving
+the running server unchanged. It does not set `extended-keys-format` (unsupported by tmux 3.4).
+
 Config edits keep environment overrides temporary; reset also reconciles installed artifacts. `atm install --conf PATH` saves `keys.conf-path` for later edits and uninstall. Key changes bind new keys before retiring old ones. Disabling tmux options preserves running values and applies to new servers. Aggregate slice installation supports the user manager only, and reload failures are reported explicitly. See [configuration behavior](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md#configuration-changes).
 
 Launch with `atm claude` / `atm codex` / `atm pi` to run inside a cgroup memory gate. It is on by default and

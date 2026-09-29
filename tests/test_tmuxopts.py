@@ -74,6 +74,31 @@ def test_all_five_options_render(conf: Path, live) -> None:
     assert ["set-option", "-gw", "pane-base-index", "1"] in live
 
 
+def test_extended_keys_is_opt_in_and_uninstallable(conf: Path, live) -> None:
+    cfg = config.Config(tmux_extended_keys=True)
+    plan = tmuxopts.build_plan(cfg, conf_path=conf)
+    assert plan.enabled == ("extended-keys",)
+    assert plan.block.splitlines()[1:-1] == ["set -g extended-keys on"]
+    result = tmuxopts.apply(plan)
+    assert result.written and result.applied_live
+    assert live == [["set-option", "-g", "extended-keys", "on"]]
+    live.clear()
+    disabled = tmuxopts.build_plan(config.Config(), conf_path=conf)
+    assert disabled.to_turn_off == ("extended-keys",)
+    tmuxopts.apply(disabled)
+    assert conf.read_text(encoding="utf-8") == USER
+    assert live == []  # closing the option never overwrites the live server's settings
+
+
+def test_extended_keys_reports_user_override_without_changing_it(conf: Path, live) -> None:
+    conf.write_text("set -g extended-keys off\n", encoding="utf-8")
+    plan = tmuxopts.build_plan(config.Config(tmux_extended_keys=True), conf_path=conf)
+    assert len(plan.conflicts) == 1
+    result = tmuxopts.apply(plan)
+    assert conf.read_text(encoding="utf-8").endswith("set -g extended-keys off\n")
+    assert any("extended-keys off" in line for line in tmuxopts.report_lines(result))
+
+
 def test_reapply_is_idempotent_and_skips_backup(conf: Path, live, tmp_path: Path) -> None:
     cfg = config.Config(tmux_mouse=True, tmux_history_limit=50000)
     tmuxopts.apply(tmuxopts.build_plan(cfg, conf_path=conf))

@@ -92,6 +92,11 @@ atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/contin
 
 表示言語はシステムの locale に従う（日 / 英 / 中）、`ATM_LANG=ja|en|zh` で強制可。
 
+修飾キーのサポートは任意：`atm config tmux.extended-keys true` で管理ブロックに
+`extended-keys on` を書き、実行中の server にも適用する。既定では無効。Shift+Enter などには
+tmux と端末の対応が必要。無効化しても実行中の値は変えず、atm が書いた行だけを削除する。
+tmux 3.4 にない `extended-keys-format` は設定しない。
+
 設定編集で環境変数の上書きを保存せず、リセット時もインストール済み設定を同期する。`atm install --conf PATH` は `keys.conf-path` を保存し、以後の編集とアンインストールに使う。キー変更は新キーの割り当て後に旧キーを解除する。tmux オプションの無効化は実行中の値を維持し、新 server に反映する。合計 slice はユーザー manager のみ対応し、再読み込みの失敗は明示する。詳しくは[設定の変更](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage-ja.md#設定の変更)。
 
 `atm claude` / `atm codex` / `atm pi` で起動すれば、セッションは cgroup のメモリゲート内で動く。ゲートは既定で有効、
