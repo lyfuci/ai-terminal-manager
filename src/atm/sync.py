@@ -18,7 +18,13 @@ from . import config as config_mod
 from . import dispatch
 from .i18n import _
 
-_TMUX_FIELDS = ("tmux_mouse", "tmux_focus_events", "tmux_history_limit", "tmux_base_index")
+_TMUX_FIELDS = (
+    "tmux_mouse",
+    "tmux_focus_events",
+    "tmux_extended_keys",
+    "tmux_history_limit",
+    "tmux_base_index",
+)
 _TMUX_FIELDS += ("tmux_renumber_windows",)
 _KEY_FIELDS = (
     "keys_pick",

@@ -1,6 +1,6 @@
 """`atm config` 的 `tmux.*` 怎么落到 tmux 上。
 
-覆盖：mouse / focus-events / history-limit / base-index / renumber-windows。
+覆盖：mouse / focus-events / extended-keys / history-limit / base-index / renumber-windows。
 
 这几行是大多数人手写在 ~/.tmux.conf 顶上的「常用配置」。收进 `atm config` 之后，编辑器里切一下、
 保存，就同时写进文件 + 对活着的 server 生效，不用记 tmux 的选项名。
@@ -57,6 +57,12 @@ SPECS: dict[str, OptionSpec] = {
         tmux_names=("focus-events",),
         active=bool,
         on=lambda v: [["set-option", "-g", "focus-events", "on"]],
+    ),
+    "extended-keys": OptionSpec(
+        field="tmux_extended_keys",
+        tmux_names=("extended-keys",),
+        active=bool,
+        on=lambda v: [["set-option", "-g", "extended-keys", "on"]],
     ),
     "history-limit": OptionSpec(
         field="tmux_history_limit",

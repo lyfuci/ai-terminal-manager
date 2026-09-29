@@ -177,11 +177,17 @@ atm config                     # interactive editor: ↑↓ pick a key, Enter ed
 atm config memory.high 4G      # soft cap: throttle + reclaim, never kills. Default auto = 80% of max
 atm config keys.pick s         # picker key (uppercase = current dir only); keys.sidebar, keys.health, keys.popup-width/-height too. Saving rebinds the running server
 atm config tmux.mouse true     # common tmux options: mouse / focus-events / history-limit / base-index / renumber-windows → own block in ~/.tmux.conf, applied live. If your own lines set the same option, atm names them with line numbers instead of silently losing to them
+atm config tmux.extended-keys true  # opt in to extended-keys on for modified keys (e.g. Shift+Enter); requires tmux/terminal support
 atm config memory.slice-high 20G  # aggregate slice numbers (default auto = 50% / 65% of RAM); the unit atm wrote is rewritten + daemon-reload
 atm config memory.max 8G       # hard cap: kills the whole session scope (children included). Default auto = 35% of RAM, floor 4G
 atm claude --resume <id>       # launches claude inside that cgroup; args pass through untouched
 claude                         # no prefix = native, no limits at all
 ```
+
+`tmux.extended-keys` is off by default. Disabling it removes atm's line from the config without
+resetting the running server; it takes effect on the next server start. It does not set
+`extended-keys-format`, which tmux 3.4 does not support. If another tmux config sets
+these options later, atm reports the conflicting lines when it can see them.
 
 `atm codex …` and `atm pi …` work the same. `prefix + a` dispatch and sidebar resume use the same settings.
 `atm install` also writes an aggregate `atm-ai.slice` (50% / 65% of RAM) so N sessions together can't

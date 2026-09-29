@@ -33,6 +33,16 @@ def test_tmux_change_writes_block(conf: Path) -> None:
     assert tmuxopts.MARKER_BEGIN in conf.read_text(encoding="utf-8")
 
 
+def test_extended_keys_change_syncs_tmux_option(conf: Path) -> None:
+    old = config.Config()
+    new = replace(old, tmux_extended_keys=True)
+    notes = sync.apply_changes(old, new, conf_path=conf)
+    assert any("tmux 选项已写进" in note for note in notes)
+    text = conf.read_text(encoding="utf-8")
+    assert "set -g extended-keys on" in text
+    assert "extended-keys-format" not in text
+
+
 def test_key_change_without_install_only_hints(conf: Path) -> None:
     old = config.Config()
     new = replace(old, keys_pick="s")

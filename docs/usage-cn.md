@@ -170,11 +170,15 @@ atm config                     # 交互式编辑器：↑↓ 选键，Enter 改/
 atm config memory.high 4G      # 软上限：节流 + 回收，不杀。默认 auto = Max 的 80%
 atm config keys.pick s         # 选择器键（大写 = 只看当前目录）；还有 keys.sidebar、keys.health、keys.popup-width/-height。保存即对运行中的 server 重绑
 atm config tmux.mouse true     # tmux 常用选项：mouse / focus-events / history-limit / base-index / renumber-windows → 写进 ~/.tmux.conf 的独立块，立即生效。你自己的行要是也设了同一个选项，atm 会连行号一起报出来，而不是默默被盖掉
+atm config tmux.extended-keys true  # 可选：extended-keys on；Shift+Enter 等组合键需 tmux/终端支持
 atm config memory.slice-high 20G  # 总量 slice 的数（默认 auto = 物理内存 50% / 65%）；atm 写的单元会重写 + daemon-reload
 atm config memory.max 8G       # 硬上限：杀整个会话 scope（含子进程）。默认 auto = 物理内存 35%，下限 4G
 atm claude --resume <id>       # 在这个 cgroup 里启动 claude；参数原样透传
 claude                         # 不带前缀 = 原生，不套任何限制
 ```
+
+`tmux.extended-keys` 默认关闭。关闭时只从配置里删掉 atm 写的那行，不重置运行中的 server；
+下次启动 server 生效。不会设置 tmux 3.4 不支持的 `extended-keys-format`。如果其他配置随后覆盖同名选项，atm 会报告它能查到的冲突行。
 
 `atm codex …` / `atm pi …` 同理。`prefix + a` 投递和侧栏恢复用的是同一套设置。
 `atm install` 还会写一个总量 `atm-ai.slice`（物理内存的 50% / 65%），N 个会话加起来也压不垮机器；

@@ -90,6 +90,11 @@ atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把�
 
 界面语言跟系统 locale（中 / 英 / 日），`ATM_LANG=zh|en|ja` 可强制。
 
+可选的组合键支持：`atm config tmux.extended-keys true` 在 atm 管理的选项块里写入
+`extended-keys on`，并对运行中的 server 生效。默认关闭；Shift+Enter 等组合键还需要 tmux
+和终端支持。关掉时只删 atm 写的行，不动运行中 server 的值。不会设置 tmux 3.4 不支持的
+`extended-keys-format`。
+
 配置编辑不会固化环境变量覆盖；重置也会同步已安装的配置。`atm install --conf PATH` 保存 `keys.conf-path`，供后续编辑和卸载沿用。换键先绑新键再解绑旧键。关闭 tmux 选项保留运行中的值，变更对新 server 生效。总量 slice 只支持用户 manager，重载失败会明确报告。详见[配置变更](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage-cn.md#配置变更)。
 
 用 `atm claude` / `atm codex` / `atm pi` 启动，会话就跑在 cgroup 内存闸门里。闸门默认开，数值按机器算
