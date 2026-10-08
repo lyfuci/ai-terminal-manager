@@ -184,10 +184,31 @@ atm claude --resume <id>       # launches claude inside that cgroup; args pass t
 claude                         # no prefix = native, no limits at all
 ```
 
-`tmux.extended-keys` is off by default. Disabling it removes atm's line from the config without
-resetting the running server; it takes effect on the next server start. It does not set
-`extended-keys-format`, which tmux 3.4 does not support. If another tmux config sets
-these options later, atm reports the conflicting lines when it can see them.
+`tmux.extended-keys` remains off by default. `tmux.extended-keys-format` defaults to `""`
+(unmanaged); allowed values are `""`, `xterm`, and `csi-u`. For Pi, on a **running, verified
+compatible tmux 3.5+ server**, opt in separately:
+
+```bash
+atm config tmux.extended-keys true
+atm config tmux.extended-keys-format csi-u
+atm config --unset tmux.extended-keys-format  # release ownership, not reset the live value
+```
+
+ATM probes the **target server** through the public CLI (`#{version}` and `show-options`), not
+just the PATH client's `tmux -V`. Nonempty format requests are refused before saving TOML or
+changing the tmux block when support is unknown/unsupported (including no running server).
+On tmux 3.2–3.4, use only `extended-keys on`; 3.4 rejects the format option, and Pi supports
+its older xterm `modifyOtherKeys` path. ATM does not force `always` or wildcard terminal features.
+
+Disabling/unsetting or uninstalling removes only atm's owned lines, leaving live values and
+outside user lines unchanged. Visible conflicts are reported with line numbers; conditional
+blocks are marked uncertain. Live key changes are read back: a saved format with a failed set
+or unconfirmed readback is reported separately and the command exits nonzero; saved files and
+backups remain, with no automatic rollback/retry. Files and live server are not one atomic transaction.
+`atm doctor` / `--json` reports actual server version, key values and supported/unsupported/unknown
+format capability. ATM never restarts the server to silence a warning. These checks **do not prove
+real modified keys work** through the outer terminal, IDE or SSH. Verify manually; Pi's `Ctrl+J`
+newline and Windows/WSL `Ctrl+Q` follow-up defaults remain useful fallbacks.
 
 `atm codex …` and `atm pi …` work the same. `prefix + a` dispatch and sidebar resume use the same settings.
 `atm install` also writes an aggregate `atm-ai.slice` (50% / 65% of RAM) so N sessions together can't

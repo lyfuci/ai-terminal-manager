@@ -93,9 +93,14 @@ atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/contin
 表示言語はシステムの locale に従う（日 / 英 / 中）、`ATM_LANG=ja|en|zh` で強制可。
 
 修飾キーのサポートは任意：`atm config tmux.extended-keys true` で管理ブロックに
-`extended-keys on` を書き、実行中の server にも適用する。既定では無効。Shift+Enter などには
-tmux と端末の対応が必要。無効化しても実行中の値は変えず、atm が書いた行だけを削除する。
-tmux 3.4 にない `extended-keys-format` は設定しない。
+`extended-keys on` を書き、live 適用後に読取値を確認する。引き続き既定では無効。
+独立した `tmux.extended-keys-format` の既定は `""`（管理しない）。稼働中の tmux 3.5+ が
+公開バージョン/オプション検査で対応確認された場合だけ `csi-u` または `xterm` を指定できる。
+不明/非対応なら保存前に拒否する。tmux 3.4 は従来の `extended-keys on` のみで、形式行は書かない。
+検査するのは対象サーバーであり PATH のクライアントのバージョンではない。
+無効化は ATM の行だけを削除し live 値を維持する。警告を消すためサーバーを再起動しない。
+外側の端末/クライアントの修飾キー能力は未検証で、設定成功は実際の Shift+Enter 動作を証明しない。
+詳しくは[キー設定](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage-ja.md#メモリゲートatm-claude-と-claude-の違い)。
 
 設定編集で環境変数の上書きを保存せず、リセット時もインストール済み設定を同期する。`atm install --conf PATH` は `keys.conf-path` を保存し、以後の編集とアンインストールに使う。キー変更は新キーの割り当て後に旧キーを解除する。tmux オプションの無効化は実行中の値を維持し、新 server に反映する。合計 slice はユーザー manager のみ対応し、再読み込みの失敗は明示する。詳しくは[設定の変更](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage-ja.md#設定の変更)。
 

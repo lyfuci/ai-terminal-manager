@@ -181,9 +181,30 @@ atm claude --resume <id>       # その cgroup 内で claude を起動；引数�
 claude                         # プレフィックスなし = ネイティブ、制限なし
 ```
 
-`tmux.extended-keys` は既定で無効。無効化すると atm の一行だけを削除し、実行中の server の値は
-変更しない。次回の server 起動時に反映される。tmux 3.4 にない `extended-keys-format` は設定しない。他の設定が同じオプションを後から上書きする場合、
-atm が検出できる競合行を報告する。
+`tmux.extended-keys` は引き続き既定で無効。`tmux.extended-keys-format` の既定は `""`
+（管理しない）で、`""`、`xterm`、`csi-u` を選べる。Pi では**稼働中で対応が確認された tmux 3.5+
+サーバー**に対して、それぞれ任意で有効にする：
+
+```bash
+atm config tmux.extended-keys true
+atm config tmux.extended-keys-format csi-u
+atm config --unset tmux.extended-keys-format  # 管理を解除。稼働中の値は戻さない
+```
+
+ATM は公開 CLI（`#{version}` と `show-options`）で**対象サーバー**を調べる。
+PATH のクライアントの `tmux -V` だけでは判断しない。非空形式は対応不明/非対応
+（稼働中のサーバーがない場合も含む）なら、TOML 保存や tmux ブロック変更前に拒否する。
+tmux 3.2–3.4 では `extended-keys on` だけを使う。3.4 は形式オプションに非対応だが、
+Pi は従来の xterm `modifyOtherKeys` に対応する。ATM は `always` や端末機能のワイルドカードを強制しない。
+
+無効化・unset・アンインストールは ATM の行だけを除き、稼働中の値やブロック外のユーザー内容は変更しない。
+検出できる競合を行番号付きで報告し、条件ブロックは不確実と示す。キー設定は読取値を確認する。
+形式の保存後に live set が失敗/読取値が未確認なら別々に報告し、コマンドは非ゼロで終了する。
+ファイルとバックアップは維持し、自動ロールバック/再試行はしない。ファイルとサーバーは一つの原子的処理ではない。
+`atm doctor` / `--json` は実際のサーバーバージョン、キーの値、形式対応/非対応/不明を報告する。
+ATM は警告を消すためサーバーを再起動しない。これらは**実際の修飾キーの動作を証明しない**。
+端末・IDE・SSH が情報を失う場合があるため手動で確認する。Pi の `Ctrl+J` 改行と
+Windows/WSL の既定 `Ctrl+Q` follow-up は代替手段として使える。
 
 `atm codex …` / `atm pi …` も同じ。`prefix + a` の投入とサイドバーの resume も同じ設定を使う。
 `atm install` は合計用の `atm-ai.slice`（物理メモリの 50% / 65%）も書き、N 本合計でもマシンを落とさない；

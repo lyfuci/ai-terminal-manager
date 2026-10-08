@@ -483,10 +483,32 @@ atm config --reset                # 全部默认
 |---|---|---|
 | `[memory]` | `slice-high` / `slice-max`（默认 `auto` = 物理内存 50% / 65%，或写死 `24G`） | atm 写的 `atm-ai.slice` 按新数重写 + `daemon-reload`；你自己写的单元不动 |
 | `[keys]` | `conf-path`（空串 = ~/.tmux.conf）/ `pick`（默认 a）/ `sidebar`（默认 b）/ `popup-width`（80%）/ `popup-height`（70%） | 键位块已装的话重写 + 对运行中的 server 重绑，成功后才解绑旧键；没装就提示先 `atm install` |
-| `[tmux]` | `mouse` / `focus-events` / `history-limit`（0 = 不写）/ `base-index`（0 或 1）/ `renumber-windows` / `extended-keys`（默认关，需终端支持；不设置 tmux 3.4 不支持的 `extended-keys-format`） | 写进 `~/.tmux.conf` **最前面**的独立 marker 块（你后面写的任何一行都能盖掉它）+ 开启的选项对运行中的 server `set -g`；关闭只撤文件设置，运行中的值不动，变更对新 server 生效。全关时整块删掉 |
+| `[tmux]` | `mouse` / `focus-events` / `history-limit`（0 = 不写）/ `base-index`（0 或 1）/ `renumber-windows` / `extended-keys`（默认关，需终端支持）/ `extended-keys-format`（空串不接管，`xterm` 或 `csi-u`；须运行中的 server 版本 3.5+ 且能力探测成功） | 写进 `~/.tmux.conf` **最前面**的独立 marker 块（你后面写的任何一行都能盖掉它）+ 开启的选项对运行中的 server `set -g`；关闭只撤文件设置，运行中的值不动，变更对新 server 生效。全关时整块删掉 |
 
 `[tmux]` 默认全部「不写」，不动你的 tmux 配置；开了才写 `set -g mouse on`，关了也不写 `off`。
 `atm uninstall` 一起删键位块、持久化块、tmux 选项块和 atm 写的 slice。
+
+`tmux.extended-keys-format` 独立于布尔开关；默认空串，不接管。TOML 键为
+`[tmux].extended_keys_format`，环境变量为 `ATM_TMUX_EXTENDED_KEYS_FORMAT`。
+Pi 在验证支持的运行中 tmux 3.5+ 上可 opt-in `atm config tmux.extended-keys-format csi-u`
+（通常还需 `tmux.extended-keys true`）。tmux 3.2–3.4 只开 `extended-keys on`；
+3.4 的格式查询/设置报 `invalid option`，Pi 支持旧 xterm `modifyOtherKeys`。
+
+非空格式写入前必须通过目标 server 的公开 `display-message -p '#{version}'` 和
+`show-options -gv extended-keys-format` 双重验证，不能拿 PATH 客户端 `tmux -V` 替代。
+无 server、未知版本、查询失败或不支持时，CLI/编辑器/安装在保存配置或改 tmux 块前拒绝；
+`tmuxopts.apply` 在备份/写入前再次探测。撤回格式、reset、卸载和无关字段修改不因旧格式阻塞。
+文件写入和 live 设置不是原子事务；探测后 server 仍可能更换/退出。
+live set 或读回失败时明确区分已保存的 TOML/tmux 块和未确认的 live 值；
+本次请求非空格式生效的命令非零退出，保留文件与备份，不自动回滚或重试。
+
+`atm doctor --json` 的 `tmux.keyOptions` 给出 `serverVersion`、`extendedKeys`、
+`extendedKeysFormat`、`formatSupport`（`supported` / `unsupported` / `unknown`）、
+`reason` 及 `terminalKeysVerified=false`。文本报告也区分三种支持状态。
+这不是终端硬件检测：本机真实隔离验证只覆盖 tmux 3.4，3.5+ 能力分支仅由 mock 验证，
+不证明 Windows Terminal 的 modified Enter 工作。atm 不改 `terminal-features`/通配能力，
+不强制 `always`，也不重启 server 消警告。外层终端、IDE、SSH 要手动验证；
+Pi 的 `Ctrl+J` 换行、Windows/WSL 默认 `Ctrl+Q` follow-up 是可用的回退路径。
 
 #### atm 不承诺它写的 tmux 值最终生效
 

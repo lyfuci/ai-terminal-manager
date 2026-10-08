@@ -109,9 +109,14 @@ atm install     # write key bindings to ~/.tmux.conf + install resurrect/continu
 The CLI speaks English, Chinese and Japanese, following your locale (`ATM_LANG=en|zh|ja` overrides).
 
 Optional tmux keyboard support: `atm config tmux.extended-keys true` writes `extended-keys on`
-in the managed options block (also applied live). It is off by default; modified keys such as
-Shift+Enter require tmux and terminal support. Turning it off removes only atm's line, leaving
-the running server unchanged. It does not set `extended-keys-format` (unsupported by tmux 3.4).
+in the managed block (applied live with readback). It stays off by default. The separate
+`tmux.extended-keys-format` defaults to `""` (unmanaged); opt in to `csi-u` or `xterm` only on a
+running tmux 3.5+ server whose public version/option probes confirm support. Unknown/unsupported
+requests are refused before saving; tmux 3.4 accepts only the existing `extended-keys on` path,
+not a format line. Probes use the target server, not the PATH client's version. Disabling removes
+only atm's lines and leaves live values unchanged. ATM never restarts a server to silence warnings;
+outer terminal/client modified keys are unverified, so settings do not prove real Shift+Enter works.
+See [keyboard configuration](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md#memory-gate-atm-claude-vs-claude).
 
 Config edits keep environment overrides temporary; reset also reconciles installed artifacts. `atm install --conf PATH` saves `keys.conf-path` for later edits and uninstall. Key changes bind new keys before retiring old ones. Disabling tmux options preserves running values and applies to new servers. Aggregate slice installation supports the user manager only, and reload failures are reported explicitly. See [configuration behavior](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md#configuration-changes).
 
