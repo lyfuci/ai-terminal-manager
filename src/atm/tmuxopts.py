@@ -1,6 +1,7 @@
 """`atm config` 的 `tmux.*` 怎么落到 tmux 上。
 
-覆盖：mouse / focus-events / extended-keys / history-limit / base-index / renumber-windows。
+覆盖：mouse / focus-events / extended-keys / extended-keys-format / history-limit /
+base-index / renumber-windows。
 
 这几行是大多数人手写在 ~/.tmux.conf 顶上的「常用配置」。收进 `atm config` 之后，编辑器里切一下、
 保存，就同时写进文件 + 对活着的 server 生效，不用记 tmux 的选项名。
@@ -63,6 +64,12 @@ SPECS: dict[str, OptionSpec] = {
         tmux_names=("extended-keys",),
         active=bool,
         on=lambda v: [["set-option", "-g", "extended-keys", "on"]],
+    ),
+    "extended-keys-format": OptionSpec(
+        field="tmux_extended_keys_format",
+        tmux_names=("extended-keys-format",),
+        active=bool,
+        on=lambda v: [["set-option", "-g", "extended-keys-format", str(v)]],
     ),
     "history-limit": OptionSpec(
         field="tmux_history_limit",
@@ -174,7 +181,22 @@ class TmuxOptsResult:
     sourced: tuple[str, ...] = ()
 
 
+def require_format_support(value: str) -> None:
+    """非空格式必须在任何文件写入/备份前验证；空串撤回接管永不阻塞。"""
+    if not value:
+        return
+    config_mod.set_value(config_mod.Config(), "tmux.extended-keys-format", value)
+    status = tmux.key_options_status()
+    if status.format_support != "supported":
+        raise config_mod.ConfigError(
+            _("拒绝写入 extended-keys-format={value}：{reason}").format(
+                value=value, reason=status.reason
+            )
+        )
+
+
 def build_plan(cfg: config_mod.Config, *, conf_path: Path | None = None) -> TmuxOptsPlan:
+    require_format_support(cfg.tmux_extended_keys_format)
     path = conf_path or Path.home() / ".tmux.conf"
     existing = _read(path)
     already = _has_marker(existing, MARKER_BEGIN)
@@ -201,6 +223,10 @@ def build_plan(cfg: config_mod.Config, *, conf_path: Path | None = None) -> Tmux
 
 def apply(plan: TmuxOptsPlan, *, live: bool = True) -> TmuxOptsResult:
     """写块（放最前面）或删块 + 对活着的 server 立即生效。文件没变化就不备份不写。"""
+    # 计划可能已过时（server 换了/退出了），必须在备份或修改文件前重新验证。
+    for argv in plan.commands:
+        if argv[2] == "extended-keys-format":
+            require_format_support(argv[3])
     written = False
     backup: Path | None = None
     if not plan.is_noop:
@@ -215,13 +241,31 @@ def apply(plan: TmuxOptsPlan, *, live: bool = True) -> TmuxOptsResult:
 
     applied_live = False
     live_error: str | None = None
-    if live and plan.commands and tmux.has_server():
-        try:
-            for argv in plan.commands:
-                tmux.run(list(argv))
-            applied_live = True
-        except tmux.TmuxError as exc:
-            live_error = str(exc)
+    key_commands = [a for a in plan.commands if a[2] in ("extended-keys", "extended-keys-format")]
+    if live and plan.commands:
+        if tmux.has_server():
+            try:
+                for argv in plan.commands:
+                    tmux.run(list(argv))
+            except tmux.TmuxError as exc:
+                live_error = (
+                    tmux.key_options_reason(tmux.KeyOptionsCause.SET_FAILED)
+                    if key_commands
+                    else str(exc)
+                )
+            else:
+                for argv in key_commands:
+                    try:
+                        actual = tmux.run(["show-options", "-gv", argv[2]], timeout=5).strip()
+                    except tmux.TmuxError:
+                        live_error = tmux.key_options_reason(tmux.KeyOptionsCause.READBACK_FAILED)
+                        break
+                    if actual != argv[3]:
+                        live_error = tmux.key_options_reason(tmux.KeyOptionsCause.READBACK_MISMATCH)
+                        break
+                applied_live = live_error is None
+        elif key_commands:
+            live_error = _("目标 tmux server 不可用，运行中的扩展键设置未确认")
     # 重新读一遍写完后的文件再扫：行号必须对得上用户现在看到的文件
     final = _read(plan.conf_path)
     return TmuxOptsResult(

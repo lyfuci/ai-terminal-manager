@@ -81,6 +81,7 @@ class Config:
     tmux_mouse: bool = False
     tmux_focus_events: bool = False
     tmux_extended_keys: bool = False
+    tmux_extended_keys_format: str = ""  # 空串 = 不接管；非空写入前须确认 server 支持
     tmux_history_limit: int = 0  # 0 = 不写；常用 50000（tmux 默认 2000）
     tmux_base_index: int = 0  # 0 = 不写；1 = window / pane 都从 1 开始编号
     tmux_renumber_windows: bool = False
@@ -128,6 +129,7 @@ KEYS: dict[str, str] = {
     "tmux.mouse": "tmux_mouse",
     "tmux.focus-events": "tmux_focus_events",
     "tmux.extended-keys": "tmux_extended_keys",
+    "tmux.extended-keys-format": "tmux_extended_keys_format",
     "tmux.history-limit": "tmux_history_limit",
     "tmux.base-index": "tmux_base_index",
     "tmux.renumber-windows": "tmux_renumber_windows",
@@ -153,6 +155,9 @@ _HELP: dict[str, str] = {
     "tmux.mouse": "tmux 鼠标：点格子切焦点、滚轮翻滚动缓冲、拖边框调大小（写进 ~/.tmux.conf）",
     "tmux.focus-events": "tmux 把终端的焦点进出转给程序（编辑器自动重载、AI CLI 感知切窗要它）",
     "tmux.extended-keys": "扩展组合键（如 Shift+Enter）；需 tmux 和终端支持。默认不写",
+    "tmux.extended-keys-format": (
+        "扩展键编码：空串不接管，xterm 或 csi-u；写入前须确认运行中的 tmux 3.5+ 支持"
+    ),
     "tmux.history-limit": "每格滚动缓冲行数；0 = 不写（tmux 默认 2000），常用 50000",
     "tmux.base-index": "window / pane 编号起点；0 = 不写（tmux 从 0 数），1 = 从 1 开始",
     "tmux.renumber-windows": "关掉一个 window 后剩下的自动重新编号，不留空洞",
@@ -391,6 +396,12 @@ def _coerce(key: str, value: object):
             )
         return n
     s = str(value).strip()
+    if key == "tmux.extended-keys-format":
+        if not isinstance(value, str) or s not in ("", "xterm", "csi-u"):
+            raise ConfigError(
+                _("{key} 只能是空串、xterm 或 csi-u，收到 {value!r}").format(key=key, value=value)
+            )
+        return s
     if key == "keys.conf-path":
         return str(Path(s).expanduser().resolve()) if s else ""
     if key == "memory.slice":
@@ -420,6 +431,7 @@ def _coerce(key: str, value: object):
 
 def validate(cfg: Config) -> None:
     """跨字段的约束。单字段的在 _coerce 里。"""
+    _coerce("tmux.extended-keys-format", cfg.tmux_extended_keys_format)
     if cfg.keys_pick == cfg.keys_sidebar:
         raise ConfigError(
             _("keys.pick 和 keys.sidebar 不能相同（都是 {key!r}）").format(key=cfg.keys_pick)

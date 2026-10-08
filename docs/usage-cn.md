@@ -177,8 +177,30 @@ atm claude --resume <id>       # 在这个 cgroup 里启动 claude；参数原�
 claude                         # 不带前缀 = 原生，不套任何限制
 ```
 
-`tmux.extended-keys` 默认关闭。关闭时只从配置里删掉 atm 写的那行，不重置运行中的 server；
-下次启动 server 生效。不会设置 tmux 3.4 不支持的 `extended-keys-format`。如果其他配置随后覆盖同名选项，atm 会报告它能查到的冲突行。
+`tmux.extended-keys` 仍默认关闭。`tmux.extended-keys-format` 默认 `""`（不接管），
+可选 `""`、`xterm`、`csi-u`。Pi 用户在**运行中且验证支持的 tmux 3.5+ server** 上可分别开启：
+
+```bash
+atm config tmux.extended-keys true
+atm config tmux.extended-keys-format csi-u
+atm config --unset tmux.extended-keys-format  # 撤回接管，不重置运行中的值
+```
+
+atm 通过公开 CLI（`#{version}` 和 `show-options`）探测**当前目标 server**，不把 PATH 客户端的
+`tmux -V` 当作 server 真相。非空格式在支持未知/不支持（含没有运行中的 server）时，
+会在保存 TOML 或修改 tmux 块前拒绝。tmux 3.2–3.4 只用 `extended-keys on`；
+3.4 不支持格式选项，Pi 支持它的旧 xterm `modifyOtherKeys` 路径。atm 不强制 `always`，不加通配终端能力。
+
+关闭、unset 或卸载只删 atm 管的行，不改运行中的值和用户块外的内容。可见冲突按行号报告，
+条件块标为不确定。组合键设置会读回确认：格式已保存但 live set 失败/读回未确认时分开报告，
+命令非零退出，保留文件与备份，不自动回滚/重试；文件与运行中的 server 不是一个原子事务。
+`atm doctor` / `--json` 报实际 server 版本、键值及格式支持/不支持/未知。
+atm 不会为消除警告重启 server；这些检查**不证明真实组合键可用**，终端、IDE 或 SSH 仍可能丢失信息。
+请手动验证；Pi 的 `Ctrl+J` 换行、Windows/WSL 默认 `Ctrl+Q` follow-up 仍可作为回退。
+
+显式设置非空格式或在编辑器确认该项，即使文本和已保存值相同也算新请求：重查能力，
+live 成功必须读回确认。无关修改、未编辑该项直接保存不重新激活旧格式意图。
+组合键诊断只用固定翻译原因；不展示任意子进程输出，未知版本/键值记为未知。
 
 `atm codex …` / `atm pi …` 同理。`prefix + a` 投递和侧栏恢复用的是同一套设置。
 `atm install` 还会写一个总量 `atm-ai.slice`（物理内存的 50% / 65%），N 个会话加起来也压不垮机器；

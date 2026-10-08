@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -206,6 +207,103 @@ def run(args: list[str], *, timeout: float = 10.0) -> str:
         detail = (result.stderr or result.stdout or "").strip()
         raise TmuxError(_("tmux {v0} 失败: {detail}").format(v0=" ".join(args), detail=detail))
     return result.stdout
+
+
+class KeyOptionsCause(StrEnum):
+    SERVER_UNAVAILABLE = "server-unavailable"
+    VERSION_UNCONFIRMED = "version-unconfirmed"
+    FORMAT_UNCONFIRMED = "format-unconfirmed"
+    UNSUPPORTED_VERSION = "unsupported-version"
+    SET_FAILED = "set-failed"
+    READBACK_FAILED = "readback-failed"
+    READBACK_MISMATCH = "readback-mismatch"
+
+
+def key_options_reason(cause: KeyOptionsCause | None, version: str | None = None) -> str | None:
+    """只返回固定翻译，不将子进程输出/异常文本带入新诊断面。"""
+    if cause is None:
+        return None
+    if cause is KeyOptionsCause.UNSUPPORTED_VERSION:
+        return _("目标 tmux server {version} 不支持 extended-keys-format（需 3.5+）").format(
+            version=version
+        )
+    return {
+        KeyOptionsCause.SERVER_UNAVAILABLE: _("目标 tmux server 不可用，扩展键格式支持未知"),
+        KeyOptionsCause.VERSION_UNCONFIRMED: _("目标 tmux server 版本未确认"),
+        KeyOptionsCause.FORMAT_UNCONFIRMED: _(
+            "目标 tmux server 的 extended-keys-format 能力未确认"
+        ),
+        KeyOptionsCause.SET_FAILED: _("扩展键设置命令失败，运行中的值未确认"),
+        KeyOptionsCause.READBACK_FAILED: _("扩展键读回失败，运行中的值未确认"),
+        KeyOptionsCause.READBACK_MISMATCH: _("扩展键读回值未知或不匹配，运行中的值未确认"),
+    }[cause]
+
+
+@dataclass(frozen=True, slots=True)
+class KeyOptionsStatus:
+    """当前目标 server 的白名单读数，不是原始输出或终端硬件能力。"""
+
+    server_version: str | None = None
+    extended_keys: str | None = None
+    extended_keys_format: str | None = None
+    format_support: str = "unknown"
+    cause: KeyOptionsCause | None = None
+
+    @property
+    def reason(self) -> str | None:
+        return key_options_reason(self.cause, self.server_version)
+
+    def to_json(self) -> dict:
+        return {
+            "serverVersion": self.server_version,
+            "extendedKeys": self.extended_keys,
+            "extendedKeysFormat": self.extended_keys_format,
+            "formatSupport": self.format_support,
+            "cause": self.cause.value if self.cause else None,
+            "reason": self.reason,
+            "terminalKeysVerified": False,
+        }
+
+
+# ASCII、无前导零、有界的发布版本；非规范/开发版本保守地记为未知。
+_KEY_VERSION = re.compile(r"([1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})[a-z]?")
+
+
+def key_options_status() -> KeyOptionsStatus:
+    """用继承的 TMUX 目标、公有 CLI 读版本和能力；错误内容从不公开。"""
+    if not has_server():
+        return KeyOptionsStatus(cause=KeyOptionsCause.SERVER_UNAVAILABLE)
+    version = None
+    extended = None
+    format_value = None
+    match = None
+    try:
+        value = run(["display-message", "-p", "#{version}"], timeout=5).strip()
+        match = _KEY_VERSION.fullmatch(value)
+        if match:
+            version = value
+    except TmuxError:
+        pass
+    try:
+        value = run(["show-options", "-gv", "extended-keys"], timeout=5).strip()
+        extended = value if value in ("off", "on", "always") else None
+    except TmuxError:
+        pass
+    try:
+        value = run(["show-options", "-gv", "extended-keys-format"], timeout=5).strip()
+        format_value = value if value in ("xterm", "csi-u") else None
+    except TmuxError:
+        pass
+    if match and tuple(map(int, match.groups())) < (3, 5):
+        support, cause = "unsupported", KeyOptionsCause.UNSUPPORTED_VERSION
+    elif match and format_value is not None:
+        support, cause = "supported", None
+    else:
+        support = "unknown"
+        cause = (
+            KeyOptionsCause.VERSION_UNCONFIRMED if not match else KeyOptionsCause.FORMAT_UNCONFIRMED
+        )
+    return KeyOptionsStatus(version, extended, format_value, support, cause)
 
 
 def list_panes() -> tuple[Pane, ...]:

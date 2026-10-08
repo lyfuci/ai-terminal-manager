@@ -886,6 +886,7 @@ def _doctor_report() -> dict:
         "installed": tmux.is_installed(),
         "serverRunning": tmux.is_installed() and tmux.has_server(),
         "insideTmux": tmux.inside_tmux(),
+        "keyOptions": tmux.key_options_status().to_json(),
     }
 
     st = _persist_mod().status()
@@ -948,6 +949,24 @@ def _doctor_report() -> dict:
     }
 
 
+def _report_key_options(info: dict) -> None:
+    labels = {"supported": _("支持"), "unsupported": _("不支持"), "unknown": _("未知")}
+    unknown = _("未知")
+    print(
+        _(
+            "  目标 server 版本: {version}；extended-keys: {keys}；格式: {format}（{support}）"
+        ).format(
+            version=info["serverVersion"] or unknown,
+            keys=info["extendedKeys"] or unknown,
+            format=info["extendedKeysFormat"] or unknown,
+            support=labels[info["formatSupport"]],
+        )
+    )
+    if info["reason"]:
+        print(f"    {info['reason']}")
+    print(_("  外层终端/客户端的组合键能力未验证；设置成功不等于真实 Shift+Enter 可用"))
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     report = _doctor_report()
     if args.json:
@@ -984,6 +1003,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             )
         )
         print(_("  当前在 tmux 里: {v0}").format(v0=_("是") if t["insideTmux"] else _("否")))
+    _report_key_options(t["keyOptions"])
 
     print(_("\n== 持久化（resurrect + continuum）=="))
     _report_persist(_persist_mod().status())
@@ -1367,6 +1387,8 @@ def _cmd_install(args: argparse.Namespace) -> int:
             print(_("已取消，没有改动任何文件。"))
             return EXIT_CANCELLED
 
+    # 确认期间 server 可能已更换；任何安装文件写入前重新预检。
+    _tmuxopts_mod().require_format_support(cfg.tmux_extended_keys_format)
     if overrides:
         path = config.save(file_cfg)
         print(_("\n键位已记到 {path}（keys.*），以后在 `atm config` 里改").format(path=path))
@@ -1396,10 +1418,18 @@ def _cmd_install(args: argparse.Namespace) -> int:
         _apply_persist(persist_plan)
     if not args.no_slice:
         _apply_slice(cfg)
+    format_confirmed = True
     if opts_plan.enabled or opts_plan.already_installed:
-        _report_tmuxopts(_tmuxopts_mod().apply(opts_plan))
+        try:
+            opts_result = _tmuxopts_mod().apply(opts_plan)
+        except config.ConfigError as exc:
+            # 其他安装文件可能已经保存，不声称整个 install 原子回滚。
+            print(_("tmux 选项没写进 {path}：{exc}").format(path=plan.conf_path, exc=exc))
+            return EXIT_ERROR
+        _report_tmuxopts(opts_result)
+        format_confirmed = not cfg.tmux_extended_keys_format or opts_result.applied_live
     _apply_boot_hook(cfg, conf_path)
-    return EXIT_OK
+    return EXIT_OK if format_confirmed else EXIT_ERROR
 
 
 def _apply_boot_hook(cfg, conf_path: Path | None) -> None:
@@ -1657,6 +1687,18 @@ def _cmd_completion(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _apply_config_changes(old, new, *, format_requested: bool = False) -> int:
+    sync = _sync_mod()
+    if sync.requires_format_confirmation(old, new, format_requested=format_requested):
+        result = sync.apply_changes_checked(old, new, format_requested=format_requested)
+        for note in result.notes:
+            print(note)
+        return EXIT_OK if result.format_confirmed else EXIT_ERROR
+    for note in sync.apply_changes(old, new):
+        print(note)
+    return EXIT_OK
+
+
 def _cmd_config(args: argparse.Namespace) -> int:
     config = _config_mod()
     if args.path:
@@ -1681,11 +1723,10 @@ def _cmd_config(args: argparse.Namespace) -> int:
         if args.unset:
             old_cfg = config.load_file()
             cfg = config.unset_value(old_cfg, args.unset)
+            _sync_mod().validate_changes(old_cfg, cfg)
             path = config.save(cfg)
             print(_("{args_unset} 已恢复默认 → {path}").format(args_unset=args.unset, path=path))
-            for note in _sync_mod().apply_changes(old_cfg, cfg):
-                print(note)
-            return EXIT_OK
+            return _apply_config_changes(old_cfg, cfg)
         if args.key and args.value is None:
             raise config.ConfigError(
                 _("要给 {args_key} 一个值，比如 `atm config {args_key} 4G`").format(
@@ -1695,11 +1736,12 @@ def _cmd_config(args: argparse.Namespace) -> int:
         if args.key:
             old_cfg = config.load_file()
             cfg = config.set_value(old_cfg, args.key, args.value)
+            # 显式 setter 是一次新请求，即使上次失败后 TOML 已保存相同值。
+            format_requested = args.key == "tmux.extended-keys-format"
+            _sync_mod().validate_changes(old_cfg, cfg, format_requested=format_requested)
             path = config.save(cfg)
             print(f"{args.key} = {args.value} → {path}")
-            for note in _sync_mod().apply_changes(old_cfg, cfg):
-                print(note)
-            return EXIT_OK
+            return _apply_config_changes(old_cfg, cfg, format_requested=format_requested)
     except config.ConfigError as exc:
         print(f"atm: {exc}", file=sys.stderr)
         return EXIT_ERROR

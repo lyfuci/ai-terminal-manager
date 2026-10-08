@@ -90,10 +90,13 @@ atm install     # 往 ~/.tmux.conf 写键位 + 装 resurrect/continuum。先把�
 
 界面语言跟系统 locale（中 / 英 / 日），`ATM_LANG=zh|en|ja` 可强制。
 
-可选的组合键支持：`atm config tmux.extended-keys true` 在 atm 管理的选项块里写入
-`extended-keys on`，并对运行中的 server 生效。默认关闭；Shift+Enter 等组合键还需要 tmux
-和终端支持。关掉时只删 atm 写的行，不动运行中 server 的值。不会设置 tmux 3.4 不支持的
-`extended-keys-format`。
+可选的组合键支持：`atm config tmux.extended-keys true` 在 atm 管的块里写入
+`extended-keys on`，live 应用后读回确认；仍默认关闭。独立的 `tmux.extended-keys-format`
+默认 `""`（不接管），只有运行中的 tmux 3.5+ 通过公开版本/选项探测后才可 opt-in
+`csi-u` 或 `xterm`。未知/不支持时在保存前拒绝；tmux 3.4 仍只用原有的 `extended-keys on`
+路径，不写格式行。探测的是目标 server，不是 PATH 客户端版本。关掉只删 atm 的行，不动 live 值。
+atm 不为消除警告重启 server；外层终端/客户端组合键能力未验证，设置成功不证明真实 Shift+Enter 可用。
+详见[组合键配置](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage-cn.md#内存闸门atm-claude-和-claude-的区别)。
 
 配置编辑不会固化环境变量覆盖；重置也会同步已安装的配置。`atm install --conf PATH` 保存 `keys.conf-path`，供后续编辑和卸载沿用。换键先绑新键再解绑旧键。关闭 tmux 选项保留运行中的值，变更对新 server 生效。总量 slice 只支持用户 manager，重载失败会明确报告。详见[配置变更](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage-cn.md#配置变更)。
 
