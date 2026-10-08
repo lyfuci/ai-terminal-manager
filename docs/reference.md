@@ -504,7 +504,12 @@ live set 或读回失败时明确区分已保存的 TOML/tmux 块和未确认的
 
 `atm doctor --json` 的 `tmux.keyOptions` 给出 `serverVersion`、`extendedKeys`、
 `extendedKeysFormat`、`formatSupport`（`supported` / `unsupported` / `unknown`）、
-`reason` 及 `terminalKeysVerified=false`。文本报告也区分三种支持状态。
+`cause`（固定原因枚举）、对应的翻译 `reason` 及 `terminalKeysVerified=false`。
+版本只公开 ASCII、无前导零、两段各至多三位及可选小写补丁字母的规范读数；
+未识别版本/键值为 null，不将子进程 stderr、fallback stdout 或异常文本带入这些诊断。
+显式非空格式 setter / 编辑器确认即使值相同也重新验证并应用读回；
+单纯加载、无关修改和未确认该项的编辑器保存不重新激活历史意图。
+文本报告也区分三种支持状态。
 这不是终端硬件检测：本机真实隔离验证只覆盖 tmux 3.4，3.5+ 能力分支仅由 mock 验证，
 不证明 Windows Terminal 的 modified Enter 工作。atm 不改 `terminal-features`/通配能力，
 不强制 `always`，也不重启 server 消警告。外层终端、IDE、SSH 要手动验证；

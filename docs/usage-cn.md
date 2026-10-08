@@ -198,6 +198,10 @@ atm 通过公开 CLI（`#{version}` 和 `show-options`）探测**当前目标 se
 atm 不会为消除警告重启 server；这些检查**不证明真实组合键可用**，终端、IDE 或 SSH 仍可能丢失信息。
 请手动验证；Pi 的 `Ctrl+J` 换行、Windows/WSL 默认 `Ctrl+Q` follow-up 仍可作为回退。
 
+显式设置非空格式或在编辑器确认该项，即使文本和已保存值相同也算新请求：重查能力，
+live 成功必须读回确认。无关修改、未编辑该项直接保存不重新激活旧格式意图。
+组合键诊断只用固定翻译原因；不展示任意子进程输出，未知版本/键值记为未知。
+
 `atm codex …` / `atm pi …` 同理。`prefix + a` 投递和侧栏恢复用的是同一套设置。
 `atm install` 还会写一个总量 `atm-ai.slice`（物理内存的 50% / 65%），N 个会话加起来也压不垮机器；
 `atm doctor` 两层都报。默认值怎么来的见 [reference.md](reference.md#内存闸门默认开)。

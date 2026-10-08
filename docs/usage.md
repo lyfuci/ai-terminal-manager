@@ -210,6 +210,12 @@ format capability. ATM never restarts the server to silence a warning. These che
 real modified keys work** through the outer terminal, IDE or SSH. Verify manually; Pi's `Ctrl+J`
 newline and Windows/WSL `Ctrl+Q` follow-up defaults remain useful fallbacks.
 
+An explicit nonempty format setter (or an editor confirmation) is a fresh request even when
+the saved text is unchanged: capability is checked again and live success requires readback.
+Unrelated edits and simply saving an untouched editor do not reactivate historical format intent.
+Key diagnostics use fixed translated cause labels; arbitrary subprocess output and unknown
+version/key values are never copied into these reports.
+
 `atm codex …` and `atm pi …` work the same. `prefix + a` dispatch and sidebar resume use the same settings.
 `atm install` also writes an aggregate `atm-ai.slice` (50% / 65% of RAM) so N sessions together can't
 take the machine down; `atm doctor` reports both layers. Details and the numbers behind the defaults:
