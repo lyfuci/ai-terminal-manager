@@ -43,13 +43,19 @@ def _changed(old: config_mod.Config, new: config_mod.Config, names: tuple[str, .
     return any(getattr(old, n) != getattr(new, n) for n in names)
 
 
-def requires_format_confirmation(old: config_mod.Config, new: config_mod.Config) -> bool:
-    return _changed(old, new, _TMUX_FIELDS) and bool(new.tmux_extended_keys_format)
+def requires_format_confirmation(
+    old: config_mod.Config, new: config_mod.Config, *, format_requested: bool = False
+) -> bool:
+    return bool(new.tmux_extended_keys_format) and (
+        format_requested or _changed(old, new, _TMUX_FIELDS)
+    )
 
 
-def validate_changes(old: config_mod.Config, new: config_mod.Config) -> None:
+def validate_changes(
+    old: config_mod.Config, new: config_mod.Config, *, format_requested: bool = False
+) -> None:
     """保存前预检本次实际要重写的 tmux 选项，不阻塞无关字段或撤回格式。"""
-    if requires_format_confirmation(old, new):
+    if requires_format_confirmation(old, new, format_requested=format_requested):
         from . import tmuxopts
 
         tmuxopts.require_format_support(new.tmux_extended_keys_format)
@@ -68,7 +74,11 @@ def apply_changes(
 
 
 def apply_changes_checked(
-    old: config_mod.Config, new: config_mod.Config, *, conf_path: Path | None = None
+    old: config_mod.Config,
+    new: config_mod.Config,
+    *,
+    conf_path: Path | None = None,
+    format_requested: bool = False,
 ) -> SyncResult:
     # reset 会清空路径，但本次仍要对原安装文件撤回旧配置。
     saved_path = new.keys_conf_path or old.keys_conf_path
@@ -76,7 +86,9 @@ def apply_changes_checked(
         conf_path = Path(saved_path).expanduser()
     notes: list[str] = []
     format_confirmed = None
-    if _changed(old, new, _TMUX_FIELDS):
+    if _changed(old, new, _TMUX_FIELDS) or requires_format_confirmation(
+        old, new, format_requested=format_requested
+    ):
         tmux_result = _sync_tmux_options(new, conf_path)
         notes += tmux_result.notes
         format_confirmed = tmux_result.format_confirmed

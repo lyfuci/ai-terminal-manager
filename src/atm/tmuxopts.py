@@ -247,17 +247,23 @@ def apply(plan: TmuxOptsPlan, *, live: bool = True) -> TmuxOptsResult:
             try:
                 for argv in plan.commands:
                     tmux.run(list(argv))
-                for argv in key_commands:
-                    actual = tmux.run(["show-options", "-gv", argv[2]], timeout=5).strip()
-                    if actual != argv[3]:
-                        raise tmux.TmuxError(
-                            _(
-                                "{option} 读回 {actual!r}，期望 {expected!r}；运行中的值未确认"
-                            ).format(option=argv[2], actual=actual, expected=argv[3])
-                        )
-                applied_live = True
             except tmux.TmuxError as exc:
-                live_error = str(exc)
+                live_error = (
+                    tmux.key_options_reason(tmux.KeyOptionsCause.SET_FAILED)
+                    if key_commands
+                    else str(exc)
+                )
+            else:
+                for argv in key_commands:
+                    try:
+                        actual = tmux.run(["show-options", "-gv", argv[2]], timeout=5).strip()
+                    except tmux.TmuxError:
+                        live_error = tmux.key_options_reason(tmux.KeyOptionsCause.READBACK_FAILED)
+                        break
+                    if actual != argv[3]:
+                        live_error = tmux.key_options_reason(tmux.KeyOptionsCause.READBACK_MISMATCH)
+                        break
+                applied_live = live_error is None
         elif key_commands:
             live_error = _("目标 tmux server 不可用，运行中的扩展键设置未确认")
     # 重新读一遍写完后的文件再扫：行号必须对得上用户现在看到的文件

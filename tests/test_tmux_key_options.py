@@ -107,7 +107,10 @@ def test_capability_failure_unknown_even_with_new_version(conf, server):
     values, _calls = server
     values["extended-keys-format"] = tmux.TmuxError("timeout")
     status = tmux.key_options_status()
-    assert status.format_support == "unknown" and "timeout" in status.reason
+    assert (
+        status.format_support == "unknown"
+        and status.cause is tmux.KeyOptionsCause.FORMAT_UNCONFIRMED
+    )
     with pytest.raises(config.ConfigError):
         tmuxopts.build_plan(config.Config(tmux_extended_keys_format="xterm"), conf_path=conf)
 
@@ -352,7 +355,7 @@ def test_version_query_failure_is_unknown(conf, server, monkeypatch):
     monkeypatch.setattr(tmux, "run", run)
     status = tmux.key_options_status()
     assert status.server_version is None and status.format_support == "unknown"
-    assert "timeout" in status.reason
+    assert status.cause is tmux.KeyOptionsCause.VERSION_UNCONFIRMED
     with pytest.raises(config.ConfigError):
         tmuxopts.build_plan(config.Config(tmux_extended_keys_format="csi-u"), conf_path=conf)
 
@@ -431,7 +434,7 @@ def test_install_format_partial_failure_exits_nonzero_without_rollback(
     assert values["extended-keys-format"] == "xterm"
     assert sum(c[:3] == ["set-option", "-g", "extended-keys-format"] for c in calls) == 1
     out = capsys.readouterr().out
-    assert "已写 tmux 选项块" in out and "失败" in out and "set failed" in out
+    assert "已写 tmux 选项块" in out and "失败" in out and "set failed" not in out
 
 
 def test_missing_tmux_never_probes_or_writes_format(conf, monkeypatch):
@@ -446,3 +449,193 @@ def test_missing_tmux_never_probes_or_writes_format(conf, monkeypatch):
     with pytest.raises(config.ConfigError):
         tmuxopts.build_plan(config.Config(tmux_extended_keys_format="xterm"), conf_path=conf)
     assert conf.read_text() == before and not list(conf.parent.glob("tmux.conf.bak*"))
+
+
+@pytest.mark.parametrize("retry", ["set", "read", "mismatch", "missing", "old", "recovered"])
+def test_cli_identical_retry_after_failed_save_confirms_actual_request(
+    conf, server, monkeypatch, capsys, retry
+):
+    values, calls = server
+    monkeypatch.setenv("ATM_CONFIG", str(conf.parent / "config.toml"))
+    config.save(config.Config(keys_conf_path=str(conf)))
+    original_run = tmux.run
+    state = {"mode": "set", "wrote": False}
+
+    def run(args, **kw):
+        if args[:3] == ["set-option", "-g", "extended-keys-format"]:
+            state["wrote"] = True
+            if state["mode"] == "set":
+                raise tmux.TmuxError("synthetic-set-failure")
+        if state["wrote"] and args == ["show-options", "-gv", "extended-keys-format"]:
+            if state["mode"] == "read":
+                raise tmux.TmuxError("synthetic-read-failure")
+            if state["mode"] == "mismatch":
+                return "xterm\n"
+        return original_run(args, **kw)
+
+    monkeypatch.setattr(tmux, "run", run)
+    command = ["config", "tmux.extended-keys-format", "csi-u"]
+    assert cli.main(command) == cli.EXIT_ERROR
+    assert config.load_file().tmux_extended_keys_format == "csi-u"
+    before = config.config_path().read_bytes(), conf.read_bytes()
+    backups = list(conf.parent.glob("tmux.conf.bak*"))
+    capsys.readouterr()
+    calls.clear()
+    state.update(mode=retry, wrote=False)
+    if retry == "missing":
+        monkeypatch.setattr(tmux, "has_server", lambda: False)
+    elif retry == "old":
+        values["version"] = "3.4"
+    assert cli.main(command) == (cli.EXIT_OK if retry == "recovered" else cli.EXIT_ERROR)
+    out = capsys.readouterr()
+    assert list(conf.parent.glob("tmux.conf.bak*")) == backups
+    assert conf.read_bytes() == before[1]
+    if retry in ("missing", "old"):
+        assert config.config_path().read_bytes() == before[0]
+        assert not state["wrote"] and "extended-keys-format" in out.err
+    else:
+        assert state["wrote"]
+        assert ("已对运行中的 server 生效" in out.out) == (retry == "recovered")
+        assert "选项已写进" not in out.out  # existing tmux block is a file noop
+
+
+SENTINEL = "SYNTHETIC_PRIVATE https://safeexample.invalid/fixture"
+
+
+@pytest.mark.parametrize("surface", ["version", "keys", "format", "error"])
+def test_probe_doctor_and_preflight_never_disclose_subprocess_sentinel(
+    conf, server, monkeypatch, capsys, surface
+):
+    import json
+
+    from atm import index
+    from atm.model import IndexStats, SessionIndex
+
+    values, _calls = server
+    field = {"version": "version", "keys": "extended-keys", "format": "extended-keys-format"}
+    if surface == "error":
+        values["extended-keys-format"] = tmux.TmuxError(SENTINEL)
+    else:
+        values[field[surface]] = SENTINEL
+    status = tmux.key_options_status()
+    assert SENTINEL not in json.dumps(status.to_json(), ensure_ascii=False)
+    if surface == "version":
+        assert status.server_version is None
+    cli._report_key_options(status.to_json())
+    assert SENTINEL not in capsys.readouterr().out
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: conf.parent))
+    monkeypatch.setattr(index, "build", lambda: SessionIndex((), IndexStats(0, 0, 0, 0, 1)))
+    monkeypatch.setattr(tmux, "has_server", lambda: False)
+    monkeypatch.setattr(tmux, "key_options_status", lambda: status)
+    assert cli.main(["doctor", "--json"]) == cli.EXIT_OK
+    assert SENTINEL not in capsys.readouterr().out
+    if status.format_support != "supported":
+        monkeypatch.setenv("ATM_CONFIG", str(conf.parent / "config.toml"))
+        config.save(config.Config(keys_conf_path=str(conf)))
+        assert cli.main(["config", "tmux.extended-keys-format", "csi-u"]) == cli.EXIT_ERROR
+        assert SENTINEL not in capsys.readouterr().err
+        editor = config_tui.ConfigEditor(config.load_file(), {})
+        editor._cursor = list(config.KEYS).index("tmux.extended-keys-format")
+        editor.handle_key("\n")
+        for key in "csi-u":
+            editor.handle_key(key)
+        editor.handle_key("\n")
+        assert editor.handle_key("s") == config_tui.Action.NONE
+        assert SENTINEL not in editor.error
+
+
+@pytest.mark.parametrize("failure", ["set", "read", "value"])
+def test_saved_unconfirmed_cli_editor_install_never_disclose_sentinel(
+    conf, server, monkeypatch, capsys, failure
+):
+    values, _calls = server
+    monkeypatch.setenv("ATM_CONFIG", str(conf.parent / "config.toml"))
+    config.save(config.Config(keys_conf_path=str(conf)))
+    original_run = tmux.run
+    state = {"wrote": False}
+
+    def run(args, **kw):
+        if args[0] in ("bind-key", "run-shell") or args[:2] == ["set-option", "-gu"]:
+            return ""
+        if args[:3] == ["set-option", "-g", "extended-keys-format"]:
+            state["wrote"] = True
+            if failure == "set":
+                raise tmux.TmuxError(SENTINEL)
+        if state["wrote"] and args == ["show-options", "-gv", "extended-keys-format"]:
+            if failure == "read":
+                raise tmux.TmuxError(SENTINEL)
+            if failure == "value":
+                return SENTINEL
+        return original_run(args, **kw)
+
+    monkeypatch.setattr(tmux, "run", run)
+    assert cli.main(["config", "tmux.extended-keys-format", "csi-u"]) == cli.EXIT_ERROR
+    assert SENTINEL not in capsys.readouterr().out
+    values["extended-keys-format"] = "xterm"
+    state["wrote"] = False
+    editor = config_tui.ConfigEditor(config.load_file(), {})
+    editor._cursor = list(config.KEYS).index("tmux.extended-keys-format")
+    editor.handle_key("\n")
+    editor.handle_key("\n")  # explicitly confirm identical text
+    assert editor.handle_key("s") == config_tui.Action.SAVED_AND_QUIT
+    assert editor.exit_code == 1 and SENTINEL not in editor.status
+    values["extended-keys-format"] = "xterm"
+    state["wrote"] = False
+    monkeypatch.setattr(install, "resolve_atm_command", lambda: "/fixture/atm")
+    assert (
+        cli.main(["install", "--conf", str(conf), "--no-persist", "--no-slice", "-y"])
+        == cli.EXIT_ERROR
+    )
+    assert SENTINEL not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("stream", ["stderr", "stdout"])
+def test_actual_tmux_error_output_is_not_forwarded_by_key_probe(monkeypatch, stream):
+    import json
+    import subprocess
+
+    monkeypatch.setattr(tmux, "has_server", lambda: True)
+    monkeypatch.setattr(tmux, "is_installed", lambda: True)
+
+    def subprocess_run(argv, **kw):
+        if argv[1] == "display-message":
+            return subprocess.CompletedProcess(argv, 0, "3.5\n", "")
+        if argv[-1] == "extended-keys":
+            return subprocess.CompletedProcess(argv, 0, "on\n", "")
+        return subprocess.CompletedProcess(
+            argv, 1, SENTINEL if stream == "stdout" else "", SENTINEL if stream == "stderr" else ""
+        )
+
+    monkeypatch.setattr(tmux.subprocess, "run", subprocess_run)
+    status = tmux.key_options_status()
+    assert status.cause is tmux.KeyOptionsCause.FORMAT_UNCONFIRMED
+    assert SENTINEL not in json.dumps(status.to_json(), ensure_ascii=False)
+    with pytest.raises(config.ConfigError) as error:
+        tmuxopts.require_format_support("csi-u")
+    assert SENTINEL not in str(error.value)
+
+
+@pytest.mark.parametrize("version", ["03.5", "3.05", "1000.5", "3.1000", "٣.٥", "3.5-secret"])
+def test_key_probe_version_dto_accepts_only_bounded_canonical_versions(server, version):
+    values, _calls = server
+    values["version"] = version
+    status = tmux.key_options_status()
+    assert status.server_version is None and status.format_support == "unknown"
+    assert version not in status.reason
+
+
+def test_editor_identical_format_confirmation_refuses_before_save_when_server_missing(
+    conf, server, monkeypatch
+):
+    monkeypatch.setenv("ATM_CONFIG", str(conf.parent / "config.toml"))
+    cfg = config.Config(keys_conf_path=str(conf), tmux_extended_keys_format="csi-u")
+    config.save(cfg)
+    before = config.config_path().read_bytes(), conf.read_bytes()
+    editor = config_tui.ConfigEditor(cfg, {})
+    editor._cursor = list(config.KEYS).index("tmux.extended-keys-format")
+    editor.handle_key("\n")
+    editor.handle_key("\n")
+    monkeypatch.setattr(tmux, "has_server", lambda: False)
+    assert editor.handle_key("s") == config_tui.Action.NONE
+    assert (config.config_path().read_bytes(), conf.read_bytes()) == before
+    assert not list(conf.parent.glob("tmux.conf.bak*"))

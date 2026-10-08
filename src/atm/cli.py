@@ -1687,10 +1687,10 @@ def _cmd_completion(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _apply_config_changes(old, new) -> int:
+def _apply_config_changes(old, new, *, format_requested: bool = False) -> int:
     sync = _sync_mod()
-    if sync.requires_format_confirmation(old, new):
-        result = sync.apply_changes_checked(old, new)
+    if sync.requires_format_confirmation(old, new, format_requested=format_requested):
+        result = sync.apply_changes_checked(old, new, format_requested=format_requested)
         for note in result.notes:
             print(note)
         return EXIT_OK if result.format_confirmed else EXIT_ERROR
@@ -1736,10 +1736,12 @@ def _cmd_config(args: argparse.Namespace) -> int:
         if args.key:
             old_cfg = config.load_file()
             cfg = config.set_value(old_cfg, args.key, args.value)
-            _sync_mod().validate_changes(old_cfg, cfg)
+            # 显式 setter 是一次新请求，即使上次失败后 TOML 已保存相同值。
+            format_requested = args.key == "tmux.extended-keys-format"
+            _sync_mod().validate_changes(old_cfg, cfg, format_requested=format_requested)
             path = config.save(cfg)
             print(f"{args.key} = {args.value} → {path}")
-            return _apply_config_changes(old_cfg, cfg)
+            return _apply_config_changes(old_cfg, cfg, format_requested=format_requested)
     except config.ConfigError as exc:
         print(f"atm: {exc}", file=sys.stderr)
         return EXIT_ERROR

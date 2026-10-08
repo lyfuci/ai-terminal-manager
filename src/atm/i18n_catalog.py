@@ -9,13 +9,16 @@
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "目标 tmux server 版本未确认": "Target tmux server version unconfirmed",
+    "目标 tmux server 的 extended-keys-format 能力未确认": "Target tmux server extended-keys-format capability unconfirmed",
+    "扩展键设置命令失败，运行中的值未确认": "Extended-key set command failed; live value unconfirmed",
+    "扩展键读回失败，运行中的值未确认": "Extended-key readback failed; live value unconfirmed",
+    "扩展键读回值未知或不匹配，运行中的值未确认": "Extended-key readback unknown or mismatched; live value unconfirmed",
     "扩展键编码：空串不接管，xterm 或 csi-u；写入前须确认运行中的 tmux 3.5+ 支持": "Extended-key encoding: empty leaves it unmanaged; xterm or csi-u requires verified support on the running tmux 3.5+ server",
     "{key} 只能是空串、xterm 或 csi-u，收到 {value!r}": "{key} must be empty, xterm or csi-u; got {value!r}",
     "目标 tmux server 不可用，扩展键格式支持未知": "Target tmux server unavailable; extended-key format support is unknown",
     "目标 tmux server {version} 不支持 extended-keys-format（需 3.5+）": "Target tmux server {version} does not support extended-keys-format (requires 3.5+)",
-    "无法确认目标 tmux server 的版本或 extended-keys-format 能力": "Cannot confirm target tmux server version or extended-keys-format capability",
     "拒绝写入 extended-keys-format={value}：{reason}": "Refusing to write extended-keys-format={value}: {reason}",
-    "{option} 读回 {actual!r}，期望 {expected!r}；运行中的值未确认": "{option} read back {actual!r}, expected {expected!r}; live value unconfirmed",
     "目标 tmux server 不可用，运行中的扩展键设置未确认": "Target tmux server unavailable; live extended-key settings unconfirmed",
     "空串（不接管）/ xterm / csi-u": "Empty (unmanaged) / xterm / csi-u",
     "支持": "supported",
@@ -562,13 +565,16 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "目标 tmux server 版本未确认": "対象 tmux サーバーのバージョンは未確認です",
+    "目标 tmux server 的 extended-keys-format 能力未确认": "対象 tmux サーバーの extended-keys-format 対応は未確認です",
+    "扩展键设置命令失败，运行中的值未确认": "拡張キー設定コマンドが失敗し、稼働中の値は未確認です",
+    "扩展键读回失败，运行中的值未确认": "拡張キーの読み取りが失敗し、稼働中の値は未確認です",
+    "扩展键读回值未知或不匹配，运行中的值未确认": "拡張キーの読取値が不明または不一致で、稼働中の値は未確認です",
     "扩展键编码：空串不接管，xterm 或 csi-u；写入前须确认运行中的 tmux 3.5+ 支持": "拡張キー形式：空文字は管理しない。xterm / csi-u の書き込みには稼働中の tmux 3.5+ の対応確認が必要",
     "{key} 只能是空串、xterm 或 csi-u，收到 {value!r}": "{key} は空文字、xterm、csi-u のいずれかです。受信値: {value!r}",
     "目标 tmux server 不可用，扩展键格式支持未知": "対象 tmux サーバーが利用できず、拡張キー形式への対応は不明です",
     "目标 tmux server {version} 不支持 extended-keys-format（需 3.5+）": "対象 tmux サーバー {version} は extended-keys-format に非対応です（3.5+ が必要）",
-    "无法确认目标 tmux server 的版本或 extended-keys-format 能力": "対象 tmux サーバーのバージョンまたは extended-keys-format 対応を確認できません",
     "拒绝写入 extended-keys-format={value}：{reason}": "extended-keys-format={value} の書き込みを拒否: {reason}",
-    "{option} 读回 {actual!r}，期望 {expected!r}；运行中的值未确认": "{option} の読取値は {actual!r}、期待値は {expected!r}。稼働中の値は未確認です",
     "目标 tmux server 不可用，运行中的扩展键设置未确认": "対象 tmux サーバーが利用できず、稼働中の拡張キー設定は未確認です",
     "空串（不接管）/ xterm / csi-u": "空文字（管理しない）/ xterm / csi-u",
     "支持": "対応",
