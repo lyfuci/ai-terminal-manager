@@ -23,3 +23,41 @@ jobs:
       - run: uv run --frozen ruff format --check .
       # 测试只用 tmp_path 和 -L 隔离 socket，CI 上没有真实会话数据也能全绿。
       - run: uv run --frozen pytest
+      # Gate the real wheel/sdist before merge; build dependencies are isolated
+      # declared backend requirements, not new runtime dependencies.
+      - name: Build distribution and verify archive scope
+        if: matrix.python == '3.12'
+        run: |
+          uv build
+          python - <<'PY'
+          import glob, json, tarfile, zipfile
+          wheel = glob.glob('dist/*.whl')
+          sdist = glob.glob('dist/*.tar.gz')
+          assert len(wheel) == len(sdist) == 1
+          with zipfile.ZipFile(wheel[0]) as archive:
+              names = archive.namelist()
+              assert all(name.startswith('atm/') or '.dist-info/' in name for name in names)
+              metadata = archive.read(next(name for name in names if name.endswith('.dist-info/METADATA'))).decode()
+              assert not any(line.startswith('Requires-Dist:') for line in metadata.splitlines())
+          with tarfile.open(sdist[0]) as archive:
+              names = archive.getnames()
+              assert not any('/research/' in name or '/.git/' in name or '/.venv/' in name for name in names)
+          print(json.dumps({'wheel': wheel[0], 'sdist': sdist[0], 'zeroRuntimeDependencies': True, 'archiveScopeChecked': True}))
+          PY
+      - name: Verify the built wheel entrypoint in isolated tool storage
+        if: matrix.python == '3.12'
+        env:
+          UV_TOOL_DIR: ${{ runner.temp }}/atm-wheel-tools
+          UV_TOOL_BIN_DIR: ${{ runner.temp }}/atm-wheel-bin
+          UV_PYTHON_DOWNLOADS: never
+        run: |
+          uv tool install --offline --no-config --python .venv/bin/python --from dist/*.whl ai-terminal-manager
+          "$UV_TOOL_BIN_DIR/atm" --version
+      - name: Preserve distribution evidence
+        if: matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: atm-pr-distribution
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
