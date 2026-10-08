@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -206,6 +207,65 @@ def run(args: list[str], *, timeout: float = 10.0) -> str:
         detail = (result.stderr or result.stdout or "").strip()
         raise TmuxError(_("tmux {v0} 失败: {detail}").format(v0=" ".join(args), detail=detail))
     return result.stdout
+
+
+@dataclass(frozen=True, slots=True)
+class KeyOptionsStatus:
+    """当前目标 server 的读数，不是 PATH 客户端版本或终端硬件能力。"""
+
+    server_version: str | None = None
+    extended_keys: str | None = None
+    extended_keys_format: str | None = None
+    format_support: str = "unknown"  # supported / unsupported / unknown
+    reason: str | None = None
+
+    def to_json(self) -> dict:
+        return {
+            "serverVersion": self.server_version,
+            "extendedKeys": self.extended_keys,
+            "extendedKeysFormat": self.extended_keys_format,
+            "formatSupport": self.format_support,
+            "reason": self.reason,
+            "terminalKeysVerified": False,
+        }
+
+
+def key_options_status() -> KeyOptionsStatus:
+    """用继承的 TMUX 目标、公有 CLI 读版本和能力；查询失败不能推定支持。"""
+    if not has_server():
+        return KeyOptionsStatus(reason=_("目标 tmux server 不可用，扩展键格式支持未知"))
+    version = None
+    extended = None
+    format_value = None
+    errors: list[str] = []
+    try:
+        version = run(["display-message", "-p", "#{version}"], timeout=5).strip() or None
+    except TmuxError as exc:
+        errors.append(str(exc))
+    try:
+        value = run(["show-options", "-gv", "extended-keys"], timeout=5).strip()
+        extended = value if value in ("off", "on", "always") else None
+    except TmuxError as exc:
+        errors.append(str(exc))
+    try:
+        value = run(["show-options", "-gv", "extended-keys-format"], timeout=5).strip()
+        format_value = value if value in ("xterm", "csi-u") else None
+    except TmuxError as exc:
+        errors.append(str(exc))
+    match = re.fullmatch(r"(\d+)\.(\d+)[a-z]?", version or "")
+    if match and tuple(map(int, match.groups())) < (3, 5):
+        support = "unsupported"
+        reason = _("目标 tmux server {version} 不支持 extended-keys-format（需 3.5+）").format(
+            version=version
+        )
+    elif match and format_value is not None:
+        support, reason = "supported", None
+    else:
+        support = "unknown"
+        reason = _("无法确认目标 tmux server 的版本或 extended-keys-format 能力")
+        if errors:
+            reason += ": " + "; ".join(errors)
+    return KeyOptionsStatus(version, extended, format_value, support, reason)
 
 
 def list_panes() -> tuple[Pane, ...]:

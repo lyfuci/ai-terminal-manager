@@ -22,7 +22,12 @@ def conf(tmp_path: Path) -> Path:
 def live(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     calls: list[list[str]] = []
     monkeypatch.setattr(tmux, "has_server", lambda: True)
-    monkeypatch.setattr(tmux, "run", lambda args, **kw: calls.append(list(args)) or "")
+
+    def run(args, **kw):
+        calls.append(list(args))
+        return "on\n" if args == ["show-options", "-gv", "extended-keys"] else ""
+
+    monkeypatch.setattr(tmux, "run", run)
     return calls
 
 
@@ -81,7 +86,10 @@ def test_extended_keys_is_opt_in_and_uninstallable(conf: Path, live) -> None:
     assert plan.block.splitlines()[1:-1] == ["set -g extended-keys on"]
     result = tmuxopts.apply(plan)
     assert result.written and result.applied_live
-    assert live == [["set-option", "-g", "extended-keys", "on"]]
+    assert live == [
+        ["set-option", "-g", "extended-keys", "on"],
+        ["show-options", "-gv", "extended-keys"],
+    ]
     live.clear()
     disabled = tmuxopts.build_plan(config.Config(), conf_path=conf)
     assert disabled.to_turn_off == ("extended-keys",)

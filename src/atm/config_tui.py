@@ -68,6 +68,7 @@ class ConfigEditor(_Screen):
         self._error: str | None = None
         self._status: str | None = None
         self._confirm_discard = False
+        self.exit_code = 0
 
     # ------------------------------------------------------------ 状态查询（测试用）
 
@@ -231,7 +232,10 @@ class ConfigEditor(_Screen):
             self._sources[row.key] = source
 
     def _save(self) -> Action:
+        from . import sync
+
         try:
+            sync.validate_changes(self._original, self._file_cfg)
             path = config.save(self._file_cfg)
         except config.ConfigError as exc:
             self._error = str(exc)  # 跨字段校验（如 keys.pick == keys.sidebar）
@@ -239,9 +243,12 @@ class ConfigEditor(_Screen):
         except OSError as exc:
             self._error = _("保存失败：{exc}").format(exc=exc)
             return Action.NONE
-        from . import sync
-
-        notes = sync.apply_changes(self._original, self._file_cfg)
+        if sync.requires_format_confirmation(self._original, self._file_cfg):
+            result = sync.apply_changes_checked(self._original, self._file_cfg)
+            notes = list(result.notes)
+            self.exit_code = 0 if result.format_confirmed else 1
+        else:
+            notes = sync.apply_changes(self._original, self._file_cfg)
         self._original = self._file_cfg
         self._status = "；".join([_("已保存 → {path}").format(path=path), *notes])
         return Action.SAVED_AND_QUIT
@@ -273,6 +280,8 @@ class ConfigEditor(_Screen):
             return _("true / false")
         if kind == "int":
             return _("0 或 1") if key == "tmux.base-index" else _("非负整数")
+        if key == "tmux.extended-keys-format":
+            return _("空串（不接管）/ xterm / csi-u")
         if key == "keys.conf-path":
             return _("文件路径；空串 = ~/.tmux.conf")
         if key == "memory.slice":
@@ -433,4 +442,4 @@ def run_config_editor() -> int:
     curses.wrapper(editor.run)
     if editor.status:
         print(editor.status)
-    return 0
+    return editor.exit_code

@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import config as config_mod
@@ -22,6 +23,7 @@ _TMUX_FIELDS = (
     "tmux_mouse",
     "tmux_focus_events",
     "tmux_extended_keys",
+    "tmux_extended_keys_format",
     "tmux_history_limit",
     "tmux_base_index",
 )
@@ -41,36 +43,66 @@ def _changed(old: config_mod.Config, new: config_mod.Config, names: tuple[str, .
     return any(getattr(old, n) != getattr(new, n) for n in names)
 
 
+def requires_format_confirmation(old: config_mod.Config, new: config_mod.Config) -> bool:
+    return _changed(old, new, _TMUX_FIELDS) and bool(new.tmux_extended_keys_format)
+
+
+def validate_changes(old: config_mod.Config, new: config_mod.Config) -> None:
+    """保存前预检本次实际要重写的 tmux 选项，不阻塞无关字段或撤回格式。"""
+    if requires_format_confirmation(old, new):
+        from . import tmuxopts
+
+        tmuxopts.require_format_support(new.tmux_extended_keys_format)
+
+
+@dataclass(frozen=True, slots=True)
+class SyncResult:
+    notes: tuple[str, ...]
+    format_confirmed: bool | None = None  # None = 本次未请求非空格式生效
+
+
 def apply_changes(
     old: config_mod.Config, new: config_mod.Config, *, conf_path: Path | None = None
 ) -> list[str]:
+    return list(apply_changes_checked(old, new, conf_path=conf_path).notes)
+
+
+def apply_changes_checked(
+    old: config_mod.Config, new: config_mod.Config, *, conf_path: Path | None = None
+) -> SyncResult:
     # reset 会清空路径，但本次仍要对原安装文件撤回旧配置。
     saved_path = new.keys_conf_path or old.keys_conf_path
     if conf_path is None and saved_path:
         conf_path = Path(saved_path).expanduser()
     notes: list[str] = []
+    format_confirmed = None
     if _changed(old, new, _TMUX_FIELDS):
-        notes += _sync_tmux_options(new, conf_path)
+        tmux_result = _sync_tmux_options(new, conf_path)
+        notes += tmux_result.notes
+        format_confirmed = tmux_result.format_confirmed
     if _changed(old, new, _KEY_FIELDS):
         notes += _sync_keys(old, new, conf_path)
     if _changed(old, new, _SLICE_FIELDS):
         notes += _sync_slice(new)
     if _changed(old, new, _RESTORE_FIELDS):
         notes += _sync_persist(new, conf_path)
-    return notes
+    return SyncResult(tuple(notes), format_confirmed)
 
 
-def _sync_tmux_options(cfg: config_mod.Config, conf_path: Path | None) -> list[str]:
+def _sync_tmux_options(cfg: config_mod.Config, conf_path: Path | None) -> SyncResult:
     from . import tmuxopts
 
     try:
         result = tmuxopts.sync(cfg, conf_path=conf_path)
-    except (OSError, RuntimeError) as exc:  # ConfUnreadable / BackupFailed 都是 RuntimeError
-        return [
-            _("tmux 选项没写进 {path}：{exc}").format(
-                path=conf_path or Path.home() / ".tmux.conf", exc=exc
-            )
-        ]
+    except (OSError, RuntimeError, config_mod.ConfigError) as exc:
+        return SyncResult(
+            (
+                _("tmux 选项没写进 {path}：{exc}").format(
+                    path=conf_path or Path.home() / ".tmux.conf", exc=exc
+                ),
+            ),
+            False if cfg.tmux_extended_keys_format else None,
+        )
     notes: list[str] = []
     if result.written:
         notes.append(_("tmux 选项已写进 {path}").format(path=result.conf_path))
@@ -81,7 +113,10 @@ def _sync_tmux_options(cfg: config_mod.Config, conf_path: Path | None) -> list[s
     elif result.live_error:
         notes.append(_("tmux 选项对运行中的 server 生效失败：{err}").format(err=result.live_error))
     notes += tmuxopts.report_lines(result)
-    return [n for n in notes if n]
+    return SyncResult(
+        tuple(n for n in notes if n),
+        result.applied_live if cfg.tmux_extended_keys_format else None,
+    )
 
 
 def _sync_keys(old: config_mod.Config, new: config_mod.Config, conf_path: Path | None) -> list[str]:
