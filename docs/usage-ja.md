@@ -18,7 +18,7 @@
 | `prefix + B` | 現在の pane をバックグラウンドウィンドウ `bg` に退避——プロセスは動き続け、後でサイドバーから戻せる |
 | `prefix + m` | **ペインのステータス表示**：各 pane の上枠の右に詰まり状態（`✓` / `⚠回収 high 464/s` …）、もう一度押すと消える。tmux 標準の `m`（pane のマーク）を置き換える；`M` はそのまま。キー変更：`atm config keys.health` |
 
-**ポップアップ内**：文字入力であいまい検索、`↑↓` / `^N` `^P` で移動、`Tab` で 全部 / Claude / Codex / Pi / Gemini / opencode を巡回、`⏎` で選択、`Esc` でキャンセル、`F1` / `?`（検索欄が空のとき）でキー一覧。
+**ポップアップ内**：文字入力であいまい検索、`↑↓` / `^N` `^P` で移動、`Tab` で 全部 / Claude / Codex / Pi / Gemini / opencode / agy を巡回、`⏎` で選択、`Esc` でキャンセル、`F1` / `?`（検索欄が空のとき）でキー一覧。
 選択後は第二段階：全 pane（忙閑状態付き）+「新しく pane を分割」+「新しい window」+「表示のみ」。
 
 **サイドバー内**：上半分は**実行中の pane**（選択 → `swap-pane` でメインへ、プロセスは継続）、下半分は**履歴**
@@ -28,7 +28,7 @@
 **コマンドライン**からも使える（tmux 外では `pick` がコマンド表示に降格：`eval "$(atm pick --print)"`）：
 
 ```bash
-atm list -n 20            # 最近 20 件；--source codex|claude|pi で一社のみ；--json で他のスクリプトへ
+atm list -n 20            # 最近 20 件；--source codex|claude|pi|gemini|opencode|agy で一社のみ；--json で他のスクリプトへ
 atm pick                  # 対話：セッション選択 → 対象 pane 選択 → 投入
 atm resume <idの前方一致>  # TUI なしで id 指定で投入
 atm panes                 # 全 tmux pane と忙閑状態
@@ -211,7 +211,7 @@ Windows/WSL の既定 `Ctrl+Q` follow-up は代替手段として使える。
 過去の形式意図を再適用しない。キー診断は固定の翻訳済み原因を使い、任意の子プロセス出力や
 未知のバージョン/キー値を報告に転載しない。
 
-`atm codex …` / `atm pi …` も同じ。`prefix + a` の投入とサイドバーの resume も同じ設定を使う。
+`atm codex …` / `atm pi …` / `atm gemini …` / `atm opencode …` / `atm agy …` も同じ。`prefix + a` の投入とサイドバーの resume も同じ設定を使う。
 `atm install` は合計用の `atm-ai.slice`（物理メモリの 50% / 65%）も書き、N 本合計でもマシンを落とさない；
 `atm doctor` は両層を報告する。デフォルト値の根拠は [reference.md](reference.md#内存闸门默认开)。
 

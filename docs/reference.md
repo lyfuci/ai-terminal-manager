@@ -1,6 +1,6 @@
 # atm — AI Terminal Manager
 
-把 **Claude Code、Codex 和 Pi 的历史会话**合成一份统一列表，选一条，**投递到你指定的 tmux pane**。
+把 **Claude Code、Codex、Pi、Gemini CLI、opencode 和 Antigravity CLI (`agy`) 的历史会话**合成一份统一列表，选一条，**投递到你指定的 tmux pane**。
 
 ```
 prefix + a  →  浮层里搜  →  Enter  →  选目标格子  →  会话在那个格子里恢复
@@ -222,7 +222,7 @@ atm park                     # 把当前格子收进后台窗口 bg
 atm uninstall                # 干净移除
 
 atm list -n 20               # 列最近 20 条
-atm list --source codex      # 只看 Codex（还有 claude / pi）
+atm list --source codex      # 只看 Codex（还有 claude / pi / gemini / opencode / agy）
 atm list --json              # 结构化输出，喂给别的脚本
 
 atm resume <id前缀>          # 不进 TUI，按 id 直接投
@@ -233,7 +233,7 @@ atm doctor                   # 体检
 ```
 
 选择器里：`↑↓` / `Ctrl-N` `Ctrl-P` 移动，直接打字模糊搜索，
-`Tab` 在 全部 / Claude / Codex / Pi 之间循环，`Enter` 选中，`Esc` 取消。
+`Tab` 在 全部 / Claude / Codex / Pi / Gemini / opencode / agy 之间循环，`Enter` 选中，`Esc` 取消。
 `F1` / `?`（搜索框为空时）弹出完整键位表 —— 选会话、选目标、侧栏、`atm config` 四个界面都有，任意键关闭。
 
 **不在 tmux 里也能用** —— 这时 `pick` 自动退化成打印命令：
@@ -734,6 +734,29 @@ scope   current = 2633M      ← 比软上限高出 600M，一直下不来
 - 连接一律 `mode=ro`（硬规则第 1 条：别人的数据只读），库被锁/版本对不上就当这个源不存在
 - 恢复：`opencode --session <id>`（TUI）；`opencode run -s <id>` 是非交互那条
 
+**Antigravity CLI (`agy`)** `~/.gemini/antigravity-cli/conversation_summaries.db`（SQLite 主索引 + 按会话拆分的库与转录）
+
+实测语料：本机真实 `~/.gemini/antigravity-cli/` 目录。来源标记 `AG`。
+
+- 主索引在 `conversation_summaries.db` 的 `conversation_summaries` 表，一律用 `file:<db>?mode=ro` 只读打开，读
+  `conversation_id` / `title` / `preview` / `last_modified_time` / `workspace_uris` / `parent_conversation_id` /
+  `nesting_depth` / `last_user_input_time`
+- **子代理过滤**：子代理会话同样写进这张表，凡 `parent_conversation_id` 非空或 `nesting_depth > 0` 的行一律排除
+- **cwd 解析**：`workspace_uris` 是 JSON 字符串数组（如 `'["file:///home/user/workdir"]'`，含 `%20` 等百分号编码），
+  取首个 `file://` URI 解码成本地路径；拿不到有效 cwd 的行直接丢弃
+- **9 位纳秒时间戳与零值陷阱**：`last_modified_time` 形如 `'2026-11-13 04:20:22.902731278+00:00'`（9 位小数纳秒）
+  或未初始化零值 `'0001-01-01 00:00:00+00:00'`。用整数运算保留全部 9 位纳秒进 `FileRef.mtime_ns`；若零值/无效则依次回退
+  `last_user_input_time`、`conversations/<id>.db` 的 `st_mtime_ns`、`brain/<id>/.system_generated/logs/transcript.jsonl`
+  的 `st_mtime_ns`，全无则跳过
+- **标题优先级与 `<USER_REQUEST>` 陷阱**：`title` → `preview` → 扫描 `transcript.jsonl` 头部 `type == "USER_INPUT"` 记录
+  → `(untitled)`。`transcript.jsonl` 里的用户正文被包在
+  `<USER_REQUEST>…</USER_REQUEST>\n<ADDITIONAL_METADATA>…</ADDITIONAL_METADATA>` 里，必须先提取 `<USER_REQUEST>`
+  内部正文再走 `is_junk_prompt` / `clean_title`，否则外层 XML 块会被 `strip_wrapper_blocks` 整段剥空
+- **缓存粒度与路径碰撞**：合成路径 `<db>#<conversation_id>`，体积优先取 `conversations/<id>.db`（回退 `transcript.jsonl`）。
+  由于默认目录位于 `~/.gemini/antigravity-cli/`，`index._cached_source` 必须在匹配 `/.gemini/` 之前先判
+  `/.gemini/antigravity-cli/`，否则 `--source gemini` 会误删 `agy` 缓存
+- 恢复：`agy --conversation <id>`（无短选项；`-c` 只恢复最近一条，不接受会话 ID）
+
 **所有会话文件一律只读。** 不原地改、不整理、不删。
 
 ## 安全
@@ -756,7 +779,11 @@ src/atm/
 ├── text.py         # 标题清洗、注入包装剥离、CJK 显示宽度
 ├── sources/
 │   ├── claude.py   # ~/.claude/projects 适配器
-│   └── codex.py    # ~/.codex/sessions 适配器
+│   ├── codex.py    # ~/.codex/sessions 适配器
+│   ├── pi.py       # ~/.pi/agent/sessions 适配器
+│   ├── gemini.py   # ~/.gemini/tmp/*/chats 适配器
+│   ├── opencode.py # ~/.local/share/opencode/opencode.db 适配器
+│   └── agy.py      # ~/.gemini/antigravity-cli/conversation_summaries.db 适配器
 ├── cache.py        # (mtime_ns, size) 指纹缓存，原子写
 ├── index.py        # 统一索引 —— 不 import tmux，可整块搬走
 ├── fuzzy.py        # 子序列模糊匹配 + 打分

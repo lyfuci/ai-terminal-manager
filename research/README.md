@@ -88,6 +88,17 @@ sub-agent sessions and are excluded, like Codex's. To keep atm's one-FileRef-per
 cache invalidation) a synthetic path `<db>#<session_id>` is used with the row's own `time_updated` as the fingerprint.
 Connections are `mode=ro`: another tool's data is read-only. Resume: `opencode --session <id>`.
 
+**Antigravity CLI (`agy`)** — `~/.gemini/antigravity-cli/conversation_summaries.db` (SQLite index + per-session files,
+verified on a real installation). `conversation_summaries` holds `conversation_id`, `title`, `preview`, `workspace_uris`
+(a JSON array of percent-encoded `file://` URIs) and 9-digit nanosecond ISO timestamps (`0001-01-01 00:00:00+00:00` when
+uninitialised, falling back to `last_user_input_time` or per-session file mtime). Subagent rows carry a
+`parent_conversation_id` or `nesting_depth > 0` and are excluded. When both `title` and `preview` are blank, atm scans
+`brain/<id>/.system_generated/logs/transcript.jsonl` (`USER_INPUT`), unwrapping `<USER_REQUEST>…</USER_REQUEST>` first so
+`strip_wrapper_blocks` does not eat the user's prompt along with `<ADDITIONAL_METADATA>`. Synthetic `<db>#<id>` FileRefs
+pair with `conversations/<id>.db` byte sizes (`mode=ro`), and because the root sits under `~/.gemini/antigravity-cli/`,
+cache-source attribution checks `/antigravity-cli/` before `/.gemini/`. Resume: `agy --conversation <id>` (`-c` only
+resumes the latest session and takes no ID).
+
 **All three need injection-wrapper filtering**: Codex measurably inserts a 10,865-character
 `<recommended_plugins>…</environment_context>` before the real question; Claude has its
 `<local-command-caveat>` / `<command-name>` family; Pi's role enum is wider (`toolResult` / `bashExecution` /

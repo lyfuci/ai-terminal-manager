@@ -121,7 +121,7 @@ def test_doctor_json_shape(cfg_path: Path, tmp_path: Path, monkeypatch, capsys) 
     data = json.loads(capsys.readouterr().out)
     for key in ("version", "sources", "clis", "tmux", "persistence", "memory", "index", "ok"):
         assert key in data
-    assert set(data["sources"]) == {"claude", "codex", "pi", "gemini", "opencode"}
+    assert set(data["sources"]) == {"claude", "codex", "pi", "gemini", "opencode", "agy"}
     assert data["ok"] is True
 
 
@@ -173,7 +173,8 @@ def test_completion_lists_every_subcommand_and_config_key(shell: str, capsys) ->
 def test_completion_collect_tracks_parser() -> None:
     top, specs = completion.collect(cli._build_parser())
     names = {s.name for s in specs}
-    assert {"list", "pick", "config", "update", "completion", "claude", "codex", "pi"} <= names
+    expected = {"list", "pick", "config", "update", "completion", "claude", "codex", "pi", "agy"}
+    assert expected <= names
     assert "--version" in top and "-v" in top
 
 

@@ -16,7 +16,7 @@ from pathlib import Path
 from . import cache as cache_mod
 from .cache import CachedEntry, IndexCache
 from .model import FileRef, IndexStats, SessionEntry, SessionIndex, Source
-from .sources import claude, codex, gemini, opencode, pi
+from .sources import agy, claude, codex, gemini, opencode, pi
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +63,7 @@ class SourceRoots:
     pi_root: Path | None = None
     gemini_root: Path | None = None
     opencode_root: Path | None = None
+    agy_root: Path | None = None
 
 
 def build(
@@ -148,6 +149,12 @@ def build(
             opencode.discover(roots.opencode_root, sessions),
             lambda ref: opencode.parse(ref, sessions),
         )
+    if Source.AGY in wanted:
+        agy_sessions = agy.load_sessions(roots.agy_root)
+        ingest(
+            agy.discover(roots.agy_root, agy_sessions),
+            lambda ref: agy.parse(ref, agy_sessions),
+        )
 
     # 内容没变就别写盘。热路径下 100% 命中是常态，无脑重写会白白产生
     # 140KB 写入 + 一次 fsync —— 在 WSL 上这些字节最终要落到宿主的虚拟磁盘。
@@ -182,6 +189,10 @@ def _cached_source(path: str, cached: CachedEntry) -> Source | None:
         return Source.CODEX
     if "/.pi/" in path:
         return Source.PI
+    # ⚠️ agy 默认在 ~/.gemini/antigravity-cli/...，必须在检查 /.gemini/ 之前先判，
+    # 否则 --source gemini 会把 agy 的负结果缓存误判成 GEMINI 抹掉。
+    if "/.gemini/antigravity-cli/" in path or "/antigravity-cli/" in path:
+        return Source.AGY
     if "/.gemini/" in path:
         return Source.GEMINI
     if "/opencode/" in path:

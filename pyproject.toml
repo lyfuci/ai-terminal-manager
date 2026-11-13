@@ -2,12 +2,12 @@
 # PyPI 上 `atm` 已被占用；发行名用全名，命令名仍是 `atm`。
 name = "ai-terminal-manager"
 version = "0.14.0"
-description = "Multi-session manager for AI CLIs (Claude Code / Codex / Pi) inside tmux: unified history, resume into any pane, persistent sidebar"
+description = "Multi-session manager for AI CLIs (Claude Code / Codex / Pi / Gemini / opencode / Antigravity) inside tmux: unified history, resume into any pane, persistent sidebar"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "lyfuci" }]
-keywords = ["tmux", "claude-code", "codex", "ai", "cli", "session", "terminal"]
+keywords = ["tmux", "claude-code", "codex", "gemini", "opencode", "antigravity", "agy", "ai", "cli", "session", "terminal"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

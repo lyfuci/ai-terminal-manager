@@ -26,9 +26,9 @@ atm 就补这一层，别的都不碰。
 
 ## 它是什么、不是什么
 
-**是**：面向 AI CLI（Claude Code / Codex / Pi / Gemini CLI / opencode）的 tmux 会话管理器。三件事：
+**是**：面向 AI CLI（Claude Code / Codex / Pi / Gemini CLI / opencode / Antigravity CLI）的 tmux 会话管理器。三件事：
 
-1. 把三家 CLI 各自的历史会话**合成一份列表**，模糊搜索，选一条**投进你指定的 tmux 格子**去 `--resume`；
+1. 把六家 CLI 各自的历史会话**合成一份列表**，模糊搜索，选一条**投进你指定的 tmux 格子**去 `--resume`；
 2. 一个可收纳的**常驻左侧栏**，列出正在跑的格子，选中就 `swap-pane` 换进主格，进程不断；
 3. 顺手把 tmux-resurrect + continuum 装好配好，重启后骨架自动回来。
 
@@ -49,7 +49,7 @@ atm 就补这一层，别的都不碰。
 
 - Linux 或 WSL2 + **tmux ≥ 3.2**（`display-popup` 是 3.2 才有的；开发基准 3.6，3.4 实测兼容）
 - **Python ≥ 3.11**，零运行时依赖
-- 装了 Claude Code / Codex / Pi / Gemini CLI / opencode 至少一个（atm 只读它们写在 `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/`、`~/.gemini/tmp/*/chats/`、`~/.local/share/opencode/opencode.db` 的数据）
+- 装了 Claude Code / Codex / Pi / Gemini CLI / opencode / Antigravity CLI（`agy`）至少一个（atm 只读它们写在 `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/`、`~/.gemini/tmp/*/chats/`、`~/.local/share/opencode/opencode.db`、`~/.gemini/antigravity-cli/conversation_summaries.db` 的数据）
 
 ### 安装
 
@@ -100,7 +100,7 @@ atm 不为消除警告重启 server；外层终端/客户端组合键能力未�
 
 配置编辑不会固化环境变量覆盖；重置也会同步已安装的配置。`atm install --conf PATH` 保存 `keys.conf-path`，供后续编辑和卸载沿用。换键先绑新键再解绑旧键。关闭 tmux 选项保留运行中的值，变更对新 server 生效。总量 slice 只支持用户 manager，重载失败会明确报告。详见[配置变更](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage-cn.md#配置变更)。
 
-用 `atm claude` / `atm codex` / `atm pi` 启动，会话就跑在 cgroup 内存闸门里。闸门默认开，数值按机器算
+用 `atm claude` / `atm codex` / `atm pi` / `atm gemini` / `atm opencode` / `atm agy` 启动，会话就跑在 cgroup 内存闸门里。闸门默认开，数值按机器算
 （`memory.high` / `memory.max` 默认 `auto`：Max = 物理内存 35%、下限 4G，High = Max 的 80%）——
 正常干活的会话不会被限流，失控的那个被兜住。直接敲 `claude` 仍然不受限——前缀即选择。
 `atm doctor` 会报出**正在被限流**的会话；侧栏里哪格一卡住（回收 / IO / CPU / 进程卡在 D 状态）就标 `⚠`。见 [docs/usage-cn.md](docs/usage-cn.md)。

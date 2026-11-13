@@ -18,7 +18,7 @@ Once installed it's four keys (`prefix` is `Ctrl-b` by default):
 | `prefix + B` | Park the current pane in the background window `bg` — the process keeps running and can be picked back from the sidebar |
 | `prefix + m` | **Pane status bar**: each pane's top border shows, on the right, whether it is stalled (`✓` / `⚠RECL high 464/s` …); press again to hide. Replaces tmux's own `m` (mark pane); `M` is left alone. Key: `atm config keys.health` |
 
-**In the popup**: type to fuzzy-search, `↑↓` / `^N` `^P` to move, `Tab` cycles All / Claude / Codex / Pi / Gemini / opencode, `⏎`
+**In the popup**: type to fuzzy-search, `↑↓` / `^N` `^P` to move, `Tab` cycles All / Claude / Codex / Pi / Gemini / opencode / agy, `⏎`
 selects, `Esc` cancels, `F1` / `?` (with an empty search box) opens the full key list. After picking a session comes a second step: every pane (with busy/idle state) + "split a new
 pane" + "new window" + "just print".
 
@@ -31,7 +31,7 @@ index, `^C` quits, `F1` / `?` shows every key.
 `eval "$(atm pick --print)"`):
 
 ```bash
-atm list -n 20            # last 20; --source codex|claude|pi for one CLI; --json to feed other scripts
+atm list -n 20            # last 20; --source codex|claude|pi|gemini|opencode|agy for one CLI; --json to feed other scripts
 atm pick                  # interactive: pick session → pick target pane → dispatch
 atm resume <id-prefix>    # dispatch by id, no TUI
 atm panes                 # every tmux pane with busy/idle state
@@ -217,7 +217,7 @@ Unrelated edits and simply saving an untouched editor do not reactivate historic
 Key diagnostics use fixed translated cause labels; arbitrary subprocess output and unknown
 version/key values are never copied into these reports.
 
-`atm codex …` and `atm pi …` work the same. `prefix + a` dispatch and sidebar resume use the same settings.
+`atm codex …`, `atm pi …`, `atm gemini …`, `atm opencode …` and `atm agy …` work the same. `prefix + a` dispatch and sidebar resume use the same settings.
 `atm install` also writes an aggregate `atm-ai.slice` (50% / 65% of RAM) so N sessions together can't
 take the machine down; `atm doctor` reports both layers. Details and the numbers behind the defaults:
 [reference.md](reference.md#内存闸门默认开).

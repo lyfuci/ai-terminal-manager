@@ -12,9 +12,9 @@ from pathlib import Path
 import pytest
 
 from atm.model import UNTITLED, FileRef, Source
-from atm.sources import claude, codex, gemini, opencode, pi
+from atm.sources import agy, claude, codex, gemini, opencode, pi
 
-from .conftest import write_jsonl, write_opencode_db
+from .conftest import write_agy_db, write_jsonl, write_opencode_db
 
 # ---------------------------------------------------------------- claude
 
@@ -957,4 +957,256 @@ def test_opencode_never_writes_to_the_database(opencode_root: Path) -> None:
     conn.close()
 
     list(opencode.discover(opencode_root))
+    assert db.read_bytes() == before
+
+
+# ---------------------------------------------------------------- Antigravity CLI (agy)
+#
+# 形状逆向自真机实测（~/.gemini/antigravity-cli/conversation_summaries.db）：
+# SQLite 主索引 + brain/<id>/.system_generated/logs/transcript.jsonl + conversations/<id>.db。
+
+_AGY_ID = "d3b07384-d113-4ec6-9f22-112233445566"
+
+
+def test_agy_reads_conversation_summaries_directly(agy_root: Path) -> None:
+    from datetime import UTC, datetime
+
+    write_agy_db(
+        agy_root,
+        [
+            {
+                "conversation_id": _AGY_ID,
+                "title": "把 agy 会话源接进来",
+                "workspace_uris": '["file:///home/user/my%20project"]',
+                "last_modified_time": "2026-11-13 04:20:22.902731278+00:00",
+            }
+        ],
+    )
+
+    sessions = agy.load_sessions(agy_root)
+    refs = list(agy.discover(agy_root, sessions))
+    assert len(refs) == 1
+    assert refs[0].mtime_ns % 1_000_000_000 == 902_731_278
+
+    entry = agy.parse(refs[0], sessions)
+    assert entry is not None
+    assert entry.source is Source.AGY
+    assert entry.id == _AGY_ID
+    assert entry.title == "把 agy 会话源接进来"
+    assert entry.cwd == "/home/user/my project"
+    assert entry.git_branch is None
+    assert entry.name is None
+    assert entry.updated_at == datetime(2026, 11, 13, 4, 20, 22, 902731, tzinfo=UTC)
+
+
+def test_agy_falls_back_to_preview_and_transcript_unwrapping_user_request(agy_root: Path) -> None:
+    """title 为空时先退回 preview；两者皆空时扫 transcript.jsonl 并剥开 <USER_REQUEST> 外壳。"""
+    id_preview = "11111111-2222-3333-4444-555555555555"
+    id_transcript = "66666666-7777-8888-9999-000000000000"
+    write_agy_db(
+        agy_root,
+        [
+            {"conversation_id": id_preview, "title": "   ", "preview": "预览里的标题"},
+            {"conversation_id": id_transcript, "title": None, "preview": ""},
+        ],
+        transcripts={
+            id_transcript: [
+                "{not valid json",
+                {"type": "PLANNER_RESPONSE", "content": "模型的回复不该当标题"},
+                {
+                    "type": "USER_INPUT",
+                    "content": (
+                        "<USER_REQUEST>\n<command-name>/compact</command-name>\n</USER_REQUEST>\n"
+                        "<ADDITIONAL_METADATA>\nThe current local time is: 2026-11-13\n"
+                        "</ADDITIONAL_METADATA>"
+                    ),
+                },
+                {
+                    "type": "USER_INPUT",
+                    "content": (
+                        "<USER_REQUEST>\n修复索引缓存碰撞\n第二行折叠\n</USER_REQUEST>\n"
+                        "<ADDITIONAL_METADATA>\nThe current local time is: 2026-11-13\n"
+                        "</ADDITIONAL_METADATA>"
+                    ),
+                },
+            ]
+        },
+    )
+
+    sessions = agy.load_sessions(agy_root)
+    entries = {
+        e.id: e
+        for ref in agy.discover(agy_root, sessions)
+        if (e := agy.parse(ref, sessions)) is not None
+    }
+
+    assert entries[id_preview].title == "预览里的标题"
+    assert entries[id_transcript].title == "修复索引缓存碰撞 第二行折叠"
+
+
+def test_agy_untitled_when_nothing_usable(agy_root: Path) -> None:
+    write_agy_db(
+        agy_root,
+        [{"conversation_id": _AGY_ID, "title": None, "preview": None}],
+        transcripts={_AGY_ID: [{"type": "PLANNER_RESPONSE", "content": "只有模型回复"}]},
+    )
+
+    sessions = agy.load_sessions(agy_root)
+    entry = agy.parse(next(agy.discover(agy_root, sessions)), sessions)
+
+    assert entry is not None and entry.title == UNTITLED
+
+
+def test_agy_excludes_subagent_and_invalid_id_sessions(agy_root: Path) -> None:
+    """parent_conversation_id 非空或 nesting_depth > 0 都是子代理；非法 ID 也丢弃。"""
+    write_agy_db(
+        agy_root,
+        [
+            {"conversation_id": _AGY_ID, "title": "顶层会话"},
+            {
+                "conversation_id": "child-by-parent",
+                "title": "子代理 A",
+                "parent_conversation_id": _AGY_ID,
+                "nesting_depth": 0,
+            },
+            {
+                "conversation_id": "child-by-depth",
+                "title": "子代理 B",
+                "parent_conversation_id": "",
+                "nesting_depth": 1,
+            },
+            {"conversation_id": "", "title": "空 ID"},
+            {"conversation_id": "bad id", "title": "含空白"},
+            {"conversation_id": "bad\x07id", "title": "含控制字符"},
+        ],
+    )
+
+    assert list(agy.load_sessions(agy_root)) == [_AGY_ID]
+
+
+def test_agy_zero_timestamp_falls_back_or_skips(agy_root: Path) -> None:
+    """零值 '0001-01-01 00:00:00+00:00' 依次回退 last_user_input_time / 文件 mtime，全无则跳过。"""
+    import os
+
+    write_agy_db(
+        agy_root,
+        [
+            {
+                "conversation_id": "ses_input_time",
+                "last_modified_time": "0001-01-01 00:00:00+00:00",
+                "last_user_input_time": "2026-11-13T05:00:00.123456789Z",
+            },
+            {
+                "conversation_id": "ses_conv_db",
+                "last_modified_time": "0001-01-01 00:00:00+00:00",
+                "last_user_input_time": "0001-01-01 00:00:00+00:00",
+            },
+            {
+                "conversation_id": "ses_transcript",
+                "last_modified_time": "0001-01-01 00:00:00+00:00",
+                "last_user_input_time": "0001-01-01 00:00:00+00:00",
+            },
+            {
+                "conversation_id": "ses_nowhere",
+                "last_modified_time": "0001-01-01 00:00:00+00:00",
+                "last_user_input_time": "0001-01-01 00:00:00+00:00",
+            },
+        ],
+        transcripts={"ses_transcript": [{"type": "USER_INPUT", "content": "hi"}]},
+    )
+    conv_db = agy_root / "conversations" / "ses_conv_db.db"
+    conv_db.parent.mkdir(parents=True, exist_ok=True)
+    conv_db.write_bytes(b"sqlite-bytes")
+    os.utime(conv_db, ns=(1_760_000_000_111_222_333, 1_760_000_000_111_222_333))
+
+    transcript = (
+        agy_root / "brain" / "ses_transcript" / ".system_generated" / "logs" / "transcript.jsonl"
+    )
+    os.utime(transcript, ns=(1_750_000_000_444_555_666, 1_750_000_000_444_555_666))
+
+    refs = {r.path.rpartition("#")[2]: r for r in agy.discover(agy_root)}
+
+    assert set(refs) == {"ses_input_time", "ses_conv_db", "ses_transcript"}
+    assert refs["ses_input_time"].mtime_ns % 1_000_000_000 == 123_456_789
+    assert refs["ses_conv_db"].mtime_ns == 1_760_000_000_111_222_333
+    assert refs["ses_transcript"].mtime_ns == 1_750_000_000_444_555_666
+
+
+def test_agy_skips_sessions_without_valid_cwd(agy_root: Path) -> None:
+    write_agy_db(
+        agy_root,
+        [
+            {"conversation_id": "empty_arr", "workspace_uris": "[]"},
+            {"conversation_id": "null_uris", "workspace_uris": None},
+            {"conversation_id": "non_file", "workspace_uris": '["https://example.com/repo"]'},
+            {"conversation_id": "bad_json", "workspace_uris": "{not-json"},
+        ],
+    )
+
+    sessions = agy.load_sessions(agy_root)
+    refs = list(agy.discover(agy_root, sessions))
+    assert len(refs) == 4
+    assert all(agy.parse(ref, sessions) is None for ref in refs)
+
+
+def test_agy_ref_path_and_size_bytes_granularity(agy_root: Path) -> None:
+    """合成路径 `<db>#<id>` 提供单会话粒度指纹；体积优先取 conversations/<id>.db。"""
+    write_agy_db(
+        agy_root,
+        [
+            {
+                "conversation_id": "ses_a",
+                "last_modified_time": "2026-11-13 04:20:22.100000000+00:00",
+            },
+            {
+                "conversation_id": "ses_b",
+                "last_modified_time": "2026-11-13 04:20:22.200000000+00:00",
+            },
+            {
+                "conversation_id": "ses_c",
+                "last_modified_time": "2026-11-13 04:20:22.300000000+00:00",
+            },
+        ],
+        transcripts={
+            "ses_a": [{"type": "USER_INPUT", "content": "short"}],
+            "ses_b": [{"type": "USER_INPUT", "content": "x" * 200}],
+        },
+    )
+    conv_db = agy_root / "conversations" / "ses_a.db"
+    conv_db.parent.mkdir(parents=True, exist_ok=True)
+    conv_db.write_bytes(b"0" * 4096)
+
+    refs = {r.path.rpartition("#")[2]: r for r in agy.discover(agy_root)}
+
+    assert set(refs) == {"ses_a", "ses_b", "ses_c"}
+    assert refs["ses_a"].path == f"{agy_root / 'conversation_summaries.db'}#ses_a"
+    assert refs["ses_a"].fingerprint != refs["ses_b"].fingerprint
+    assert refs["ses_a"].size_bytes == 4096
+    assert refs["ses_b"].size_bytes > 200
+    assert refs["ses_c"].size_bytes == 0
+
+
+def test_agy_missing_or_broken_db_is_quiet(agy_root: Path, tmp_path: Path) -> None:
+    assert agy.load_sessions(tmp_path / "nope") == {}
+    assert list(agy.discover(tmp_path / "nope")) == []
+
+    agy_root.mkdir(parents=True, exist_ok=True)
+    (agy_root / "conversation_summaries.db").write_text("这不是 sqlite", encoding="utf-8")
+    assert agy.load_sessions(agy_root) == {}
+    assert list(agy.discover(agy_root)) == []
+
+
+def test_agy_never_writes_to_the_database(agy_root: Path) -> None:
+    """硬规则第 1 条：连接必须用 mode=ro 打开，写入抛 OperationalError。"""
+    import sqlite3
+
+    db = write_agy_db(agy_root, [{"conversation_id": _AGY_ID, "title": "只读检查"}])
+    before = db.read_bytes()
+
+    conn = agy._connect(db)
+    with pytest.raises(sqlite3.OperationalError):
+        conn.execute("DELETE FROM conversation_summaries")
+    conn.close()
+
+    list(agy.discover(agy_root))
     assert db.read_bytes() == before

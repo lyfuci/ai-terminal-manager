@@ -88,6 +88,7 @@ def test_running_panes_excludes_sidebar_and_puts_ai_first() -> None:
     )
     rows = sidebar.running_panes(panes)
     assert [p.id for p in rows] == ["%4", "%3", "%1"]
+    assert sidebar.is_ai_pane(pane("%5", command="agy")) is True
 
 
 def test_running_panes_can_exclude_self_before_marked() -> None:

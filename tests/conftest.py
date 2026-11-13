@@ -80,6 +80,12 @@ def gemini_root(tmp_path: Path) -> Path:
     return tmp_path / "gemini" / "tmp"
 
 
+@pytest.fixture
+def agy_root(tmp_path: Path) -> Path:
+    """`~/.gemini/antigravity-cli` 的替身。库文件由 `write_agy_db` 建。"""
+    return tmp_path / "gemini" / "antigravity-cli"
+
+
 @pytest.fixture(autouse=True)
 def _isolate_source_roots(tmp_path: Path, monkeypatch):
     """把所有数据源的 DEFAULT_ROOT 指到一个不存在的临时目录。
@@ -90,10 +96,10 @@ def _isolate_source_roots(tmp_path: Path, monkeypatch):
     仓库硬规则第 1 条是「会话数据只读、测试只用自己的语料」，这里从根上堵死。
     要用真语料形状的测试自己传 root，不受影响。
     """
-    from atm.sources import claude, codex, gemini, opencode, pi
+    from atm.sources import agy, claude, codex, gemini, opencode, pi
 
     isolated = tmp_path / "no-real-sessions"
-    for module in (claude, codex, gemini, opencode, pi):
+    for module in (agy, claude, codex, gemini, opencode, pi):
         monkeypatch.setattr(module, "DEFAULT_ROOT", isolated / module.__name__.rsplit(".", 1)[-1])
     monkeypatch.setattr(codex, "LEGACY_INDEX", isolated / "no-legacy.jsonl")
     return isolated
@@ -176,6 +182,60 @@ def write_opencode_db(root: Path, sessions: list[dict], parts: list[dict] | None
         )
     conn.commit()
     conn.close()
+    return db
+
+
+def write_agy_db(
+    root: Path,
+    summaries: list[dict],
+    transcripts: dict[str, list[dict | str]] | None = None,
+) -> Path:
+    """造一个 Antigravity CLI (`agy`) 形状的 `conversation_summaries.db` 及可选转录。"""
+    import sqlite3
+
+    root.mkdir(parents=True, exist_ok=True)
+    db = root / "conversation_summaries.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE conversation_summaries ("
+        " conversation_id TEXT PRIMARY KEY,"
+        " title TEXT,"
+        " preview TEXT,"
+        " last_modified_time TEXT,"
+        " workspace_uris TEXT,"
+        " parent_conversation_id TEXT,"
+        " nesting_depth INTEGER,"
+        " last_user_input_time TEXT"
+        ");"
+    )
+    for s in summaries:
+        conn.execute(
+            "INSERT INTO conversation_summaries ("
+            " conversation_id, title, preview, last_modified_time,"
+            " workspace_uris, parent_conversation_id, nesting_depth, last_user_input_time"
+            ") VALUES ("
+            " :conversation_id, :title, :preview, :last_modified_time,"
+            " :workspace_uris, :parent_conversation_id, :nesting_depth, :last_user_input_time"
+            ")",
+            {
+                "title": None,
+                "preview": None,
+                "last_modified_time": "2026-11-13 04:20:22.902731278+00:00",
+                "workspace_uris": '["file:///home/user/workdir"]',
+                "parent_conversation_id": None,
+                "nesting_depth": 0,
+                "last_user_input_time": "0001-01-01 00:00:00+00:00",
+                **s,
+            },
+        )
+    conn.commit()
+    conn.close()
+
+    for conv_id, records in (transcripts or {}).items():
+        write_jsonl(
+            root / "brain" / conv_id / ".system_generated" / "logs" / "transcript.jsonl",
+            records,
+        )
     return db
 
 
