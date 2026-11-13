@@ -79,6 +79,13 @@ def test_resume_command_for_pi() -> None:
     assert command.shell_line() == "cd /tmp && pi --session aaaa-bbbb"
 
 
+def test_resume_command_for_agy() -> None:
+    command = resume_command(make_entry(Source.AGY))
+    assert command.program == "agy"
+    assert command.argv == ("--conversation", "aaaa-bbbb")
+    assert command.shell_line() == "cd /tmp && agy --conversation aaaa-bbbb"
+
+
 def test_every_source_has_a_resume_command() -> None:
     """加了新 Source 却忘了在 RESUME_PROGRAMS 里登记 —— 只会在用户点下去那一刻炸。"""
     for source in Source:

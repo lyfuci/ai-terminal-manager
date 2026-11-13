@@ -77,6 +77,15 @@ gemini 的 resume 按项目隔离，cwd 不对根本恢复不了。恢复：`gem
 用合成路径 `<db>#<session_id>`、指纹取该行的 `time_updated`。连接一律 `mode=ro`：别人的数据只读。
 恢复：`opencode --session <id>`。
 
+**Antigravity CLI (`agy`)** —— `~/.gemini/antigravity-cli/conversation_summaries.db`（SQLite 主索引 + 按会话拆分的文件，真机实测）。
+`conversation_summaries` 表带 `conversation_id`、`title`、`preview`、`workspace_uris`（百分号编码 `file://` URI 的 JSON 数组）和
+9 位纳秒 ISO 时间戳（未初始化时为 `0001-01-01 00:00:00+00:00`，依次回退 `last_user_input_time` 与单会话文件 mtime）。
+`parent_conversation_id` 非空或 `nesting_depth > 0` 的子代理行一律排除。`title` 与 `preview` 皆空时退回扫
+`brain/<id>/.system_generated/logs/transcript.jsonl` 的 `USER_INPUT` 记录，并先剥出 `<USER_REQUEST>…</USER_REQUEST>` 正文，
+避免连同 `<ADDITIONAL_METADATA>` 一起被 `strip_wrapper_blocks` 当标签块吃空。同样用 `<db>#<id>` 合成 `FileRef`（`mode=ro`），
+体积取 `conversations/<id>.db`；因默认目录落在 `~/.gemini/antigravity-cli/` 下，缓存路径归属必须先判 `/antigravity-cli/`
+再判 `/.gemini/`。恢复：`agy --conversation <id>`（`-c` 只恢复最近一条，不接受 ID）。
+
 **三边都要防注入包装**：Codex 实测会在真实提问前塞一条 10865 字的
 `<recommended_plugins>…</environment_context>`，Claude 则是 `<local-command-caveat>` / `<command-name>` 那一套，
 Pi 的 role 枚举更宽（`toolResult` / `bashExecution` / `compactionSummary`），不过滤会让 bash 输出冒充标题。

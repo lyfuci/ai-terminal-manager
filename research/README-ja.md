@@ -78,6 +78,14 @@
 キャッシュ失効を保つため、合成パス `<db>#<session_id>` とその行の `time_updated` を指紋に使う。
 接続は常に `mode=ro`：他ツールのデータは読み取り専用。復元：`opencode --session <id>`。
 
+**Antigravity CLI (`agy`)** —— `~/.gemini/antigravity-cli/conversation_summaries.db`（SQLite インデックス + セッション別ファイル、実機で検証）。
+`conversation_summaries` テーブルが `conversation_id`、`title`、`preview`、`workspace_uris`（パーセントエンコードされた `file://` URI の JSON 配列）と
+9 桁ナノ秒の ISO タイムスタンプ（未初期化時は `0001-01-01 00:00:00+00:00` で、`last_user_input_time` や個別ファイルの mtime にフォールバック）を持つ。
+`parent_conversation_id` が非空または `nesting_depth > 0` のサブエージェント行は除外。`title` と `preview` がどちらも空のときは
+`brain/<id>/.system_generated/logs/transcript.jsonl` の `USER_INPUT` を走査し、`strip_wrapper_blocks` に `<ADDITIONAL_METADATA>` ごと消されないよう先に `<USER_REQUEST>…</USER_REQUEST>` の中身を取り出す。
+`<db>#<id>` の合成 `FileRef` と `conversations/<id>.db` のサイズを使い（接続は `mode=ro`）、既定パスが `~/.gemini/antigravity-cli/` 配下にあるため
+キャッシュ帰属判定では `/.gemini/` より先に `/antigravity-cli/` を判定する。復元：`agy --conversation <id>`（`-c` は直近 1 件のみで ID を取らない）。
+
 **三者ともインジェクションのラッパーを除外する必要がある**：Codex は実測で本当の質問の前に 10865 文字の
 `<recommended_plugins>…</environment_context>` を差し込む。Claude は `<local-command-caveat>` / `<command-name>` の一群。
 Pi は role の列挙が広く（`toolResult` / `bashExecution` / `compactionSummary`）、フィルタしないと bash の出力がタイトルに化ける。

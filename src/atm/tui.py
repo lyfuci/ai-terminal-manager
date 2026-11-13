@@ -77,7 +77,12 @@ class GroupMode(StrEnum):
         return order[(order.index(self) + 1) % len(order)]
 
 
-_AGENT_NAME = {Source.CLAUDE: "Claude Code", Source.CODEX: "Codex", Source.PI: "Pi"}
+_AGENT_NAME = {
+    Source.CLAUDE: "Claude Code",
+    Source.CODEX: "Codex",
+    Source.PI: "Pi",
+    Source.AGY: "Antigravity",
+}
 
 
 @dataclass(frozen=True, slots=True)

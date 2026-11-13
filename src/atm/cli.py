@@ -33,7 +33,7 @@ EXIT_ERROR = 1
 EXIT_CANCELLED = 130
 
 
-LAUNCH_PROGRAMS = ("claude", "codex", "pi", "gemini", "opencode")
+LAUNCH_PROGRAMS = ("claude", "codex", "pi", "gemini", "opencode", "agy")
 
 
 _VERBOSE_FLAGS = {"-v": 1, "-vv": 2, "--verbose": 1}
@@ -850,6 +850,7 @@ def _doctor_report() -> dict:
     """体检数据，供文本和 --json 两种输出。字段名与语言无关。"""
     import shutil
 
+    from .sources import agy as agy_src
     from .sources import claude as claude_src
     from .sources import codex as codex_src
     from .sources import gemini as gemini_src
@@ -866,6 +867,7 @@ def _doctor_report() -> dict:
         ("pi", pi_src),
         ("gemini", gemini_src),
         ("opencode", opencode_src),
+        ("agy", agy_src),
     ):
         root = mod.DEFAULT_ROOT
         sources[name] = {

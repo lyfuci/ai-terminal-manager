@@ -18,7 +18,7 @@
 | `prefix + B` | 把当前格子收进后台窗口 `bg` —— 进程继续跑，之后从侧栏里还能选回来 |
 | `prefix + m` | **格子状态栏**：每格顶边右侧显示它卡没卡（`✓` / `⚠回收 high 464/s` …），再按一次收起。顶掉的是 tmux 自带的 `m`（标记格子），`M` 不动。换键：`atm config keys.health` |
 
-**浮层里**：打字模糊搜索，`↑↓` / `^N` `^P` 移动，`Tab` 在 全部 / Claude / Codex / Pi / Gemini / opencode 之间循环，`⏎` 选中，`Esc` 取消，`F1` / `?`（搜索框为空时）弹出完整键位表。
+**浮层里**：打字模糊搜索，`↑↓` / `^N` `^P` 移动，`Tab` 在 全部 / Claude / Codex / Pi / Gemini / opencode / agy 之间循环，`⏎` 选中，`Esc` 取消，`F1` / `?`（搜索框为空时）弹出完整键位表。
 选中会话后进第二步：列出所有 pane（带忙闲状态）+「新分一个 pane」+「新开 window」+「只打印」。
 
 **侧栏里**：上半段是**正在跑的格子**（选中 → `swap-pane` 换进主格，进程不断），下半段是**历史**
@@ -28,7 +28,7 @@
 **命令行**同样能用（不在 tmux 里时 `pick` 自动退化成打印命令，`eval "$(atm pick --print)"`）：
 
 ```bash
-atm list -n 20            # 列最近 20 条；--source codex|claude|pi 只看一家；--json 喂给别的脚本
+atm list -n 20            # 列最近 20 条；--source codex|claude|pi|gemini|opencode|agy 只看一家；--json 喂给别的脚本
 atm pick                  # 交互选会话 → 选目标 pane → 投递
 atm resume <id前缀>       # 不进 TUI，按 id 直接投
 atm panes                 # 列出所有 tmux pane 及忙闲状态
@@ -203,7 +203,7 @@ atm 不会为消除警告重启 server；这些检查**不证明真实组合键�
 live 成功必须读回确认。无关修改、未编辑该项直接保存不重新激活旧格式意图。
 组合键诊断只用固定翻译原因；不展示任意子进程输出，未知版本/键值记为未知。
 
-`atm codex …` / `atm pi …` 同理。`prefix + a` 投递和侧栏恢复用的是同一套设置。
+`atm codex …` / `atm pi …` / `atm gemini …` / `atm opencode …` / `atm agy …` 同理。`prefix + a` 投递和侧栏恢复用的是同一套设置。
 `atm install` 还会写一个总量 `atm-ai.slice`（物理内存的 50% / 65%），N 个会话加起来也压不垮机器；
 `atm doctor` 两层都报。默认值怎么来的见 [reference.md](reference.md#内存闸门默认开)。
 

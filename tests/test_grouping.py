@@ -125,6 +125,10 @@ def test_group_label_shortens_home() -> None:
     )
     assert h.label().startswith("~/proj")
     assert "(3)" in h.label()
+    agy_header = GroupHeader(
+        mode=GroupMode.AGENT, key=Source.AGY.value, count=2, newest=datetime.now(tz=UTC)
+    )
+    assert agy_header.label() == "Antigravity  (2)"
 
 
 # ------------------------------------------------- TUI 边界（workflow 发现，逐条实测复现过）

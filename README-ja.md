@@ -26,9 +26,9 @@ atm はその層を補い、それ以外には触れない。
 
 ## これは何で、何ではないか
 
-**これは** AI CLI（Claude Code / Codex / Pi / Gemini CLI / opencode）向けの tmux セッションマネージャ。やることは三つ：
+**これは** AI CLI（Claude Code / Codex / Pi / Gemini CLI / opencode / Antigravity CLI）向けの tmux セッションマネージャ。やることは三つ：
 
-1. 三つの CLI それぞれの履歴セッションを**一つのリストに統合**し、あいまい検索して、選んだ一件を**指定した tmux pane に投げ込んで** `--resume` する；
+1. 六つの CLI それぞれの履歴セッションを**一つのリストに統合**し、あいまい検索して、選んだ一件を**指定した tmux pane に投げ込んで** `--resume` する；
 2. 折りたためる**常駐の左サイドバー**。実行中の pane を一覧し、選ぶと `swap-pane` でメイン pane に入れ替わる。プロセスは止まらない；
 3. ついでに tmux-resurrect + continuum を入れて設定し、再起動後に骨格が自動で戻るようにする。
 
@@ -49,7 +49,7 @@ atm はその層を補い、それ以外には触れない。
 
 - Linux または WSL2 + **tmux ≥ 3.2**（`display-popup` は 3.2 から；開発基準 3.6、3.4 は実測で互換）
 - **Python ≥ 3.11**、ランタイム依存ゼロ
-- Claude Code / Codex / Pi / Gemini CLI / opencode のうち少なくとも一つ（atm はそれらが `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/`、`~/.gemini/tmp/*/chats/`、`~/.local/share/opencode/opencode.db` に書くデータを読むだけ）
+- Claude Code / Codex / Pi / Gemini CLI / opencode / Antigravity CLI（`agy`）のうち少なくとも一つ（atm はそれらが `~/.claude/projects/`、`~/.codex/sessions/`、`~/.pi/agent/sessions/`、`~/.gemini/tmp/*/chats/`、`~/.local/share/opencode/opencode.db`、`~/.gemini/antigravity-cli/conversation_summaries.db` に書くデータを読むだけ）
 
 ### 導入
 
@@ -104,7 +104,7 @@ atm install     # ~/.tmux.conf にキーバインドを書き + resurrect/contin
 
 設定編集で環境変数の上書きを保存せず、リセット時もインストール済み設定を同期する。`atm install --conf PATH` は `keys.conf-path` を保存し、以後の編集とアンインストールに使う。キー変更は新キーの割り当て後に旧キーを解除する。tmux オプションの無効化は実行中の値を維持し、新 server に反映する。合計 slice はユーザー manager のみ対応し、再読み込みの失敗は明示する。詳しくは[設定の変更](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage-ja.md#設定の変更)。
 
-`atm claude` / `atm codex` / `atm pi` で起動すれば、セッションは cgroup のメモリゲート内で動く。ゲートは既定で有効、
+`atm claude` / `atm codex` / `atm pi` / `atm gemini` / `atm opencode` / `atm agy` で起動すれば、セッションは cgroup のメモリゲート内で動く。ゲートは既定で有効、
 値はマシンに応じて算出（`memory.high` / `memory.max` は既定 `auto`：Max = 物理メモリの 35%・下限 4G、High = Max の 80%）——
 通常作業のセッションはスロットリングされず、暴走したものだけが抑えられる。素の `claude` は制限なしのまま——プレフィックスが選択。
 **実際にスロットリングされている**セッションは `atm doctor` が報告し、サイドバーは詰まったペイン（回収 / IO / CPU / D 状態）に `⚠` を付ける。詳細は [docs/usage-ja.md](docs/usage-ja.md)。

@@ -16,7 +16,7 @@ from atm.cache import CachedEntry, IndexCache
 from atm.index import SourceRoots
 from atm.model import Source
 
-from .conftest import write_jsonl
+from .conftest import write_agy_db, write_jsonl
 
 
 def _roots(claude_root: Path, codex_root: Path, tmp_path: Path) -> SourceRoots:
@@ -28,6 +28,7 @@ def _roots(claude_root: Path, codex_root: Path, tmp_path: Path) -> SourceRoots:
         pi_root=tmp_path / "no-pi",
         gemini_root=tmp_path / "no-gemini",
         opencode_root=tmp_path / "no-opencode",
+        agy_root=tmp_path / "no-agy",
     )
 
 
@@ -324,6 +325,50 @@ def test_source_filtered_build_preserves_other_source_cache(
     assert any(c.entry.source is Source.CODEX for c in after.values())
 
     # 再全量：应当全部命中，不需要重新解析
+    again = index_mod.build(roots=roots, cache_path=cache_path)
+    assert again.stats.parsed == 0
+    assert again.stats.from_cache == 2
+
+
+def test_gemini_filtered_build_preserves_agy_cache_under_dot_gemini(
+    claude_root: Path, codex_root: Path, tmp_path: Path
+) -> None:
+    """`agy` 默认在 `~/.gemini/antigravity-cli/...`，路径本身包含 `/.gemini/`。
+
+    `--source gemini` 过滤构建时，绝不能把 `agy` 的正/负缓存误判成 `Source.GEMINI` 清掉。
+    """
+    dot_gemini = tmp_path / "home" / "user" / ".gemini"
+    gemini_dir = dot_gemini / "tmp"
+    agy_dir = dot_gemini / "antigravity-cli"
+    write_agy_db(
+        agy_dir,
+        [
+            {"conversation_id": "agy_ok", "title": "保留的正缓存"},
+            {"conversation_id": "agy_no_cwd", "workspace_uris": "[]"},
+        ],
+    )
+    roots = SourceRoots(
+        claude_root=claude_root,
+        codex_root=codex_root,
+        codex_legacy_index=tmp_path / "no-legacy.jsonl",
+        pi_root=tmp_path / "no-pi",
+        gemini_root=gemini_dir,
+        opencode_root=tmp_path / "no-opencode",
+        agy_root=agy_dir,
+    )
+    cache_path = tmp_path / "cache.json"
+
+    first = index_mod.build(roots=roots, cache_path=cache_path)
+    assert first.stats.parsed == 1
+    assert first.stats.skipped == 1
+    before_keys = set(cache_mod.load(cache_path).entries)
+    assert len(before_keys) == 2
+
+    # 只扫 gemini：agy 的正结果和负结果（entry=None，靠路径判归属）都必须原样保留
+    index_mod.build(roots=roots, cache_path=cache_path, sources={Source.GEMINI})
+    after = cache_mod.load(cache_path).entries
+    assert set(after) == before_keys, "agy 缓存被 --source gemini 误当成 GEMINI 抹掉了"
+
     again = index_mod.build(roots=roots, cache_path=cache_path)
     assert again.stats.parsed == 0
     assert again.stats.from_cache == 2

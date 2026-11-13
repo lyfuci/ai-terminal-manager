@@ -334,6 +334,8 @@ RESUME_PROGRAMS: dict[Source, tuple[str, ...]] = {
     # 实测 `opencode --help`：`-s, --session  session id to continue`
     # （TUI 和 `opencode run` 都认这个参数）
     Source.OPENCODE: ("opencode", "--session"),
+    # 实测 `agy --help`：`--conversation <id>` 按 ID 恢复对话（无短选项；`-c` 只恢复最近一条）
+    Source.AGY: ("agy", "--conversation"),
 }
 
 

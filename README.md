@@ -32,9 +32,9 @@ Two things you get for free along the way:
 
 ## What it is — and isn't
 
-**It is** a tmux session manager for AI CLIs (Claude Code / Codex / Pi / Gemini CLI / opencode). Three things:
+**It is** a tmux session manager for AI CLIs (Claude Code / Codex / Pi / Gemini CLI / opencode / Antigravity CLI). Three things:
 
-1. merge the session history of all three CLIs into **one list**, fuzzy-search it, and **drop a session into the
+1. merge the session history of all six CLIs into **one list**, fuzzy-search it, and **drop a session into the
    tmux pane you choose** to `--resume` there;
 2. a collapsible **persistent left sidebar** listing the panes that are currently running; select one and it
    `swap-pane`s into the main pane, process untouched;
@@ -60,9 +60,9 @@ layouts (tmux is a binary split tree).
 
 - Linux or WSL2 with **tmux ≥ 3.2** (`display-popup` appeared in 3.2; developed against 3.6, tested on 3.4)
 - **Python ≥ 3.11**, zero runtime dependencies
-- at least one of Claude Code / Codex / Pi / Gemini CLI / opencode installed (atm only reads what they write to
+- at least one of Claude Code / Codex / Pi / Gemini CLI / opencode / Antigravity CLI (`agy`) installed (atm only reads what they write to
   `~/.claude/projects/`, `~/.codex/sessions/`, `~/.pi/agent/sessions/`, `~/.gemini/tmp/*/chats/`,
-  `~/.local/share/opencode/opencode.db`)
+  `~/.local/share/opencode/opencode.db`, `~/.gemini/antigravity-cli/conversation_summaries.db`)
 
 ### Installation
 
@@ -120,7 +120,7 @@ See [keyboard configuration](https://github.com/lyfuci/ai-terminal-manager/blob/
 
 Config edits keep environment overrides temporary; reset also reconciles installed artifacts. `atm install --conf PATH` saves `keys.conf-path` for later edits and uninstall. Key changes bind new keys before retiring old ones. Disabling tmux options preserves running values and applies to new servers. Aggregate slice installation supports the user manager only, and reload failures are reported explicitly. See [configuration behavior](https://github.com/lyfuci/ai-terminal-manager/blob/main/docs/usage.md#configuration-changes).
 
-Launch with `atm claude` / `atm codex` / `atm pi` to run inside a cgroup memory gate. It is on by default and
+Launch with `atm claude` / `atm codex` / `atm pi` / `atm gemini` / `atm opencode` / `atm agy` to run inside a cgroup memory gate. It is on by default and
 sized to the machine (`memory.high` / `memory.max` are `auto`: Max = 35% of RAM with a 4G floor, High = 80% of
 Max), so a normal working session is never throttled while a runaway one is contained. Plain `claude` stays
 unlimited — the prefix is the choice. `atm doctor` reports any session that is actually being throttled, and the

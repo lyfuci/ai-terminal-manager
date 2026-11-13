@@ -113,6 +113,7 @@ def test_parses_every_source_resume_spelling() -> None:
             save_line(pane="2", command="gemini", full=f"/usr/bin/gemini --resume {CLAUDE_ID}"),
             save_line(pane="3", command="opencode", full="/usr/bin/opencode --session ses_abc"),
             save_line(pane="4", command="pi", full="/usr/bin/pi --session pi_xyz"),
+            save_line(pane="5", command="agy", full="/usr/bin/agy --conversation agy_123"),
         ]
     )
     found = {s.source: s.session_id for s in restore.parse_save(lines)}
@@ -121,6 +122,7 @@ def test_parses_every_source_resume_spelling() -> None:
         Source.GEMINI: CLAUDE_ID,
         Source.OPENCODE: "ses_abc",
         Source.PI: "pi_xyz",
+        Source.AGY: "agy_123",
     }
 
 
@@ -134,6 +136,7 @@ def test_parses_every_source_resume_spelling() -> None:
         ("有程序名但没 id", save_line(full="/home/user/.local/bin/claude --resume")),
         ("-r 没带值、后面是别的参数", save_line(full="claude -r --verbose")),
         ("没有恢复参数的新会话", save_line(full="/home/user/.local/bin/claude agents")),
+        ("agy 的 -c 只恢复最近一条，不接会话 id", save_line(command="agy", full="agy -c foo")),
         ("空行", ""),
     ],
 )
