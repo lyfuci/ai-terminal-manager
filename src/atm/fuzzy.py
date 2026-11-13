@@ -42,6 +42,24 @@ class ScoredEntry:
     match: Match
 
 
+def _origin_map(text: str) -> tuple[int, ...]:
+    """小写化之后，每个下标对应**原串**的哪个下标。
+
+    `str.lower()` **不保证长度不变**：U+0130（İ，土耳其大写 I 带点）小写化成两个码点
+    （'i' + U+0307）。整个 Unicode 范围里只有这一个码点会这样，但它出现在土耳其语
+    人名、路径、会话标题里并不罕见。
+
+    两串长度一旦不同，小写串的下标就不能拿去索引原串：命中位置会整体错位
+    （高亮到别的字上），词首判定读错字符，两个这样的字符之后还会直接越界。
+
+    绝大多数文本小写化后长度不变，那种情况根本用不到这张表（见 `score`）。
+    """
+    origin: list[int] = []
+    for index, ch in enumerate(text):
+        origin.extend([index] * len(ch.lower()))
+    return tuple(origin)
+
+
 def score(needle: str, haystack: str) -> Match | None:
     """子序列匹配。匹配不上返回 None。空查询算满分匹配（列表全显示）。"""
     if not needle:
@@ -50,8 +68,15 @@ def score(needle: str, haystack: str) -> Match | None:
         return None
 
     case_sensitive = any(ch.isupper() for ch in needle)
-    hay = haystack if case_sensitive else haystack.lower()
-    pin = needle if case_sensitive else needle.lower()
+    if case_sensitive:
+        hay = haystack
+        origin: tuple[int, ...] | None = None  # 折叠前后一一对应，下标天然对齐
+        pin = needle
+    else:
+        hay = haystack.lower()
+        # 长度一致时下标天然对齐，不用建映射表（绝大多数情况）。
+        origin = None if len(hay) == len(haystack) else _origin_map(haystack)
+        pin = needle.lower()
 
     positions: list[int] = []
     total = 0
@@ -62,20 +87,22 @@ def score(needle: str, haystack: str) -> Match | None:
         found = hay.find(ch, hay_index)
         if found == -1:
             return None
+        # 命中位置换算回**原串**的下标：折叠可能改变长度，两串的下标不再一一对应。
+        at = found if origin is None else origin[found]
 
-        if found == previous_hit + 1:
+        if at == previous_hit + 1:
             total += _BONUS_CONSECUTIVE
         elif previous_hit >= 0:
-            gap = found - previous_hit - 1
+            gap = at - previous_hit - 1
             total -= min(_MAX_GAP_PENALTY_PER_HOLE, gap * _PENALTY_GAP)
 
-        if found == 0 or haystack[found - 1] in _WORD_BOUNDARY:
+        if at == 0 or haystack[at - 1] in _WORD_BOUNDARY:
             total += _BONUS_WORD_START
-        if not case_sensitive and found < len(haystack) and haystack[found] == ch:
+        if not case_sensitive and haystack[at] == ch:
             total += _BONUS_EXACT_CASE
 
-        positions.append(found)
-        previous_hit = found
+        positions.append(at)
+        previous_hit = at
         hay_index = found + 1
 
     total -= min(_MAX_LEADING_PENALTY, positions[0] * _PENALTY_LEADING)

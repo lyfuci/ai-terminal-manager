@@ -170,6 +170,32 @@ def test_smart_case() -> None:
     assert score("ABC", "abc") is None  # 有大写 → 敏感
 
 
+# ---- 大小写折叠会改变长度的那一类字符 --------------------------------------
+#
+# `str.lower()` 不是长度保持的：U+0130（İ，土耳其大写 I 带点）小写化成两个码点
+# （'i' + U+0307）。整个 Unicode 范围里只有这一个码点会这样，但它出现在
+# 土耳其语人名 / 路径 / 会话标题里并不罕见。折叠后两串长度不同，
+# 拿折叠串的下标去索引原串就会错位 —— 命中位置落到别的字上，
+# 词首判定读错字符，两个这样的字符之后还会直接越界。
+
+
+def test_score_does_not_crash_when_lowercase_changes_length() -> None:
+    """haystack 里有 İ 时不能越界 —— 越界会直接打断选择器。"""
+    match = score("x", "İİx")
+    assert match is not None
+    assert match.positions == (2,)
+
+
+def test_score_positions_point_at_the_original_haystack() -> None:
+    """命中位置必须落在**原串**上：高亮的是用户看得见的那个字。"""
+    haystack = "/home/İbrahim/notes"
+    match = score("n", haystack)
+    assert match is not None
+    assert match.positions == (14,)
+    for position in match.positions:
+        assert haystack[position] == "n"
+
+
 def test_empty_query_matches_everything() -> None:
     match = score("", "anything")
     assert match is not None and match.positions == ()
@@ -209,6 +235,15 @@ def test_haystack_includes_cwd_and_source() -> None:
     entry = _entry("标题")
     assert rank([entry], "demo")
     assert rank([entry], "claude")
+
+
+def test_rank_survives_a_title_whose_lowercase_is_longer() -> None:
+    """标题里带 İ 的会话不能把搜索框搞崩（选择器每个键都调 rank）。"""
+    entries = [_entry("İİ x")]
+    result = rank(entries, "x")
+    assert [s.entry.title for s in result] == ["İİ x"]
+    # 命中位置落在原串上：标题 "İİ x" 里 x 是第 4 个字符
+    assert result[0].match.positions == (3,)
 
 
 # ------------------------------------------------- 注入包装剥离（实测回归）
